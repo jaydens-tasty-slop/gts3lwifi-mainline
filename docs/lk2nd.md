@@ -47,3 +47,23 @@ Flashing without a display, from TWRP over adb (boot is mmcblk0p28):
 
 Recovery: boot TWRP again (Power + Volume Up + Home) and write the previous
 image back the same way, or flash from Download mode with Odin/heimdall.
+
+## Split-display autorefresh (lk2nd/0001-cont-splash-autorefresh-split-display.patch)
+
+`lk2nd.pass-simplefb=autorefresh` assumed the stock bootloader had already
+programmed the ping-pong tear check and only topped up its vsync counter on
+ping-pong 0. Samsung's S-Boot never configures tear check (PP0/PP1
+SYNC_CONFIG_VSYNC read back as 0) and this panel is a split display with
+two control paths in command mode (CTL_0 TOP 0x21f20, CTL_1 TOP 0x21f30),
+so Linux's framebuffer was never re-sent: writing /dev/fb0 changed nothing.
+
+The patch programs the whole tear-check block (internal ~60 Hz vsync
+counter, no TE input) plus autorefresh on ping-pong 0 and, when control
+path 1 is in command mode, on ping-pong 1, then kicks CTL_0 and, unless
+the split-display link (SPLIT_DPL_EN) is set, CTL_1. It also enables the
+MDSS vsync clock (`mdss_vsync_clk`, MMSS 0x8c2328) that clocks the
+ping-pong vsync counter; a bootloader that never uses tear check leaves it
+off, and v3 (which lacked this) changed nothing on hardware.
+Registers read on the device: SPLIT_DPL_EN = 1, splash on VIG0 and VIG1
+both reading 0x9a401000, DMA pipes unused. `lk2nd-samsung-gts3lwifi-v4.img`
+carries the patch; untested at the time of writing.
