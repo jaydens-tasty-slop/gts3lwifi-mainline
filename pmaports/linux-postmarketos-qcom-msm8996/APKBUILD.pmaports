@@ -1,0 +1,70 @@
+# Kernel config based on: arch/arm64/configs/defconfig
+maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
+_flavor="postmarketos-qcom-msm8996"
+pkgname=linux-$_flavor
+pkgver=6.19.5
+pkgrel=2
+pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
+arch="aarch64"
+_carch="arm64"
+url="https://gitlab.com/msm8996-mainline/linux"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps
+	pmb:cross-native
+	pmb:kconfigcheck-community
+"
+makedepends="
+	bison
+	clang
+	findutils
+	flex
+	installkernel
+	lld
+	llvm
+	openssl-dev
+	perl
+	python3
+	zstd
+"
+
+# Source
+_tag=v${pkgver//_/-}-msm8996
+source="
+	linux-$_tag.tar.gz::$url/-/archive/$_tag/linux-$_tag.tar.gz
+	config-$_flavor.$arch
+	0001-add-samsung-gts3lwifi-dts.patch
+	0002-drm-panel-add-samsung-ams968hh01.patch
+"
+builddir="$srcdir/linux-$_tag"
+
+prepare() {
+	default_prepare
+	cp "$srcdir/config-$_flavor.$CARCH" .config
+}
+
+build() {
+	unset LDFLAGS
+	make ARCH="$_carch" LLVM=1 \
+		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-$_flavor"
+}
+
+package() {
+	install -Dm644 "$builddir/arch/$_carch/boot/Image.gz" \
+		"$pkgdir/boot/vmlinuz"
+
+	install -D "$builddir/include/config/kernel.release" \
+		"$pkgdir/usr/share/kernel/$_flavor/kernel.release"
+
+	make modules_install dtbs_install \
+		ARCH="$_carch" \
+		LLVM=1 \
+		INSTALL_MOD_PATH="$pkgdir" \
+		INSTALL_MOD_STRIP=1 \
+		INSTALL_DTBS_PATH="$pkgdir"/boot/dtbs
+}
+sha512sums="
+dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
+0a3215477c3a6cea29278b20aac27b9f1fdd55ddc1290f0d41dc075248768846f468e687d430f41b16f3fff22f5b12b0c6633ff15d8f72bfda766af3d7ed80c8  config-postmarketos-qcom-msm8996.aarch64
+9843753fb98d131d07e6989925906c4d2bb8f7ed64ad417408020ea8f40aa0367863e1354f3dd72c00fbecce83987fc5f68fea2a1a5b64a374a47d73655f6b3c  0001-add-samsung-gts3lwifi-dts.patch
+f09be7c451aaeff693bb64be7d9a5ecfb67dd9cd90347a0162bf811ed12cb5df62f8e5a184d4f7f0b0db0bc93f02ea8e0193003fab9580571ca77ca08ecf9d7c  0002-drm-panel-add-samsung-ams968hh01.patch
+"
