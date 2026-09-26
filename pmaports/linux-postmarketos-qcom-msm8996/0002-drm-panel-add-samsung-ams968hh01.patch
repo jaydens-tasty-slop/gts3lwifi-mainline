@@ -1,4 +1,4 @@
-From 0bcfd5be9f79cbaed641edeaa942d27e03b981ad Mon Sep 17 00:00:00 2001
+From d127025d7435f68457273297db8974ebd6e0fbd9 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Sat, 26 Sep 2026 15:35:16 +0530
 Subject: [PATCH] drm/panel: Add Samsung AMS968HH01 (ANA38401) dual-DSI panel
@@ -11,8 +11,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
  drivers/gpu/drm/panel/Kconfig                 |  10 +
  drivers/gpu/drm/panel/Makefile                |   1 +
- .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 292 ++++++++++++++++++
- 3 files changed, 303 insertions(+)
+ .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 293 ++++++++++++++++++
+ 3 files changed, 304 insertions(+)
  create mode 100644 drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 
 diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
@@ -50,10 +50,10 @@ index 53ef7e4..942edb2 100644
  obj-$(CONFIG_DRM_PANEL_SAMSUNG_LD9040) += panel-samsung-ld9040.o
 diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 new file mode 100644
-index 0000000..88d2c9b
+index 0000000..9900bda
 --- /dev/null
 +++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,293 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Samsung AMS968HH01 QXGA (2048x1536) AMOLED panel, Anapass ANA38401 DDI,
@@ -80,6 +80,7 @@ index 0000000..88d2c9b
 +#include <drm/drm_mipi_dsi.h>
 +#include <drm/drm_modes.h>
 +#include <drm/drm_panel.h>
++#include <drm/drm_probe_helper.h>
 +#include <video/mipi_display.h>
 +
 +struct ams968hh01 {

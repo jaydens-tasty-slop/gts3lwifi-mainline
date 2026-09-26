@@ -24,6 +24,7 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
+#include <drm/drm_probe_helper.h>
 #include <video/mipi_display.h>
 
 struct ams968hh01 {
