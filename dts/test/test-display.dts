@@ -146,3 +146,8 @@
 		};
 	};
 };
+
+/* The msm DRM driver needs the MDSS IOMMU; the main DTS disables it for the lk2nd framebuffer path */
+&mdp_smmu {
+	status = "okay";
+};
