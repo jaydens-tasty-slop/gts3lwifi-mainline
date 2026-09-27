@@ -60,6 +60,20 @@ Power-off: DCS 0x28 (100 ms), reset low, 5 ms, LCD_LDO_EN low, 10 ms.
 The USA panel variant adds `B0 56 / B1 4C` (porch setting, Htotal 3224) and
 uses a 895.4 MHz DSI clock. Panel revision is read from DCS DA/DB/DC.
 
+## Status (2026-09-27)
+
+First hardware test of the driver (kernel r2, `dts/test/test-display.dts`):
+the panel powers up, both DSI links bind, `/dev/dri/card0` with a DSI
+connector appears and the framebuffer console is visible on the panel.
+The picture is wrong: text stretched into vertical streaks, white shows as
+magenta. One `pp done time out, lm=2` in dmesg. Suspects: pixel packing /
+byte order on the wire, or the DDI's "dual DSI" / "compression mode"
+registers expecting a different layout. Colour test patterns pending.
+
+The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
+sets the display engine up in a way lk2nd's autorefresh cannot take over
+(see docs/lk2nd.md).
+
 ## Mainline plan
 
 - **DSI supplies** (from `drivers/gpu/drm/msm/dsi/dsi_cfg.c`, msm8996):

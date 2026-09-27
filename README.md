@@ -19,7 +19,7 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 | postmarketOS initramfs + debug shell over USB | works |
 | Full rootfs boot | being tested |
 | TLMM GPIOs | work, 8 TrustZone-owned pins reserved |
-| Display | console on lk2nd's framebuffer works (simplefb); real panel driver drafted, untested (docs/display.md) |
+| Display | panel driver works: panel init, DRM device, framebuffer console on screen. Pixel format/colours still wrong, no brightness control (docs/display.md) |
 | Touch, S-Pen | not started |
 | GPU, video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
 | Battery / charger (SM5705), Type-C controller (S2MM005) | no mainline drivers |
