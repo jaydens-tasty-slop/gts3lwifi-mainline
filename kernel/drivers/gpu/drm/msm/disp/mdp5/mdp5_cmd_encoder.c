@@ -1,0 +1,196 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ */
+
+#include <drm/drm_crtc.h>
+#include <drm/drm_probe_helper.h>
+
+#include "mdp5_kms.h"
+
+#ifdef CONFIG_DRM_MSM_DSI
+
+static struct mdp5_kms *get_kms(struct drm_encoder *encoder)
+{
+	struct msm_drm_private *priv = encoder->dev->dev_private;
+	return to_mdp5_kms(to_mdp_kms(priv->kms));
+}
+
+#define VSYNC_CLK_RATE 19200000
+
+/*
+ * A command mode encoder drives one ping-pong block, or two when the CRTC
+ * is a split display (bonded DSI: one mixer/ping-pong/INTF per link).
+ */
+static int encoder_pp_ids(struct drm_encoder *encoder, int pp_id[2])
+{
+	struct mdp5_pipeline *pipeline = mdp5_crtc_get_pipeline(encoder->crtc);
+	int n = 0;
+
+	pp_id[n++] = pipeline->mixer->pp;
+	if (pipeline->r_intf && pipeline->r_mixer)
+		pp_id[n++] = pipeline->r_mixer->pp;
+
+	return n;
+}
+
+static int pingpong_tearcheck_setup(struct drm_encoder *encoder,
+				    struct drm_display_mode *mode)
+{
+	struct mdp5_kms *mdp5_kms = get_kms(encoder);
+	struct device *dev = encoder->dev->dev;
+	u32 total_lines, vclks_line, cfg;
+	long vsync_clk_speed;
+	int pp_ids[2], pp_id, n, i;
+
+	n = encoder_pp_ids(encoder, pp_ids);
+
+	if (IS_ERR_OR_NULL(mdp5_kms->vsync_clk)) {
+		DRM_DEV_ERROR(dev, "vsync_clk is not initialized\n");
+		return -EINVAL;
+	}
+
+	total_lines = mode->vtotal * drm_mode_vrefresh(mode);
+	if (!total_lines) {
+		DRM_DEV_ERROR(dev, "%s: vtotal(%d) or vrefresh(%d) is 0\n",
+			      __func__, mode->vtotal, drm_mode_vrefresh(mode));
+		return -EINVAL;
+	}
+
+	vsync_clk_speed = clk_round_rate(mdp5_kms->vsync_clk, VSYNC_CLK_RATE);
+	if (vsync_clk_speed <= 0) {
+		DRM_DEV_ERROR(dev, "vsync_clk round rate failed %ld\n",
+							vsync_clk_speed);
+		return -EINVAL;
+	}
+	vclks_line = vsync_clk_speed / total_lines;
+
+	cfg = MDP5_PP_SYNC_CONFIG_VSYNC_COUNTER_EN
+		| MDP5_PP_SYNC_CONFIG_VSYNC_IN_EN;
+	cfg |= MDP5_PP_SYNC_CONFIG_VSYNC_COUNT(vclks_line);
+
+	/*
+	 * Tearcheck emits a blanking signal every vclks_line * vtotal * 2 ticks on
+	 * the vsync_clk equating to roughly half the desired panel refresh rate.
+	 * This is only necessary as stability fallback if interrupts from the
+	 * panel arrive too late or not at all, but is currently used by default
+	 * because these panel interrupts are not wired up yet.
+	 */
+	for (i = 0; i < n; i++) {
+		pp_id = pp_ids[i];
+
+		mdp5_write(mdp5_kms, REG_MDP5_PP_SYNC_CONFIG_VSYNC(pp_id), cfg);
+		mdp5_write(mdp5_kms,
+			REG_MDP5_PP_SYNC_CONFIG_HEIGHT(pp_id), (2 * mode->vtotal));
+
+		mdp5_write(mdp5_kms,
+			REG_MDP5_PP_VSYNC_INIT_VAL(pp_id), mode->vdisplay);
+		mdp5_write(mdp5_kms, REG_MDP5_PP_RD_PTR_IRQ(pp_id), mode->vdisplay + 1);
+		mdp5_write(mdp5_kms, REG_MDP5_PP_START_POS(pp_id), mode->vdisplay);
+		mdp5_write(mdp5_kms, REG_MDP5_PP_SYNC_THRESH(pp_id),
+				MDP5_PP_SYNC_THRESH_START(4) |
+				MDP5_PP_SYNC_THRESH_CONTINUE(4));
+		mdp5_write(mdp5_kms, REG_MDP5_PP_AUTOREFRESH_CONFIG(pp_id), 0x0);
+	}
+
+	return 0;
+}
+
+static int pingpong_tearcheck_enable(struct drm_encoder *encoder)
+{
+	struct mdp5_kms *mdp5_kms = get_kms(encoder);
+	int pp_ids[2], n, i;
+	int ret;
+
+	n = encoder_pp_ids(encoder, pp_ids);
+
+	ret = clk_set_rate(mdp5_kms->vsync_clk,
+		clk_round_rate(mdp5_kms->vsync_clk, VSYNC_CLK_RATE));
+	if (ret) {
+		DRM_DEV_ERROR(encoder->dev->dev,
+			"vsync_clk clk_set_rate failed, %d\n", ret);
+		return ret;
+	}
+	ret = clk_prepare_enable(mdp5_kms->vsync_clk);
+	if (ret) {
+		DRM_DEV_ERROR(encoder->dev->dev,
+			"vsync_clk clk_prepare_enable failed, %d\n", ret);
+		return ret;
+	}
+
+	for (i = 0; i < n; i++)
+		mdp5_write(mdp5_kms, REG_MDP5_PP_TEAR_CHECK_EN(pp_ids[i]), 1);
+
+	return 0;
+}
+
+static void pingpong_tearcheck_disable(struct drm_encoder *encoder)
+{
+	struct mdp5_kms *mdp5_kms = get_kms(encoder);
+	int pp_ids[2], n, i;
+
+	n = encoder_pp_ids(encoder, pp_ids);
+
+	for (i = 0; i < n; i++)
+		mdp5_write(mdp5_kms, REG_MDP5_PP_TEAR_CHECK_EN(pp_ids[i]), 0);
+	clk_disable_unprepare(mdp5_kms->vsync_clk);
+}
+
+/* flush bits of the encoder's INTF, plus the slave INTF of a split display */
+static u32 cmd_encoder_flush_mask(struct mdp5_pipeline *pipeline)
+{
+	u32 mask = mdp_ctl_flush_mask_encoder(pipeline->intf);
+
+	if (pipeline->r_intf)
+		mask |= mdp_ctl_flush_mask_encoder(pipeline->r_intf);
+
+	return mask;
+}
+
+void mdp5_cmd_encoder_mode_set(struct drm_encoder *encoder,
+			       struct drm_display_mode *mode,
+			       struct drm_display_mode *adjusted_mode)
+{
+	mode = adjusted_mode;
+
+	DBG("set mode: " DRM_MODE_FMT, DRM_MODE_ARG(mode));
+	pingpong_tearcheck_setup(encoder, mode);
+	mdp5_crtc_set_pipeline(encoder->crtc);
+}
+
+void mdp5_cmd_encoder_disable(struct drm_encoder *encoder)
+{
+	struct mdp5_encoder *mdp5_cmd_enc = to_mdp5_encoder(encoder);
+	struct mdp5_ctl *ctl = mdp5_cmd_enc->ctl;
+	struct mdp5_pipeline *pipeline = mdp5_crtc_get_pipeline(encoder->crtc);
+
+	if (WARN_ON(!mdp5_cmd_enc->enabled))
+		return;
+
+	pingpong_tearcheck_disable(encoder);
+
+	mdp5_ctl_set_encoder_state(ctl, pipeline, false);
+	mdp5_ctl_commit(ctl, pipeline, cmd_encoder_flush_mask(pipeline), true);
+
+	mdp5_cmd_enc->enabled = false;
+}
+
+void mdp5_cmd_encoder_enable(struct drm_encoder *encoder)
+{
+	struct mdp5_encoder *mdp5_cmd_enc = to_mdp5_encoder(encoder);
+	struct mdp5_ctl *ctl = mdp5_cmd_enc->ctl;
+	struct mdp5_pipeline *pipeline = mdp5_crtc_get_pipeline(encoder->crtc);
+
+	if (WARN_ON(mdp5_cmd_enc->enabled))
+		return;
+
+	if (pingpong_tearcheck_enable(encoder))
+		return;
+
+	mdp5_ctl_commit(ctl, pipeline, cmd_encoder_flush_mask(pipeline), true);
+
+	mdp5_ctl_set_encoder_state(ctl, pipeline, true);
+
+	mdp5_cmd_enc->enabled = true;
+}
+#endif /* CONFIG_DRM_MSM_DSI */
