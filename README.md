@@ -17,7 +17,7 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 | USB peripheral (NCM network, ACM serial, mass storage) | works |
 | PM8994 regulators via RPM | works (only the rails needed so far) |
 | postmarketOS initramfs + debug shell over USB | works |
-| Full rootfs boot | being tested |
+| Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
 | TLMM GPIOs | work, 8 TrustZone-owned pins reserved |
 | Display | panel driver works: panel init, DRM device, framebuffer console on screen. Picture was garbled because mainline MDP5 lacks split display for bonded DSI; fix in patch 0003, awaiting test (docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
