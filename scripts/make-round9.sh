@@ -12,7 +12,8 @@ OUT=$P/tester-round9
 strings -a "$KO" | grep -q "split_start_both" || { echo "error: msm.ko does not contain the split display code" >&2; exit 1; }
 strings -a "$KO" | grep -m1 "^vermagic=" | grep -q "^vermagic=6.19.5 " || { echo "error: unexpected vermagic" >&2; exit 1; }
 rm -rf "$OUT"; mkdir -p "$OUT/lib/modules/6.19.5/kernel/drivers/gpu/drm/msm"
-llvm-strip --strip-debug -o "$OUT/msm.ko" "$KO"
+STRIP=$(command -v llvm-strip || ls /usr/lib/llvm-*/bin/llvm-strip 2>/dev/null | head -1 || true)
+if [ -n "$STRIP" ]; then "$STRIP" --strip-debug -o "$OUT/msm.ko" "$KO"; else cp "$KO" "$OUT/msm.ko"; fi
 zstd -q -19 --rm "$OUT/msm.ko" -o "$OUT/lib/modules/6.19.5/kernel/drivers/gpu/drm/msm/msm.ko.zst"
 tar -C "$OUT" -czf "$OUT/msm-split-display.tar.gz" lib
 rm -rf "$OUT/lib"
