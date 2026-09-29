@@ -94,7 +94,18 @@ round 9b: the mixer allocator picked LM2/LM5 instead of LM0/LM1 (it preferred
 the *last* pair-able mixer), and downstream command mode does not use the
 single-flush bit at all: it writes FLUSH to both CTLs itself, with the same
 value in the SPLIT_DPL upper and lower registers, and START on the master
-only. Waiting for the round 9b test.
+only.
+
+Round 9b: much better log (LM0, display-on succeeds, only the usual first-frame
+`pp done` timeout, no errors) but the screen is still black. Reading: DSI0 now
+sends exactly its 1024-wide half and the DDI waits for the other half from
+DSI1, which apparently never arrives (in round 7 the picture appeared only
+because DSI0 pushed twice the data and the DDI's frame wrapped). lk2nd's
+known-good dual-DSI command path (split regs upper=lower=BIT(1)|BIT(8),
+CTL1 op = INTF2|CMD, LM1 via CTL1, flush both CTLs, START on CTL0, tear
+check on PP0+PP1) matches what the patch now does, so round 9c adds a
+register dump (INTF1/INTF2 frame counters, PP counters, CTL/split regs) to
+see whether INTF2 produces frames at all.
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over

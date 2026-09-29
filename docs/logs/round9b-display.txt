@@ -1,0 +1,50 @@
+[    0.000000] Linux version 6.19.5 (pmos@wh1t3r0s3) (Alpine clang version 23.1.2, LLD 23.1.2) #3-postmarketos-qcom-msm8996 SMP PREEMPT Sat Sep 26 14:48:07 UTC
+[    0.000000] GIC: enabling workaround for GICv3: Qualcomm MSM8996 broken firmware
+[    0.120707] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.120900] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.121164] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.121350] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.121727] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.121985] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.122248] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.122436] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.130250] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.130496] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.130909] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.131141] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.131529] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.131827] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.132128] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.132357] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    1.247004] msm_serial: driver initialized
+[   13.801627] systemd[1]: Starting Load Kernel Module drm...
+[   14.002322] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   14.003468] systemd[1]: Finished Load Kernel Module drm.
+[   14.574092] gcc-msm8996 300000.clock-controller: sync_state() pending due to 83000.rng
+[   14.574117] gcc-msm8996 300000.clock-controller: sync_state() pending due to 644000.dma-controller
+[   14.574142] gcc-msm8996 300000.clock-controller: sync_state() pending due to 67a000.crypto
+[   14.574170] mmcc-msm8996 8c0000.clock-controller: sync_state() pending due to 900000.display-subsystem
+[   14.574195] qnoc-msm8996 408000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   14.574220] qnoc-msm8996 5a4000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   18.595351] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.595421] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.602146] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.603203] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.603262] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   18.603625] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.603723] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.609364] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.625987] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.627857] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.627920] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   18.688136] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.726128] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.726455] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.762004] msm_mdp 901000.display-controller: bound 994000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   18.762149] msm_mdp 901000.display-controller: bound 996000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   18.763073] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] MDP5 version v1.7
+[   18.789698] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] bonded DSI: split display, master DSI0
+[   18.805010] [drm] Initialized msm 1.13.0 for 901000.display-controller on minor 0
+[   18.805112] msm_mdp 901000.display-controller: no GPU device was found
+[   18.896950] msm_mdp 901000.display-controller: pp done time out, lm=0
+[   19.459894] msm_mdp 901000.display-controller: [drm] fb0: msmdrmfb frame buffer device

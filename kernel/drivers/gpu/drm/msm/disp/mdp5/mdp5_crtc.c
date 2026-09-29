@@ -5,6 +5,7 @@
  * Author: Rob Clark <robdclark@gmail.com>
  */
 
+#include <linux/module.h>
 #include <linux/sort.h>
 
 #include <drm/drm_atomic.h>
@@ -1218,6 +1219,54 @@ static void mdp5_crtc_pp_done_irq(struct mdp_irq *irq, uint32_t irqstatus)
 	complete_all(&mdp5_crtc->pp_completion);
 }
 
+static bool split_debug = true;
+module_param(split_debug, bool, 0644);
+MODULE_PARM_DESC(split_debug, "Split display: dump INTF/PP/CTL state for the first frames");
+
+/* Bring-up aid for split display: what do the two INTFs and PPs report? */
+static void mdp5_crtc_split_debug(struct drm_crtc *crtc)
+{
+	struct mdp5_kms *mdp5_kms = get_kms(crtc);
+	struct mdp5_crtc_state *mdp5_cstate = to_mdp5_crtc_state(crtc->state);
+	struct mdp5_pipeline *p = &mdp5_cstate->pipeline;
+	static unsigned int count;
+	static unsigned long last;
+	int ctl = mdp5_ctl_get_ctl_id(mdp5_cstate->ctl);
+	int r_ctl = mdp5_ctl_get_ctl_id(p->r_ctl);
+
+	if (!split_debug || !p->r_intf || !p->r_mixer || count >= 12)
+		return;
+	if (count && time_before(jiffies, last + 2 * HZ))
+		return;
+	count++;
+	last = jiffies;
+
+	dev_info(crtc->dev->dev,
+		 "split dbg #%u: intf%d frame %u line %u | intf%d frame %u line %u | pp%d cnt %#x pp%d cnt %#x | ctl%d op %#x flush %#x | ctl%d op %#x flush %#x | lm%d out %#x lm%d out %#x | split en %u up %#x lo %#x spare0 %#x | intr %#x\n",
+		 count,
+		 p->intf->num,
+		 mdp5_read(mdp5_kms, REG_MDP5_INTF_FRAME_COUNT(p->intf->num)),
+		 mdp5_read(mdp5_kms, REG_MDP5_INTF_LINE_COUNT(p->intf->num)),
+		 p->r_intf->num,
+		 mdp5_read(mdp5_kms, REG_MDP5_INTF_FRAME_COUNT(p->r_intf->num)),
+		 mdp5_read(mdp5_kms, REG_MDP5_INTF_LINE_COUNT(p->r_intf->num)),
+		 p->mixer->pp,
+		 mdp5_read(mdp5_kms, REG_MDP5_PP_INT_COUNT_VAL(p->mixer->pp)),
+		 p->r_mixer->pp,
+		 mdp5_read(mdp5_kms, REG_MDP5_PP_INT_COUNT_VAL(p->r_mixer->pp)),
+		 ctl, mdp5_read(mdp5_kms, REG_MDP5_CTL_OP(ctl)),
+		 mdp5_read(mdp5_kms, REG_MDP5_CTL_FLUSH(ctl)),
+		 r_ctl, mdp5_read(mdp5_kms, REG_MDP5_CTL_OP(r_ctl)),
+		 mdp5_read(mdp5_kms, REG_MDP5_CTL_FLUSH(r_ctl)),
+		 p->mixer->lm, mdp5_read(mdp5_kms, REG_MDP5_LM_OUT_SIZE(p->mixer->lm)),
+		 p->r_mixer->lm, mdp5_read(mdp5_kms, REG_MDP5_LM_OUT_SIZE(p->r_mixer->lm)),
+		 mdp5_read(mdp5_kms, REG_MDP5_SPLIT_DPL_EN),
+		 mdp5_read(mdp5_kms, REG_MDP5_SPLIT_DPL_UPPER),
+		 mdp5_read(mdp5_kms, REG_MDP5_SPLIT_DPL_LOWER),
+		 mdp5_read(mdp5_kms, REG_MDP5_SPARE_0),
+		 mdp5_read(mdp5_kms, REG_MDP5_INTR_STATUS));
+}
+
 static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
@@ -1230,6 +1279,8 @@ static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)
 	if (ret == 0)
 		dev_warn_ratelimited(dev->dev, "pp done time out, lm=%d\n",
 				     mdp5_cstate->pipeline.mixer->lm);
+
+	mdp5_crtc_split_debug(crtc);
 }
 
 static void mdp5_crtc_wait_for_flush_done(struct drm_crtc *crtc)
