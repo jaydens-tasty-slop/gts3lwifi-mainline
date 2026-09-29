@@ -68,6 +68,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
 		if (caps & ~cur->caps)
 			continue;
 
+		struct mdp5_hw_mixer *pair = NULL;
+
 		if (r_mixer) {
 			int pair_idx;
 
@@ -78,7 +80,7 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
 			if (new_state->hwmixer_to_crtc[pair_idx])
 				continue;
 
-			*r_mixer = mdp5_kms->hwmixers[pair_idx];
+			pair = mdp5_kms->hwmixers[pair_idx];
 		}
 
 		/*
@@ -96,8 +98,12 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
 		 * a full modeset.
 		 */
 		if (!(*mixer) || (cur->caps & MDP_LM_CAP_PAIR &&
-				  !((*mixer)->caps & MDP_LM_CAP_PAIR)))
+				  !((*mixer)->caps & MDP_LM_CAP_PAIR))) {
 			*mixer = cur;
+			/* the right mixer must be the pair of the chosen one */
+			if (r_mixer)
+				*r_mixer = pair;
+		}
 	}
 
 	if (!(*mixer))

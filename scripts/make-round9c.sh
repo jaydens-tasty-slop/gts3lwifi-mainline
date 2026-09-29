@@ -17,10 +17,9 @@ if [ -n "$STRIP" ]; then "$STRIP" --strip-debug -o "$OUT/msm.ko" "$KO"; else cp 
 zstd -q -19 --rm "$OUT/msm.ko" -o "$OUT/lib/modules/6.19.5/kernel/drivers/gpu/drm/msm/msm.ko.zst"
 tar -C "$OUT" -czf "$OUT/msm-split-display-v3.tar.gz" lib
 rm -rf "$OUT/lib"
-cp "$P/tester-round8/boot-display-touch.img" "$OUT/"
 cat > "$OUT/README-round9c.txt" <<'TXT'
 Round 9c: split display, diagnostic build (v3). RAM boot only.
-Same boot image; only msm.ko is new. It prints a few "split dbg" lines in
+Boot image: the one from round 8 (boot-display-touch.img), not included again. It prints a few "split dbg" lines in
 dmesg that tell us whether the second DSI link is getting frames.
 
 IMPORTANT: run "sync" before every reboot/power cut, otherwise files
@@ -37,7 +36,7 @@ written just before (like the dmesg dumps) end up empty.
      sudo dmesg | grep -iE "msm|mdss|dsi|panel|ams968|drm|pp done|split|bonded" > display9c.txt; sync
    Send display9c.txt and say what the screen did (photo welcome).
 TXT
-(cd "$OUT" && sha256sum boot-display-touch.img msm-split-display-v3.tar.gz > SHA256SUMS)
+(cd "$OUT" && sha256sum msm-split-display-v3.tar.gz > SHA256SUMS)
 ZIP=$P/gts3lwifi-test-round9c.zip; rm -f "$ZIP"
 (cd "$OUT" && zip -q -9 "$ZIP" ./*)
 ls -la "$OUT" "$ZIP"; echo "post this file: $ZIP"

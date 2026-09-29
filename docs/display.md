@@ -107,6 +107,12 @@ check on PP0+PP1) matches what the patch now does, so round 9c adds a
 register dump (INTF1/INTF2 frame counters, PP counters, CTL/split regs) to
 see whether INTF2 produces frames at all.
 
+Round 9c dump: `intf2 frame 0`, and the right mixer was **LM5 / PP3**, not
+LM1 / PP1. The mixer allocator stored the pair of every pairable candidate it
+looked at, so LM0 ended up with LM2's partner. INTF2 is fed by PP1, so it
+never saw a frame. Fixed for round 9d (pair assigned together with the
+chosen left mixer).
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

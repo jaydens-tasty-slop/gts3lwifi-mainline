@@ -1,4 +1,4 @@
-From 2bdfd4319d16d520ea8e545c92ed8d375ab2fec4 Mon Sep 17 00:00:00 2001
+From 0aa572ef5872351c8def016159ae18f585e84829 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Mon, 28 Sep 2026 11:57:24 +0530
 Subject: [PATCH] drm/msm/mdp5: add split display support for bonded
@@ -35,8 +35,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
  drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c  | 18 ++++
  drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.c      | 20 +++-
  drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.h      | 16 +++
- drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c    |  6 +-
- 7 files changed, 264 insertions(+), 32 deletions(-)
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c    | 14 ++-
+ 7 files changed, 271 insertions(+), 33 deletions(-)
 
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c
 index e5662412d..e795c514c 100644
@@ -602,10 +602,24 @@ index 36b6842df..594a9932f 100644
  u32 mdp5_encoder_get_framecount(struct drm_encoder *encoder);
  
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
-index 2822b533f..0210466dd 100644
+index 2822b533f..c51964951 100644
 --- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
 +++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
-@@ -82,7 +82,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+@@ -68,6 +68,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+ 		if (caps & ~cur->caps)
+ 			continue;
+ 
++		struct mdp5_hw_mixer *pair = NULL;
++
+ 		if (r_mixer) {
+ 			int pair_idx;
+ 
+@@ -78,11 +80,12 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+ 			if (new_state->hwmixer_to_crtc[pair_idx])
+ 				continue;
+ 
+-			*r_mixer = mdp5_kms->hwmixers[pair_idx];
++			pair = mdp5_kms->hwmixers[pair_idx];
  		}
  
  		/*
@@ -615,13 +629,18 @@ index 2822b533f..0210466dd 100644
  		 * switch the CRTC from Normal mode to Source Split mode
  		 * without requiring a full modeset if we had already
  		 * assigned this CRTC a pair-able LM.
-@@ -94,7 +95,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+@@ -94,8 +97,13 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
  		 * so easily. For now, ignore the possibility of requiring
  		 * a full modeset.
  		 */
 -		if (!(*mixer) || cur->caps & MDP_LM_CAP_PAIR)
 +		if (!(*mixer) || (cur->caps & MDP_LM_CAP_PAIR &&
-+				  !((*mixer)->caps & MDP_LM_CAP_PAIR)))
++				  !((*mixer)->caps & MDP_LM_CAP_PAIR))) {
  			*mixer = cur;
++			/* the right mixer must be the pair of the chosen one */
++			if (r_mixer)
++				*r_mixer = pair;
++		}
  	}
  
+ 	if (!(*mixer))
