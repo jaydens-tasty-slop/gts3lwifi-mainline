@@ -84,7 +84,17 @@ slave encoder to the master, forces a right mixer for bonded DSI, programs
 the slave CTL/pingpong from the master path and enables the SPLIT_DPL
 single flush + SW trigger mux (what Samsung's bootloader also uses: CTL0 and
 CTL1 with SPLIT_DPL_EN=1). Module parameter `msm.split_start_both=1` writes
-START on both CTLs, as a fallback experiment. Waiting for the round 9 test.
+START on both CTLs, as a fallback experiment.
+
+Round 9 (2026-09-29): the split path activates ("bonded DSI: split display,
+master DSI0") but the screen stays black: every frame ends in `pp done time
+out, lm=2` and the DCS display-on command times out (-110) once the pixel
+stream is started. Two differences from downstream were found and fixed for
+round 9b: the mixer allocator picked LM2/LM5 instead of LM0/LM1 (it preferred
+the *last* pair-able mixer), and downstream command mode does not use the
+single-flush bit at all: it writes FLUSH to both CTLs itself, with the same
+value in the SPLIT_DPL upper and lower registers, and START on the master
+only. Waiting for the round 9b test.
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over

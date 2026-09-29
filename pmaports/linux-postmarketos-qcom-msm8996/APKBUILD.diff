@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..1884434267 100644
+index 601fa9f44e..e161472389 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -29,5 +29,5 @@ index 601fa9f44e..1884434267 100644
 +0a3215477c3a6cea29278b20aac27b9f1fdd55ddc1290f0d41dc075248768846f468e687d430f41b16f3fff22f5b12b0c6633ff15d8f72bfda766af3d7ed80c8  config-postmarketos-qcom-msm8996.aarch64
 +9843753fb98d131d07e6989925906c4d2bb8f7ed64ad417408020ea8f40aa0367863e1354f3dd72c00fbecce83987fc5f68fea2a1a5b64a374a47d73655f6b3c  0001-add-samsung-gts3lwifi-dts.patch
 +feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
-+a86dcb60305bc9df9db0071fa8bcf1023437e06397db858658cd505c9b7fbf1e9c6df6cb7bdc4250627f3945e70fa55f23c4f9132b4b47766bad214d50e1be35  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
++eceda94c148db5876f0652f38e540977403549cb978845756a339f6efe9d55088a3766884c0aa4a7e95f920a5453c4af9118428bf071cb55cc9efdbb4899614f  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
  "

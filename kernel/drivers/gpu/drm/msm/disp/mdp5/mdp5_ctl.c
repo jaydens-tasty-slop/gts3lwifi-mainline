@@ -194,15 +194,20 @@ static void set_ctl_op_split(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipelin
 	spin_unlock_irqrestore(&r_ctl->hw_lock, flags);
 
 	if (r_intf->mode == MDP5_INTF_DSI_MODE_COMMAND) {
-		/* smart panel: slave INTF uses the master's SW trigger */
+		/*
+		 * Smart panel: the slave INTF follows the master's SW
+		 * trigger. Downstream writes the same value to both the
+		 * upper and lower pipe control registers, and flushes each
+		 * CTL itself (no single flush in command mode).
+		 */
 		upper = MDP5_SPLIT_DPL_UPPER_SMART_PANEL;
 		if (pipeline->intf->num == 1)
 			upper |= MDP5_SPLIT_DPL_UPPER_INTF2_SW_TRG_MUX;
 		else
 			upper |= MDP5_SPLIT_DPL_UPPER_INTF1_SW_TRG_MUX;
 		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_UPPER, upper);
-		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_LOWER,
-			   MDP5_SPLIT_DPL_LOWER_SMART_PANEL);
+		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_LOWER, upper);
+		mdp5_write(mdp5_kms, REG_MDP5_SPARE_0, 0);
 	} else {
 		/* dumb panel: slave timing generator synced to the master */
 		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_UPPER, 0);
@@ -210,10 +215,10 @@ static void set_ctl_op_split(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipelin
 			   pipeline->intf->num == 1 ?
 			   MDP5_SPLIT_DPL_LOWER_INTF2_TG_SYNC :
 			   MDP5_SPLIT_DPL_LOWER_INTF1_TG_SYNC);
+		mdp5_write(mdp5_kms, REG_MDP5_SPARE_0,
+			   MDP5_SPARE_0_SPLIT_DPL_SINGLE_FLUSH_EN);
 	}
 	mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_EN, 1);
-	mdp5_write(mdp5_kms, REG_MDP5_SPARE_0,
-		   MDP5_SPARE_0_SPLIT_DPL_SINGLE_FLUSH_EN);
 
 	DBG("split display: CTL %d/INTF %d + CTL %d/INTF %d",
 	    ctl->id, pipeline->intf->num, r_ctl->id, r_intf->num);
@@ -642,6 +647,16 @@ u32 mdp5_ctl_commit(struct mdp5_ctl *ctl,
 		spin_lock_irqsave(&ctl->hw_lock, flags);
 		ctl_write(ctl, REG_MDP5_CTL_FLUSH(flush_id), flush_mask);
 		spin_unlock_irqrestore(&ctl->hw_lock, flags);
+
+		/* split display, command mode: flush the slave CTL too */
+		if (pipeline->r_ctl && pipeline->r_intf &&
+		    pipeline->r_intf->mode == MDP5_INTF_DSI_MODE_COMMAND) {
+			struct mdp5_ctl *r_ctl = pipeline->r_ctl;
+
+			spin_lock_irqsave(&r_ctl->hw_lock, flags);
+			ctl_write(r_ctl, REG_MDP5_CTL_FLUSH(r_ctl->id), flush_mask);
+			spin_unlock_irqrestore(&r_ctl->hw_lock, flags);
+		}
 	}
 
 	if (start_signal_needed(ctl, pipeline)) {

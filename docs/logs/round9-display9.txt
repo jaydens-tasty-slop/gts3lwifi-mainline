@@ -1,0 +1,301 @@
+[    0.000000] Linux version 6.19.5 (pmos@wh1t3r0s3) (Alpine clang version 23.1.2, LLD 23.1.2) #3-postmarketos-qcom-msm8996 SMP PREEMPT Sat Sep 26 14:48:07 UTC
+[    0.000000] GIC: enabling workaround for GICv3: Qualcomm MSM8996 broken firmware
+[    0.121046] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.121242] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.121508] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.121695] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.122040] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.122294] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.122559] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.122746] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.130550] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.130797] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.131207] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.131437] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.131826] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.132123] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.132426] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.132656] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    1.202646] msm_serial: driver initialized
+[   13.680196] systemd[1]: Starting Load Kernel Module drm...
+[   13.916547] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   13.918221] systemd[1]: Finished Load Kernel Module drm.
+[   14.319894] gcc-msm8996 300000.clock-controller: sync_state() pending due to 83000.rng
+[   14.319925] gcc-msm8996 300000.clock-controller: sync_state() pending due to 644000.dma-controller
+[   14.319951] gcc-msm8996 300000.clock-controller: sync_state() pending due to 67a000.crypto
+[   14.319981] mmcc-msm8996 8c0000.clock-controller: sync_state() pending due to 900000.display-subsystem
+[   14.320011] qnoc-msm8996 408000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   14.320038] qnoc-msm8996 5a4000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   18.284991] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.285040] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.286251] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.286603] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.286653] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   18.287167] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.287265] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.291170] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.295728] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.295976] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.296049] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   18.306827] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.329913] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.350424] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.423587] msm_mdp 901000.display-controller: bound 994000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   18.423793] msm_mdp 901000.display-controller: bound 996000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   18.424814] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] MDP5 version v1.7
+[   18.446059] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] bonded DSI: split display, master DSI0
+[   18.475646] [drm] Initialized msm 1.13.0 for 901000.display-controller on minor 0
+[   18.475745] msm_mdp 901000.display-controller: no GPU device was found
+[   18.583618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.219580] dsi_cmds2buf_tx: cmd dma tx failed, type=0x5, data0=0x29, len=4, ret=-110
+[   19.219639] panel-samsung-ams968hh01 994000.dsi.0: sending DCS SET_DISPLAY_ON failed: -110
+[   19.275671] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.331676] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.387662] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.436817] msm_mdp 901000.display-controller: [drm] fb0: msmdrmfb frame buffer device
+[   19.468106] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.523674] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.579538] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.635536] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.699520] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   19.755637] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   23.715648] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   23.771611] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   23.851609] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   23.907627] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   23.983591] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   24.039626] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   24.115603] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   24.171633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   24.247591] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   24.303620] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   28.827653] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   28.883621] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   28.963615] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.019650] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.095660] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.151689] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.227631] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.283659] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.359612] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   29.415689] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   33.939647] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   33.995624] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.075606] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.131679] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.207675] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.263652] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.339653] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.395683] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.471621] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   34.527697] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.019643] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.075703] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.151658] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.207641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.287639] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.343703] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.419641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.475697] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.551641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   39.607631] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.131646] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.187645] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.263606] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.319631] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.399635] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.455692] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.531662] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.587731] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.663604] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   44.719611] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.211652] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.267644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.343609] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.399614] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.475622] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.531631] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.607610] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.663620] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.743613] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   49.799575] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.323942] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.379665] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.455586] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.511622] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.587608] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.643613] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.719604] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.775612] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.855592] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   54.911620] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.435641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.491679] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.567601] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.623641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.699613] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.755676] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.835611] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.891608] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   59.967617] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   60.023627] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.515652] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.571636] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.647611] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.703613] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.779619] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.835663] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.911649] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   64.967630] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   65.043620] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   65.099627] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.627637] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.687639] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.759601] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.815607] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.891606] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   69.947602] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   70.023538] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   70.079576] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   70.155648] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   70.211593] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   74.739649] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   74.799626] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   74.871554] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   74.927604] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.003599] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.059618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.135624] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.191640] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.267614] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   75.323648] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   79.815646] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   79.875644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   79.951623] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.007640] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.083610] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.139635] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.215616] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.271642] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.347617] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   80.403618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   84.927642] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   84.987645] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.063600] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.119667] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.195617] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.251633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.327618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.383695] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.459633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   85.515614] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.039647] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.099650] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.175601] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.231633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.307605] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.363609] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.439624] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.495639] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.571605] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   90.627603] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.119646] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.179622] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.251636] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.307644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.383612] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.439607] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.519605] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.575636] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.651613] msm_mdp 901000.display-controller: pp done time out, lm=2
+[   95.707630] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.231649] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.291659] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.363608] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.419653] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.495616] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.551637] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.631618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.687658] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.763681] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  100.826182] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.311644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.371673] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.443660] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.499603] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.575596] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.631645] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.707622] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.763562] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.843608] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  105.899621] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.423575] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.479570] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.555525] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.611530] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.687541] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.743554] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.819526] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.875547] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  110.955549] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  111.011554] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.535657] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.595645] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.667607] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.723682] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.799611] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.855618] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.931607] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  115.987628] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  116.067587] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  116.123642] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.647636] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.707728] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.779721] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.835633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.911697] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  120.967647] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  121.043645] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  121.099717] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  121.179722] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  121.235732] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  125.727764] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  125.787729] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  125.859730] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  125.915718] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  125.991722] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  126.047733] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  126.123630] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  126.179718] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  126.255744] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  126.311720] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  130.839638] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  130.899633] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  130.971606] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.027635] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.103610] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.159646] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.235630] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.291642] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.367625] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  131.423644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  135.951646] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.007538] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.083550] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.139641] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.215536] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.271628] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.347536] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.403558] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.479644] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  136.535545] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.027794] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.087725] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.163615] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.219840] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.295736] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.351720] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.427825] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.483729] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.559722] msm_mdp 901000.display-controller: pp done time out, lm=2
+[  141.615727] msm_mdp 901000.display-controller: pp done time out, lm=2

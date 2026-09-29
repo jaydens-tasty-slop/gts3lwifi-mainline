@@ -1,4 +1,4 @@
-From 34d88eb54c69a29e025eff57baef7dcfe6b2bac8 Mon Sep 17 00:00:00 2001
+From d9cf84062f5f58b3cdf0893c439f123ba7eb7fef Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Mon, 28 Sep 2026 11:57:24 +0530
 Subject: [PATCH] drm/msm/mdp5: add split display support for bonded
@@ -29,13 +29,14 @@ on both CTLs for bring-up experiments.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
- .../gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c  | 83 +++++++++++++------
+ .../gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c  | 83 +++++++++++-----
  drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c     |  4 +
- drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c      | 83 +++++++++++++++++--
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c      | 98 ++++++++++++++++++-
  drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c  | 18 ++++
- drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.c      | 20 ++++-
- drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.h      | 16 ++++
- 6 files changed, 194 insertions(+), 30 deletions(-)
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.c      | 20 +++-
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.h      | 16 +++
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c    |  6 +-
+ 7 files changed, 213 insertions(+), 32 deletions(-)
 
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c
 index e5662412d..e795c514c 100644
@@ -216,7 +217,7 @@ index 373ae7d9b..689d413a0 100644
  	if (ret) {
  		DRM_DEV_ERROR(dev->dev, "couldn't assign mixers %d\n", ret);
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
-index fc183fe37..13c661de8 100644
+index fc183fe37..30d64d189 100644
 --- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
 +++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
 @@ -3,6 +3,7 @@
@@ -237,7 +238,7 @@ index fc183fe37..13c661de8 100644
  		ctl_op |= MDP5_CTL_OP_PACK_3D_ENABLE |
  			  MDP5_CTL_OP_PACK_3D(1);
  
-@@ -166,6 +168,57 @@ static void set_ctl_op(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline)
+@@ -166,6 +168,62 @@ static void set_ctl_op(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline)
  	spin_unlock_irqrestore(&ctl->hw_lock, flags);
  }
  
@@ -267,15 +268,20 @@ index fc183fe37..13c661de8 100644
 +	spin_unlock_irqrestore(&r_ctl->hw_lock, flags);
 +
 +	if (r_intf->mode == MDP5_INTF_DSI_MODE_COMMAND) {
-+		/* smart panel: slave INTF uses the master's SW trigger */
++		/*
++		 * Smart panel: the slave INTF follows the master's SW
++		 * trigger. Downstream writes the same value to both the
++		 * upper and lower pipe control registers, and flushes each
++		 * CTL itself (no single flush in command mode).
++		 */
 +		upper = MDP5_SPLIT_DPL_UPPER_SMART_PANEL;
 +		if (pipeline->intf->num == 1)
 +			upper |= MDP5_SPLIT_DPL_UPPER_INTF2_SW_TRG_MUX;
 +		else
 +			upper |= MDP5_SPLIT_DPL_UPPER_INTF1_SW_TRG_MUX;
 +		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_UPPER, upper);
-+		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_LOWER,
-+			   MDP5_SPLIT_DPL_LOWER_SMART_PANEL);
++		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_LOWER, upper);
++		mdp5_write(mdp5_kms, REG_MDP5_SPARE_0, 0);
 +	} else {
 +		/* dumb panel: slave timing generator synced to the master */
 +		mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_UPPER, 0);
@@ -283,10 +289,10 @@ index fc183fe37..13c661de8 100644
 +			   pipeline->intf->num == 1 ?
 +			   MDP5_SPLIT_DPL_LOWER_INTF2_TG_SYNC :
 +			   MDP5_SPLIT_DPL_LOWER_INTF1_TG_SYNC);
++		mdp5_write(mdp5_kms, REG_MDP5_SPARE_0,
++			   MDP5_SPARE_0_SPLIT_DPL_SINGLE_FLUSH_EN);
 +	}
 +	mdp5_write(mdp5_kms, REG_MDP5_SPLIT_DPL_EN, 1);
-+	mdp5_write(mdp5_kms, REG_MDP5_SPARE_0,
-+		   MDP5_SPARE_0_SPLIT_DPL_SINGLE_FLUSH_EN);
 +
 +	DBG("split display: CTL %d/INTF %d + CTL %d/INTF %d",
 +	    ctl->id, pipeline->intf->num, r_ctl->id, r_intf->num);
@@ -295,7 +301,7 @@ index fc183fe37..13c661de8 100644
  int mdp5_ctl_set_pipeline(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline)
  {
  	struct mdp5_kms *mdp5_kms = get_kms(ctl->ctlm);
-@@ -177,6 +230,9 @@ int mdp5_ctl_set_pipeline(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline)
+@@ -177,6 +235,9 @@ int mdp5_ctl_set_pipeline(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline)
  
  	set_ctl_op(ctl, pipeline);
  
@@ -305,7 +311,7 @@ index fc183fe37..13c661de8 100644
  	return 0;
  }
  
-@@ -205,6 +261,11 @@ static bool start_signal_needed(struct mdp5_ctl *ctl,
+@@ -205,6 +266,11 @@ static bool start_signal_needed(struct mdp5_ctl *ctl,
   * executed in order to kick off operation and activate all layers.
   * e.g.: DSI command mode, Writeback
   */
@@ -317,7 +323,7 @@ index fc183fe37..13c661de8 100644
  static void send_start_signal(struct mdp5_ctl *ctl)
  {
  	unsigned long flags;
-@@ -214,6 +275,14 @@ static void send_start_signal(struct mdp5_ctl *ctl)
+@@ -214,6 +280,14 @@ static void send_start_signal(struct mdp5_ctl *ctl)
  	spin_unlock_irqrestore(&ctl->hw_lock, flags);
  }
  
@@ -332,7 +338,7 @@ index fc183fe37..13c661de8 100644
  /**
   * mdp5_ctl_set_encoder_state() - set the encoder state
   *
-@@ -237,7 +306,7 @@ int mdp5_ctl_set_encoder_state(struct mdp5_ctl *ctl,
+@@ -237,7 +311,7 @@ int mdp5_ctl_set_encoder_state(struct mdp5_ctl *ctl,
  	DBG("intf_%d: %s", intf->num, str_on_off(enabled));
  
  	if (start_signal_needed(ctl, pipeline)) {
@@ -341,7 +347,7 @@ index fc183fe37..13c661de8 100644
  	}
  
  	return 0;
-@@ -354,12 +423,16 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
+@@ -354,12 +428,16 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
  {
  	struct mdp5_hw_mixer *mixer = pipeline->mixer;
  	struct mdp5_hw_mixer *r_mixer = pipeline->r_mixer;
@@ -358,7 +364,7 @@ index fc183fe37..13c661de8 100644
  
  	if (ctl_blend_op_flags & MDP5_CTL_BLEND_OP_FLAG_BORDER_OUT) {
  		start_stage = STAGE0;
-@@ -395,9 +468,9 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
+@@ -395,9 +473,9 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
  	ctl_write(ctl, REG_MDP5_CTL_LAYER_EXT_REG(ctl->id, mixer->lm),
  		  blend_ext_cfg);
  	if (r_mixer) {
@@ -370,7 +376,20 @@ index fc183fe37..13c661de8 100644
  			  r_blend_ext_cfg);
  	}
  	spin_unlock_irqrestore(&ctl->hw_lock, flags);
-@@ -572,7 +645,7 @@ u32 mdp5_ctl_commit(struct mdp5_ctl *ctl,
+@@ -569,10 +647,20 @@ u32 mdp5_ctl_commit(struct mdp5_ctl *ctl,
+ 		spin_lock_irqsave(&ctl->hw_lock, flags);
+ 		ctl_write(ctl, REG_MDP5_CTL_FLUSH(flush_id), flush_mask);
+ 		spin_unlock_irqrestore(&ctl->hw_lock, flags);
++
++		/* split display, command mode: flush the slave CTL too */
++		if (pipeline->r_ctl && pipeline->r_intf &&
++		    pipeline->r_intf->mode == MDP5_INTF_DSI_MODE_COMMAND) {
++			struct mdp5_ctl *r_ctl = pipeline->r_ctl;
++
++			spin_lock_irqsave(&r_ctl->hw_lock, flags);
++			ctl_write(r_ctl, REG_MDP5_CTL_FLUSH(r_ctl->id), flush_mask);
++			spin_unlock_irqrestore(&r_ctl->hw_lock, flags);
++		}
  	}
  
  	if (start_signal_needed(ctl, pipeline)) {
@@ -509,4 +528,28 @@ index 36b6842df..594a9932f 100644
 +			    struct drm_encoder *slave_encoder);
  int mdp5_encoder_get_linecount(struct drm_encoder *encoder);
  u32 mdp5_encoder_get_framecount(struct drm_encoder *encoder);
+ 
+diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
+index 2822b533f..0210466dd 100644
+--- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
++++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c
+@@ -82,7 +82,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+ 		}
+ 
+ 		/*
+-		 * prefer a pair-able LM over an unpairable one. We can
++		 * prefer the first pair-able LM over an unpairable one (LM0/LM1
++		 * for split display, matching the vendor firmware). We can
+ 		 * switch the CRTC from Normal mode to Source Split mode
+ 		 * without requiring a full modeset if we had already
+ 		 * assigned this CRTC a pair-able LM.
+@@ -94,7 +95,8 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
+ 		 * so easily. For now, ignore the possibility of requiring
+ 		 * a full modeset.
+ 		 */
+-		if (!(*mixer) || cur->caps & MDP_LM_CAP_PAIR)
++		if (!(*mixer) || (cur->caps & MDP_LM_CAP_PAIR &&
++				  !((*mixer)->caps & MDP_LM_CAP_PAIR)))
+ 			*mixer = cur;
+ 	}
  
