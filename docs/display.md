@@ -113,6 +113,11 @@ looked at, so LM0 ended up with LM2's partner. INTF2 is fed by PP1, so it
 never saw a frame. Fixed for round 9d (pair assigned together with the
 chosen left mixer).
 
+Round 9d: log identical to 9c (still LM5/PP3) although the module was built
+with the fix. Suspect the tester's tablet rolled back to the previous module
+(overwrite + power cut without sync). Round 9e prints a version tag and the
+mixer choice, and the README has the tester verify the module checksum.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

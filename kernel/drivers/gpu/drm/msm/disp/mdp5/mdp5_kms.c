@@ -407,7 +407,7 @@ static int modeset_init(struct mdp5_kms *mdp5_kms)
 
 		mdp5_encoder_set_slave(mdp5_kms->dsi_encoders[master],
 				       mdp5_kms->dsi_encoders[!master]);
-		DRM_DEV_INFO(dev->dev, "bonded DSI: split display, master DSI%d\n",
+		DRM_DEV_INFO(dev->dev, "bonded DSI: split display v5, master DSI%d\n",
 			     master);
 	}
 

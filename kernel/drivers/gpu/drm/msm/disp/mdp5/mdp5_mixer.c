@@ -113,6 +113,10 @@ int mdp5_mixer_assign(struct drm_atomic_state *s, struct drm_crtc *crtc,
 		return -ENOMEM;
 
 	DBG("assigning Layer Mixer %d to crtc %s", (*mixer)->lm, crtc->name);
+	if (r_mixer)
+		DRM_DEV_INFO(s->dev->dev, "split display: LM%d (pp%d) + LM%d (pp%d) for %s\n",
+			     (*mixer)->lm, (*mixer)->pp, (*r_mixer)->lm, (*r_mixer)->pp,
+			     crtc->name);
 
 	new_state->hwmixer_to_crtc[(*mixer)->idx] = crtc;
 	if (r_mixer) {
