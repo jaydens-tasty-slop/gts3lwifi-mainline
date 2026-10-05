@@ -1,0 +1,36 @@
+From 7991c35e89fcafd657f0785046ebed8d93fbc228 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Mon, 5 Oct 2026 17:55:33 +0530
+Subject: [PATCH] drm/msm/dpu: msm8996: mark CTL_0 and CTL_2 as split display
+ capable
+
+A bonded (dual-link) DSI panel needs two CTLs with the split display
+feature, otherwise the resource manager cannot reserve CTLs for a
+two-interface topology. Flag CTL_0 and CTL_2 like the msm8998 catalog
+does, for the Samsung Galaxy Tab S3 panel (2 x 1024x1536, command mode).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_1_7_msm8996.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_1_7_msm8996.h b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_1_7_msm8996.h
+index 8af63db31..2ea87857e 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_1_7_msm8996.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_1_7_msm8996.h
+@@ -43,12 +43,14 @@ static const struct dpu_ctl_cfg msm8996_ctl[] = {
+ 	{
+ 		.name = "ctl_0", .id = CTL_0,
+ 		.base = 0x1000, .len = 0x64,
++		.features = BIT(DPU_CTL_SPLIT_DISPLAY),
+ 	}, {
+ 		.name = "ctl_1", .id = CTL_1,
+ 		.base = 0x1200, .len = 0x64,
+ 	}, {
+ 		.name = "ctl_2", .id = CTL_2,
+ 		.base = 0x1400, .len = 0x64,
++		.features = BIT(DPU_CTL_SPLIT_DISPLAY),
+ 	}, {
+ 		.name = "ctl_3", .id = CTL_3,
+ 		.base = 0x1600, .len = 0x64,

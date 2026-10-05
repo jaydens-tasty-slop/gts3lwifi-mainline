@@ -118,6 +118,14 @@ with the fix. Suspect the tester's tablet rolled back to the previous module
 (overwrite + power cut without sync). Round 9e prints a version tag and the
 mixer choice, and the README has the tester verify the module checksum.
 
+**Second route, DPU (round 10):** this kernel already carries the upstream
+MDP5-to-DPU migration for msm8996 (`disp/dpu1/catalog/dpu_1_7_msm8996.h`,
+selected with `msm.prefer_mdp5=0`). DPU has real bonded-DSI support (two
+h-tiles, split display CTLs). The msm8996 catalog lacked the
+`DPU_CTL_SPLIT_DISPLAY` flag on its CTLs, which the resource manager needs
+for a two-interface topology; patch 0004 adds it to CTL_0/CTL_2 like
+msm8998. Round 10 tests both drivers from one module.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
