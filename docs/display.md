@@ -136,6 +136,12 @@ an mDNIe colour processing block (ASCR colour matrix) that downstream
 programs at every panel-on; mainline never touched it. Patch 0005 sends the
 vendor "bypass" (identity) tables after init.
 
+Round 10: MDP5 v5 confirmed (LM0/LM1, lockstep frames, no errors), colours
+unchanged with the mDNIe tables sent at init time in LP mode. Downstream
+sends them *after* display-on, in HS mode, so v7 does the same and logs it.
+DPU route: binds, fb0 appears, no errors, but black screen; parked while
+MDP5 works.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

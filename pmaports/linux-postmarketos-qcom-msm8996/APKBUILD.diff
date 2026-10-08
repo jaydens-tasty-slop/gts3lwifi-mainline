@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..10535d0b8e 100644
+index 601fa9f44e..850e01e5e8 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -33,5 +33,5 @@ index 601fa9f44e..10535d0b8e 100644
 +feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
 +3882fc6bd859232135e1baa2c69350e07cfb6c1ce82f088286231674161edaaa1cdd2fb285d19c48f4b851e12afd746fcdd4423768ecd4b1010cb5de8a3d2257  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 +eabb1d38950e2eca54298903776fe90455aca78d0e9a0930749d444e3fbd84ac7b9d5ff9e23ac4ef4eba8a2cfb9e63a7eefa01508c3cb74a9419c0af35845668  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
-+f685ef21032cd5a2432d07bb88286c5c5ef2984ecfa1430c920ee1a6baa928fd8c9257b4b751770a7fe53c1475f501ed4418d00c58ad7bb46934bbf3b9477130  0005-drm-panel-ams968hh01-mdnie-bypass.patch
++9292e4606dac764a4f6491a0b5dc01d1da103b2dee21818d265ea4cf9b255f888256d54ac4cc6f2825ae42cd25efadb9418a011e8c195b7322032ce055d5c816  0005-drm-panel-ams968hh01-mdnie-bypass.patch
  "

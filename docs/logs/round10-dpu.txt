@@ -1,0 +1,46 @@
+[    0.000000] Linux version 6.19.5 (pmos@wh1t3r0s3) (Alpine clang version 23.1.2, LLD 23.1.2) #3-postmarketos-qcom-msm8996 SMP PREEMPT Sat Sep 26 14:48:07 UTC
+[    0.000000] Kernel command line: console=tty0 msm.prefer_mdp5=0 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults
+[    0.000000] GIC: enabling workaround for GICv3: Qualcomm MSM8996 broken firmware
+[    0.121914] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.122152] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.122418] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.122605] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.122949] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.123203] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.123467] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.123654] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.131492] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.131738] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.132146] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.132377] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.132766] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.133063] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.133365] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.133595] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    1.384485] msm_serial: driver initialized
+[   13.977641] systemd[1]: Starting Load Kernel Module drm...
+[   14.171236] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   14.172612] systemd[1]: Finished Load Kernel Module drm.
+[   14.830006] gcc-msm8996 300000.clock-controller: sync_state() pending due to 83000.rng
+[   14.830031] gcc-msm8996 300000.clock-controller: sync_state() pending due to 644000.dma-controller
+[   14.830057] gcc-msm8996 300000.clock-controller: sync_state() pending due to 67a000.crypto
+[   14.830084] mmcc-msm8996 8c0000.clock-controller: sync_state() pending due to 900000.display-subsystem
+[   14.830109] qnoc-msm8996 408000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   14.830134] qnoc-msm8996 5a4000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   18.778188] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.778237] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.779317] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.779615] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.779665] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   18.780099] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.780199] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   18.786534] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.787020] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   18.787396] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.787458] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   19.030338] msm_dpu 901000.display-controller: bound 994000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   19.030796] msm_dpu 901000.display-controller: bound 996000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   19.048115] [drm:dpu_kms_hw_init:1173] dpu hardware revision:0x10070002
+[   19.069278] [drm] Initialized msm 1.13.0 for 901000.display-controller on minor 0
+[   19.069604] msm_dpu 901000.display-controller: no GPU device was found
+[   19.702948] msm_dpu 901000.display-controller: [drm] fb0: msmdrmfb frame buffer device

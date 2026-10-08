@@ -1,4 +1,4 @@
-From bf1924616513e71f09871935c545a19aef085c13 Mon Sep 17 00:00:00 2001
+From 460da773889420cb4345106a2be8b5ee9074e564 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Thu, 8 Oct 2026 11:08:46 +0530
 Subject: [PATCH] drm/panel: samsung-ams968hh01: program the mDNIe block to
@@ -14,11 +14,11 @@ sequence. A module parameter allows skipping this for experiments.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
- .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 46 ++++++++++++++++++-
- 1 file changed, 45 insertions(+), 1 deletion(-)
+ .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 64 ++++++++++++++++++-
+ 1 file changed, 62 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
-index 9900bda9f..b4b7781b5 100644
+index 9900bda9f..8e092c55e 100644
 --- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 +++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 @@ -10,7 +10,7 @@
@@ -30,7 +30,7 @@ index 9900bda9f..b4b7781b5 100644
   */
  
  #include <linux/delay.h>
-@@ -60,6 +60,48 @@ static const struct drm_display_mode ams968hh01_mode = {
+@@ -60,6 +60,62 @@ static const struct drm_display_mode ams968hh01_mode = {
  	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
  };
  
@@ -65,26 +65,45 @@ index 9900bda9f..b4b7781b5 100644
 +module_param(mdnie_bypass, bool, 0644);
 +MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
 +
-+static void ams968hh01_mdnie_init(struct mipi_dsi_multi_context *ctx)
++/*
++ * The vendor driver sends the mDNIe tables after display-on, in HS mode,
++ * on the first link only.
++ */
++static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 +{
++	struct mipi_dsi_device *dsi = ctx->dsi[0];
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++
 +	if (!mdnie_bypass)
 +		return;
 +
-+	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
-+	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_bypass1, sizeof(ams968hh01_mdnie_bypass1));
-+	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_addr2, sizeof(ams968hh01_mdnie_addr2));
-+	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_bypass2, sizeof(ams968hh01_mdnie_bypass2));
++	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
++	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_bypass1, sizeof(ams968hh01_mdnie_bypass1));
++	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr2, sizeof(ams968hh01_mdnie_addr2));
++	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_bypass2, sizeof(ams968hh01_mdnie_bypass2));
++	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++
++	if (dsi_ctx.accum_err)
++		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
++	else
++		dev_info(&dsi->dev, "mDNIe bypass programmed (v7)\n");
 +}
 +
  /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
  static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
  {
-@@ -100,6 +142,8 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
- 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd0);
- 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
- 	mipi_dsi_msleep(ctx, 215);
-+
+@@ -151,8 +207,12 @@ static int ams968hh01_enable(struct drm_panel *panel)
+ 
+ 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+ 	mipi_dsi_msleep(&dsi_ctx, 50);
++	if (dsi_ctx.accum_err)
++		return dsi_ctx.accum_err;
+ 
+-	return dsi_ctx.accum_err;
 +	ams968hh01_mdnie_init(ctx);
++
++	return 0;
  }
  
- static void ams968hh01_power_off(struct ams968hh01 *ctx)
+ static int ams968hh01_disable(struct drm_panel *panel)

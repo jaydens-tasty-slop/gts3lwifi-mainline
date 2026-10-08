@@ -91,15 +91,29 @@ static bool mdnie_bypass = true;
 module_param(mdnie_bypass, bool, 0644);
 MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
 
-static void ams968hh01_mdnie_init(struct mipi_dsi_multi_context *ctx)
+/*
+ * The vendor driver sends the mDNIe tables after display-on, in HS mode,
+ * on the first link only.
+ */
+static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 {
+	struct mipi_dsi_device *dsi = ctx->dsi[0];
+	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
+
 	if (!mdnie_bypass)
 		return;
 
-	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
-	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_bypass1, sizeof(ams968hh01_mdnie_bypass1));
-	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_addr2, sizeof(ams968hh01_mdnie_addr2));
-	mipi_dsi_dcs_write_buffer_multi(ctx, ams968hh01_mdnie_bypass2, sizeof(ams968hh01_mdnie_bypass2));
+	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
+	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_bypass1, sizeof(ams968hh01_mdnie_bypass1));
+	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr2, sizeof(ams968hh01_mdnie_addr2));
+	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_bypass2, sizeof(ams968hh01_mdnie_bypass2));
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+
+	if (dsi_ctx.accum_err)
+		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
+	else
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v7)\n");
 }
 
 /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
@@ -142,8 +156,6 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd0);
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
 	mipi_dsi_msleep(ctx, 215);
-
-	ams968hh01_mdnie_init(ctx);
 }
 
 static void ams968hh01_power_off(struct ams968hh01 *ctx)
@@ -195,8 +207,12 @@ static int ams968hh01_enable(struct drm_panel *panel)
 
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);
+	if (dsi_ctx.accum_err)
+		return dsi_ctx.accum_err;
 
-	return dsi_ctx.accum_err;
+	ams968hh01_mdnie_init(ctx);
+
+	return 0;
 }
 
 static int ams968hh01_disable(struct drm_panel *panel)
