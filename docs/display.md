@@ -126,6 +126,16 @@ h-tiles, split display CTLs). The msm8996 catalog lacked the
 for a two-interface topology; patch 0004 adds it to CTL_0/CTL_2 like
 msm8998. Round 10 tests both drivers from one module.
 
+**Round 9d, real result (2026-10-08):** the tester had re-run the old module
+before; with the real v4 module the split display works: LM0+LM1, PP0+PP1
+counting frames in lockstep (~53 fps), no timeouts, and the panel shows the
+colour fills. Colours are still mapped wrong (red shows green, green magenta,
+blue yellow, white white), the same as round 7, so this is independent of
+the geometry. Explanation found in the downstream driver: the ANA38401 has
+an mDNIe colour processing block (ASCR colour matrix) that downstream
+programs at every panel-on; mainline never touched it. Patch 0005 sends the
+vendor "bypass" (identity) tables after init.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

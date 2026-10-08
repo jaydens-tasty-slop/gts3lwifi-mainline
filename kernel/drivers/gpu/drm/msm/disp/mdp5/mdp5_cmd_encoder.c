@@ -151,10 +151,19 @@ void mdp5_cmd_encoder_mode_set(struct drm_encoder *encoder,
 			       struct drm_display_mode *mode,
 			       struct drm_display_mode *adjusted_mode)
 {
+	struct mdp5_kms *mdp5_kms = get_kms(encoder);
+	struct mdp5_pipeline *pipeline = mdp5_crtc_get_pipeline(encoder->crtc);
+
 	mode = adjusted_mode;
 
 	DBG("set mode: " DRM_MODE_FMT, DRM_MODE_ARG(mode));
 	pingpong_tearcheck_setup(encoder, mode);
+
+	/* 8 bpc RGB, packed, as the vendor bootloader programs it */
+	mdp5_write(mdp5_kms, REG_MDP5_INTF_PANEL_FORMAT(pipeline->intf->num), 0x213f);
+	if (pipeline->r_intf)
+		mdp5_write(mdp5_kms, REG_MDP5_INTF_PANEL_FORMAT(pipeline->r_intf->num), 0x213f);
+
 	mdp5_crtc_set_pipeline(encoder->crtc);
 }
 
