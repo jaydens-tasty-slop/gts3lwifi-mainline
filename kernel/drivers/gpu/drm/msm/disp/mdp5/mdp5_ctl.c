@@ -535,6 +535,17 @@ u32 mdp_ctl_flush_mask_pipe(enum mdp5_pipe pipe)
 	}
 }
 
+u32 mdp_ctl_flush_mask_dspp(int dspp)
+{
+	switch (dspp) {
+	case 0:  return MDP5_CTL_FLUSH_DSPP0;
+	case 1:  return MDP5_CTL_FLUSH_DSPP1;
+	case 2:  return MDP5_CTL_FLUSH_DSPP2;
+	case 3:  return MDP5_CTL_FLUSH_DSPP3;
+	default: return 0;
+	}
+}
+
 u32 mdp_ctl_flush_mask_lm(int lm)
 {
 	switch (lm) {

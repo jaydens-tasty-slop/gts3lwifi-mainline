@@ -1,4 +1,4 @@
-From 723015ce3c7baea9cd0d3e365eb9ace2226e5b4f Mon Sep 17 00:00:00 2001
+From 8f5b13dce2ffa857cf3caf590be0c6412ad7f34f Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Mon, 5 Oct 2026 17:55:33 +0530
 Subject: [PATCH] drm/msm/dpu: msm8996: mark CTL_0 and CTL_2 as split display

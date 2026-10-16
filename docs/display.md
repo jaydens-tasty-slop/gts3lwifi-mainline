@@ -142,6 +142,14 @@ sends them *after* display-on, in HS mode, so v7 does the same and logs it.
 DPU route: binds, fb0 appears, no errors, but black screen; parked while
 MDP5 works.
 
+Round 11: "mDNIe bypass programmed (v7)" confirmed in dmesg, colours still
+green/purple/yellow, so the panel's colour block is not the cause. The
+console photo from round 10 proves the geometry (text readable, lines along
+the long side, first rows at one edge). Round 12 makes the remaining
+candidates selectable at boot: DSI component order (`msm.rgb_swap=0..5`,
+patch 0006), DCS COLMOD 0x77 (`panel_samsung_ams968hh01.colmod=0x77`), and
+MDP5 now logs and clears the DSPP op-mode on both mixers.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

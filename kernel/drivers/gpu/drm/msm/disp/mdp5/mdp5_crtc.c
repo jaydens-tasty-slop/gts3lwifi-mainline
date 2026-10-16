@@ -127,10 +127,13 @@ static u32 crtc_flush_all(struct drm_crtc *crtc)
 
 	mixer = mdp5_cstate->pipeline.mixer;
 	flush_mask |= mdp_ctl_flush_mask_lm(mixer->lm);
+	flush_mask |= mdp_ctl_flush_mask_dspp(mixer->dspp);
 
 	r_mixer = mdp5_cstate->pipeline.r_mixer;
-	if (r_mixer)
+	if (r_mixer) {
 		flush_mask |= mdp_ctl_flush_mask_lm(r_mixer->lm);
+		flush_mask |= mdp_ctl_flush_mask_dspp(r_mixer->dspp);
+	}
 
 	return crtc_flush(crtc, flush_mask);
 }
@@ -403,6 +406,24 @@ static void mdp5_crtc_mode_set_nofb(struct drm_crtc *crtc)
 		val = mdp5_read(mdp5_kms, REG_MDP5_LM_BLEND_COLOR_OUT(r_lm));
 		val |= MDP5_LM_BLEND_COLOR_OUT_SPLIT_LEFT_RIGHT;
 		mdp5_write(mdp5_kms, REG_MDP5_LM_BLEND_COLOR_OUT(r_lm), val);
+	}
+
+	/*
+	 * The DSPP (post-processing: IGC, PCC, PA, gamut, dither) between
+	 * the mixer and the ping-pong is never programmed by this driver;
+	 * make sure nothing left behind by firmware alters the pixels.
+	 */
+	if (mixer->dspp >= 0) {
+		val = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(mixer->dspp));
+		DRM_DEV_INFO(mdp5_kms->dev->dev, "lm%d dspp%d op_mode was %#x\n",
+			     lm, mixer->dspp, val);
+		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(mixer->dspp), 0);
+	}
+	if (r_mixer && r_mixer->dspp >= 0) {
+		val = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(r_mixer->dspp));
+		DRM_DEV_INFO(mdp5_kms->dev->dev, "lm%d dspp%d op_mode was %#x\n",
+			     r_mixer->lm, r_mixer->dspp, val);
+		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(r_mixer->dspp), 0);
 	}
 
 	spin_unlock_irqrestore(&mdp5_crtc->lm_lock, flags);

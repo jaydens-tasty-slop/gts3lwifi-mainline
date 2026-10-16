@@ -1,4 +1,4 @@
-From 21736e5f666b1a762b4f79ee02b6e6a615d4db8e Mon Sep 17 00:00:00 2001
+From a179bf52bd5b68aeb59cfb9973bc48cff2725890 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Mon, 28 Sep 2026 11:57:24 +0530
 Subject: [PATCH] drm/msm/mdp5: add split display support for bonded
@@ -29,14 +29,15 @@ on both CTLs for bring-up experiments.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
- .../gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c  | 92 ++++++++++++-----
- drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c     | 55 +++++++++++
- drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c      | 98 ++++++++++++++++++-
- drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c  | 18 ++++
- drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.c      | 20 +++-
- drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.h      | 16 +++
- drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c    | 18 +++-
- 7 files changed, 284 insertions(+), 33 deletions(-)
+ .../gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c  |  92 +++++++++++----
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c     |  78 ++++++++++++-
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c      | 109 +++++++++++++++++-
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.h      |   1 +
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c  |  18 +++
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.c      |  20 +++-
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_kms.h      |  16 +++
+ drivers/gpu/drm/msm/disp/mdp5/mdp5_mixer.c    |  18 ++-
+ 8 files changed, 318 insertions(+), 34 deletions(-)
 
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_cmd_encoder.c
 index e5662412d..0c33af738 100644
@@ -219,7 +220,7 @@ index e5662412d..0c33af738 100644
  	mdp5_ctl_set_encoder_state(ctl, pipeline, true);
  
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c
-index 373ae7d9b..4474d0bf9 100644
+index 373ae7d9b..d13354191 100644
 --- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c
 +++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_crtc.c
 @@ -5,6 +5,7 @@
@@ -230,7 +231,47 @@ index 373ae7d9b..4474d0bf9 100644
  #include <linux/sort.h>
  
  #include <drm/drm_atomic.h>
-@@ -749,6 +750,10 @@ static int mdp5_crtc_atomic_check(struct drm_crtc *crtc,
+@@ -126,10 +127,13 @@ static u32 crtc_flush_all(struct drm_crtc *crtc)
+ 
+ 	mixer = mdp5_cstate->pipeline.mixer;
+ 	flush_mask |= mdp_ctl_flush_mask_lm(mixer->lm);
++	flush_mask |= mdp_ctl_flush_mask_dspp(mixer->dspp);
+ 
+ 	r_mixer = mdp5_cstate->pipeline.r_mixer;
+-	if (r_mixer)
++	if (r_mixer) {
+ 		flush_mask |= mdp_ctl_flush_mask_lm(r_mixer->lm);
++		flush_mask |= mdp_ctl_flush_mask_dspp(r_mixer->dspp);
++	}
+ 
+ 	return crtc_flush(crtc, flush_mask);
+ }
+@@ -404,6 +408,24 @@ static void mdp5_crtc_mode_set_nofb(struct drm_crtc *crtc)
+ 		mdp5_write(mdp5_kms, REG_MDP5_LM_BLEND_COLOR_OUT(r_lm), val);
+ 	}
+ 
++	/*
++	 * The DSPP (post-processing: IGC, PCC, PA, gamut, dither) between
++	 * the mixer and the ping-pong is never programmed by this driver;
++	 * make sure nothing left behind by firmware alters the pixels.
++	 */
++	if (mixer->dspp >= 0) {
++		val = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(mixer->dspp));
++		DRM_DEV_INFO(mdp5_kms->dev->dev, "lm%d dspp%d op_mode was %#x\n",
++			     lm, mixer->dspp, val);
++		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(mixer->dspp), 0);
++	}
++	if (r_mixer && r_mixer->dspp >= 0) {
++		val = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(r_mixer->dspp));
++		DRM_DEV_INFO(mdp5_kms->dev->dev, "lm%d dspp%d op_mode was %#x\n",
++			     r_mixer->lm, r_mixer->dspp, val);
++		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(r_mixer->dspp), 0);
++	}
++
+ 	spin_unlock_irqrestore(&mdp5_crtc->lm_lock, flags);
+ }
+ 
+@@ -749,6 +771,10 @@ static int mdp5_crtc_atomic_check(struct drm_crtc *crtc,
  	if (mode->hdisplay > hw_cfg->lm.max_width)
  		need_right_mixer = true;
  
@@ -241,7 +282,7 @@ index 373ae7d9b..4474d0bf9 100644
  	ret = mdp5_crtc_setup_pipeline(crtc, crtc_state, need_right_mixer);
  	if (ret) {
  		DRM_DEV_ERROR(dev->dev, "couldn't assign mixers %d\n", ret);
-@@ -1214,6 +1219,54 @@ static void mdp5_crtc_pp_done_irq(struct mdp_irq *irq, uint32_t irqstatus)
+@@ -1214,6 +1240,54 @@ static void mdp5_crtc_pp_done_irq(struct mdp_irq *irq, uint32_t irqstatus)
  	complete_all(&mdp5_crtc->pp_completion);
  }
  
@@ -296,7 +337,7 @@ index 373ae7d9b..4474d0bf9 100644
  static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)
  {
  	struct drm_device *dev = crtc->dev;
-@@ -1226,6 +1279,8 @@ static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)
+@@ -1226,6 +1300,8 @@ static void mdp5_crtc_wait_for_pp_done(struct drm_crtc *crtc)
  	if (ret == 0)
  		dev_warn_ratelimited(dev->dev, "pp done time out, lm=%d\n",
  				     mdp5_cstate->pipeline.mixer->lm);
@@ -306,7 +347,7 @@ index 373ae7d9b..4474d0bf9 100644
  
  static void mdp5_crtc_wait_for_flush_done(struct drm_crtc *crtc)
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
-index fc183fe37..30d64d189 100644
+index fc183fe37..9f67608e0 100644
 --- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
 +++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
 @@ -3,6 +3,7 @@
@@ -465,7 +506,25 @@ index fc183fe37..30d64d189 100644
  			  r_blend_ext_cfg);
  	}
  	spin_unlock_irqrestore(&ctl->hw_lock, flags);
-@@ -569,10 +647,20 @@ u32 mdp5_ctl_commit(struct mdp5_ctl *ctl,
+@@ -457,6 +535,17 @@ u32 mdp_ctl_flush_mask_pipe(enum mdp5_pipe pipe)
+ 	}
+ }
+ 
++u32 mdp_ctl_flush_mask_dspp(int dspp)
++{
++	switch (dspp) {
++	case 0:  return MDP5_CTL_FLUSH_DSPP0;
++	case 1:  return MDP5_CTL_FLUSH_DSPP1;
++	case 2:  return MDP5_CTL_FLUSH_DSPP2;
++	case 3:  return MDP5_CTL_FLUSH_DSPP3;
++	default: return 0;
++	}
++}
++
+ u32 mdp_ctl_flush_mask_lm(int lm)
+ {
+ 	switch (lm) {
+@@ -569,10 +658,20 @@ u32 mdp5_ctl_commit(struct mdp5_ctl *ctl,
  		spin_lock_irqsave(&ctl->hw_lock, flags);
  		ctl_write(ctl, REG_MDP5_CTL_FLUSH(flush_id), flush_mask);
  		spin_unlock_irqrestore(&ctl->hw_lock, flags);
@@ -487,6 +546,18 @@ index fc183fe37..30d64d189 100644
  	}
  
  	return curr_ctl_flush_mask;
+diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.h b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.h
+index 9020e8efc..85adef31b 100644
+--- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.h
++++ b/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.h
+@@ -63,6 +63,7 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
+  * through @flush_mask parameter in mdp5_ctl_commit(.., flush_mask).
+  */
+ u32 mdp_ctl_flush_mask_lm(int lm);
++u32 mdp_ctl_flush_mask_dspp(int dspp);
+ u32 mdp_ctl_flush_mask_pipe(enum mdp5_pipe pipe);
+ u32 mdp_ctl_flush_mask_cursor(int cursor_id);
+ u32 mdp_ctl_flush_mask_encoder(struct mdp5_interface *intf);
 diff --git a/drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c b/drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c
 index eaba3b2d7..d9d87a8bc 100644
 --- a/drivers/gpu/drm/msm/disp/mdp5/mdp5_encoder.c

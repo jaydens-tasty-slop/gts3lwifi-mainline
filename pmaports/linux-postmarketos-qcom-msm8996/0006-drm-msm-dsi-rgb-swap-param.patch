@@ -1,0 +1,55 @@
+From 72da43600b7e6c2a735978a75a7b2c952bb5d4fd Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Fri, 16 Oct 2026 11:00:45 +0530
+Subject: [PATCH] drm/msm/dsi: add rgb_swap module parameter (bring-up aid)
+
+Let the colour component order on the link be chosen at boot
+(msm.rgb_swap=0..5), to find the order a panel expects without
+rebuilding. Default stays RGB.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/msm/dsi/dsi_host.c | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index b3d8b06ba..12a8d9a26 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <linux/clk.h>
++#include <linux/module.h>
+ #include <linux/delay.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
+@@ -772,6 +773,11 @@ bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
+ 		 msm_host->cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V2_5_0);
+ }
+ 
++/* Bring-up aid: colour component order on the link (0 RGB, 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR) */
++static unsigned int rgb_swap = SWAP_RGB;
++module_param(rgb_swap, uint, 0444);
++MODULE_PARM_DESC(rgb_swap, "DSI RGB component order: 0 RGB (default), 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR");
++
+ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
+ 			struct msm_dsi_phy_shared_timings *phy_shared_timings, struct msm_dsi_phy *phy)
+ {
+@@ -801,12 +807,10 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
+ 			data |= DSI_VID_CFG0_DATABUS_WIDEN;
+ 		dsi_write(msm_host, REG_DSI_VID_CFG0, data);
+ 
+-		/* Do not swap RGB colors */
+-		data = DSI_VID_CFG1_RGB_SWAP(SWAP_RGB);
+-		dsi_write(msm_host, REG_DSI_VID_CFG1, 0);
++		data = DSI_VID_CFG1_RGB_SWAP(rgb_swap);
++		dsi_write(msm_host, REG_DSI_VID_CFG1, data);
+ 	} else {
+-		/* Do not swap RGB colors */
+-		data = DSI_CMD_CFG0_RGB_SWAP(SWAP_RGB);
++		data = DSI_CMD_CFG0_RGB_SWAP(rgb_swap);
+ 		data |= DSI_CMD_CFG0_DST_FORMAT(dsi_get_cmd_fmt(mipi_fmt));
+ 		dsi_write(msm_host, REG_DSI_CMD_CFG0, data);
+ 

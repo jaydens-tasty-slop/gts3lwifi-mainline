@@ -87,6 +87,10 @@ static const u8 ams968hh01_mdnie_bypass2[] = {
 	0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0xff,
 };
 
+static int colmod = -1;
+module_param(colmod, int, 0444);
+MODULE_PARM_DESC(colmod, "Send DCS set_pixel_format with this value at init (e.g. 0x77 for 24 bpp); -1 = don't (default)");
+
 static bool mdnie_bypass = true;
 module_param(mdnie_bypass, bool, 0644);
 MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
@@ -156,6 +160,10 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd0);
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
 	mipi_dsi_msleep(ctx, 215);
+
+	/* bring-up aid: interface pixel format (DCS COLMOD), not sent by the vendor driver */
+	if (colmod >= 0)
+		mipi_dsi_dcs_set_pixel_format_multi(ctx, colmod);
 }
 
 static void ams968hh01_power_off(struct ams968hh01 *ctx)
