@@ -87,6 +87,10 @@ static const u8 ams968hh01_mdnie_bypass2[] = {
 	0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0xff,
 };
 
+static bool gamma_ref = true;
+module_param(gamma_ref, bool, 0444);
+MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
+
 static int colmod = -1;
 module_param(colmod, int, 0444);
 MODULE_PARM_DESC(colmod, "Send DCS set_pixel_format with this value at init (e.g. 0x77 for 24 bpp); -1 = don't (default)");
@@ -94,6 +98,28 @@ MODULE_PARM_DESC(colmod, "Send DCS set_pixel_format with this value at init (e.g
 static bool mdnie_bypass = true;
 module_param(mdnie_bypass, bool, 0644);
 MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
+
+/* Bring-up aid: does the DDI answer reads, and did the register writes land? */
+static void ams968hh01_readback(struct ams968hh01 *ctx)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi[0];
+	u8 id[3] = {}, b9[8] = {}, gamma[8] = {};
+	int r0, r1, r2, r3, r4;
+
+	r0 = mipi_dsi_dcs_read(dsi, 0xda, &id[0], 1);
+	r1 = mipi_dsi_dcs_read(dsi, 0xdb, &id[1], 1);
+	r2 = mipi_dsi_dcs_read(dsi, 0xdc, &id[2], 1);
+	dev_info(&dsi->dev, "readback: ID %02x %02x %02x (ret %d %d %d)\n",
+		 id[0], id[1], id[2], r0, r1, r2);
+
+	/* mDNIe block, start of the first table written above */
+	mipi_dsi_dcs_write_buffer(dsi, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
+	r3 = mipi_dsi_dcs_read(dsi, 0xb9, b9, sizeof(b9));
+	/* gamma: offset 0, register 0x83 */
+	r4 = mipi_dsi_dcs_read(dsi, 0x83, gamma, sizeof(gamma));
+	dev_info(&dsi->dev, "readback: B9@A8 %*ph (ret %d), 83 %*ph (ret %d)\n",
+		 (int)sizeof(b9), b9, r3, (int)sizeof(gamma), gamma, r4);
+}
 
 /*
  * The vendor driver sends the mDNIe tables after display-on, in HS mode,
@@ -117,7 +143,9 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 	if (dsi_ctx.accum_err)
 		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 	else
-		dev_info(&dsi->dev, "mDNIe bypass programmed (v7)\n");
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v9)\n");
+
+	ams968hh01_readback(ctx);
 }
 
 /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
@@ -140,11 +168,28 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xbc);
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x04);		/* gamma offset index */
 
-	/* Brightness condition set: fixed 360 nit gamma for now */
-	mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
+	/*
+	 * Brightness condition set (gamma). Layout from the vendor smart
+	 * dimming code: V255 R/G/B as 9-bit big-endian pairs, then one byte
+	 * per channel for V203, V151, V87, V51, V35, V23, V11, V3 and VT.
+	 * The reference point of the vendor tables is 0x0100 / 0x80 / 0x00
+	 * (about 300 cd/m2); the vendor DTS power-on placeholder (0x80 in
+	 * the V255 high bytes, zeros scattered over the channels) is out of
+	 * range and is replaced by a computed table before anything is shown.
+	 */
+	if (gamma_ref)
+		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
+					     0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+					     0x00, 0x00, 0x00);
+	else
+		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
+					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
 
 	mipi_dsi_dcs_write_seq_multi(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x67);

@@ -150,6 +150,23 @@ candidates selectable at boot: DSI component order (`msm.rgb_swap=0..5`,
 patch 0006), DCS COLMOD 0x77 (`panel_samsung_ams968hh01.colmod=0x77`), and
 MDP5 now logs and clears the DSPP op-mode on both mixers.
 
+Round 12 results: DSPP op-mode was only 0x20000 (histogram auto-clear), so
+the post-processor is innocent. The component-order sweep is the key
+result: whatever colour is put in the first byte of a pixel shows green,
+the second shows purple, the third yellow (A: G/P/Y, B=BGR: Y/P/G, C=GBR:
+Y/G/P, D=BRG: P/Y/G), so the DDI applies a fixed mix to each input
+channel and no reordering helps. COLMOD 0x77 changes nothing.
+
+Remaining suspect: the 33-byte "brightness condition" (gamma) command.
+The vendor smart-dimming code gives its layout (V255 R/G/B as 9-bit pairs,
+then V203..V3 and VT per channel); the DTS power-on placeholder we copied
+puts 0x80 in the V255 high bytes (out of range, possibly control bits) and
+zeros in scattered channels. Downstream overwrites it with a computed
+table before showing anything. Round 13 sends the vendor reference table
+(0x0100 / 0x80 / 0x00) instead, reads back the panel ID, the mDNIe
+register and the gamma register to prove register access, and ships
+colour-bar and gradient test images for photos.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

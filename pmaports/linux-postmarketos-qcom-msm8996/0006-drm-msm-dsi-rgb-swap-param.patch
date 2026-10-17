@@ -1,4 +1,4 @@
-From 72da43600b7e6c2a735978a75a7b2c952bb5d4fd Mon Sep 17 00:00:00 2001
+From cd194a03957b7580b52ad3562276781bd716c5eb Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Fri, 16 Oct 2026 11:00:45 +0530
 Subject: [PATCH] drm/msm/dsi: add rgb_swap module parameter (bring-up aid)

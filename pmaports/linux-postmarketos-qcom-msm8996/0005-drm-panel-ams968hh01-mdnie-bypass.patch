@@ -1,4 +1,4 @@
-From bf219dd490dc5fc94105cc412e546041d741ab7a Mon Sep 17 00:00:00 2001
+From db37951e3c0bb9b8d4785a1512e3dbb35c1165b3 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Thu, 8 Oct 2026 11:08:46 +0530
 Subject: [PATCH] drm/panel: samsung-ams968hh01: program the mDNIe block to
@@ -14,11 +14,11 @@ sequence. A module parameter allows skipping this for experiments.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
- .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 72 ++++++++++++++++++-
- 1 file changed, 70 insertions(+), 2 deletions(-)
+ .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 127 +++++++++++++++++-
+ 1 file changed, 120 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
-index 9900bda9f..a96dbb817 100644
+index 9900bda9f..1caad380a 100644
 --- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 +++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 @@ -10,7 +10,7 @@
@@ -30,7 +30,7 @@ index 9900bda9f..a96dbb817 100644
   */
  
  #include <linux/delay.h>
-@@ -60,6 +60,66 @@ static const struct drm_display_mode ams968hh01_mode = {
+@@ -60,6 +60,94 @@ static const struct drm_display_mode ams968hh01_mode = {
  	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
  };
  
@@ -61,6 +61,10 @@ index 9900bda9f..a96dbb817 100644
 +	0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0xff,
 +};
 +
++static bool gamma_ref = true;
++module_param(gamma_ref, bool, 0444);
++MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
++
 +static int colmod = -1;
 +module_param(colmod, int, 0444);
 +MODULE_PARM_DESC(colmod, "Send DCS set_pixel_format with this value at init (e.g. 0x77 for 24 bpp); -1 = don't (default)");
@@ -68,6 +72,28 @@ index 9900bda9f..a96dbb817 100644
 +static bool mdnie_bypass = true;
 +module_param(mdnie_bypass, bool, 0644);
 +MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
++
++/* Bring-up aid: does the DDI answer reads, and did the register writes land? */
++static void ams968hh01_readback(struct ams968hh01 *ctx)
++{
++	struct mipi_dsi_device *dsi = ctx->dsi[0];
++	u8 id[3] = {}, b9[8] = {}, gamma[8] = {};
++	int r0, r1, r2, r3, r4;
++
++	r0 = mipi_dsi_dcs_read(dsi, 0xda, &id[0], 1);
++	r1 = mipi_dsi_dcs_read(dsi, 0xdb, &id[1], 1);
++	r2 = mipi_dsi_dcs_read(dsi, 0xdc, &id[2], 1);
++	dev_info(&dsi->dev, "readback: ID %02x %02x %02x (ret %d %d %d)\n",
++		 id[0], id[1], id[2], r0, r1, r2);
++
++	/* mDNIe block, start of the first table written above */
++	mipi_dsi_dcs_write_buffer(dsi, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
++	r3 = mipi_dsi_dcs_read(dsi, 0xb9, b9, sizeof(b9));
++	/* gamma: offset 0, register 0x83 */
++	r4 = mipi_dsi_dcs_read(dsi, 0x83, gamma, sizeof(gamma));
++	dev_info(&dsi->dev, "readback: B9@A8 %*ph (ret %d), 83 %*ph (ret %d)\n",
++		 (int)sizeof(b9), b9, r3, (int)sizeof(gamma), gamma, r4);
++}
 +
 +/*
 + * The vendor driver sends the mDNIe tables after display-on, in HS mode,
@@ -91,13 +117,49 @@ index 9900bda9f..a96dbb817 100644
 +	if (dsi_ctx.accum_err)
 +		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 +	else
-+		dev_info(&dsi->dev, "mDNIe bypass programmed (v7)\n");
++		dev_info(&dsi->dev, "mDNIe bypass programmed (v9)\n");
++
++	ams968hh01_readback(ctx);
 +}
 +
  /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
  static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
  {
-@@ -100,6 +160,10 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
+@@ -80,11 +168,28 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xbc);
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x04);		/* gamma offset index */
+ 
+-	/* Brightness condition set: fixed 360 nit gamma for now */
+-	mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
+-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
+-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
+-				     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
++	/*
++	 * Brightness condition set (gamma). Layout from the vendor smart
++	 * dimming code: V255 R/G/B as 9-bit big-endian pairs, then one byte
++	 * per channel for V203, V151, V87, V51, V35, V23, V11, V3 and VT.
++	 * The reference point of the vendor tables is 0x0100 / 0x80 / 0x00
++	 * (about 300 cd/m2); the vendor DTS power-on placeholder (0x80 in
++	 * the V255 high bytes, zeros scattered over the channels) is out of
++	 * range and is replaced by a computed table before anything is shown.
++	 */
++	if (gamma_ref)
++		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
++					     0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
++					     0x00, 0x00, 0x00);
++	else
++		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
++					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
+ 
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x67);
+@@ -100,6 +205,10 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
  	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd0);
  	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
  	mipi_dsi_msleep(ctx, 215);
@@ -108,7 +170,7 @@ index 9900bda9f..a96dbb817 100644
  }
  
  static void ams968hh01_power_off(struct ams968hh01 *ctx)
-@@ -151,8 +215,12 @@ static int ams968hh01_enable(struct drm_panel *panel)
+@@ -151,8 +260,12 @@ static int ams968hh01_enable(struct drm_panel *panel)
  
  	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
  	mipi_dsi_msleep(&dsi_ctx, 50);
