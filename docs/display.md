@@ -167,6 +167,24 @@ table before showing anything. Round 13 sends the vendor reference table
 register and the gamma register to prove register access, and ships
 colour-bar and gradient test images for photos.
 
+Round 13 results (2026-10-19): reference gamma changes nothing. Readback
+works for the panel ID (DA/DB/DC = 42 40 16); B9/83 are not readable that
+way. The photos are the real information:
+- colour bars: only **four** bands where eight were sent, matching the
+  first four bars each twice as wide: both links contribute to every
+  displayed pixel, the panel does not place the links side by side.
+- per-channel gradients: smooth ramps show as **hue stripes** with a short
+  period, which only a bit-level reinterpretation of the pixel stream can
+  produce (no channel swap or colour matrix can).
+A brute-force simulation (`scripts/pixel-stream-sim.py`) over stream
+decodings finds that taking 12 bits of every pixel from each link
+reproduces the fills (R teal, G purple, B yellow, W white) and the
+striped ramps. Hypothesis: the ANA38401's "dual DSI" mode treats the two
+links as one wide link (each link carries part of every pixel), not as
+left/right halves. Round 14 sends link-isolation images (bars on one link
+only, red/blue halves, ramps and stripes on one link) to confirm the
+exact assembly before changing how MDP5 feeds the links.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
