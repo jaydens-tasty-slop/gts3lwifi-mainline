@@ -19,7 +19,7 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 | postmarketOS initramfs + debug shell over USB | works |
 | Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
 | TLMM GPIOs | work, 8 TrustZone-owned pins reserved |
-| Display | panel driver works: panel init, DRM device, framebuffer console on screen. Picture was garbled because mainline MDP5 lacks split display for bonded DSI; fix in patch 0003, awaiting test (docs/display.md). No brightness control yet |
+| Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong: the DDI appears to combine the two links per pixel rather than side by side, link-isolation test in progress (docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
 | GPU, video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
