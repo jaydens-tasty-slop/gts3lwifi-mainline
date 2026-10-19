@@ -185,6 +185,13 @@ left/right halves. Round 14 sends link-isolation images (bars on one link
 only, red/blue halves, ramps and stripes on one link) to confirm the
 exact assembly before changing how MDP5 feeds the links.
 
+Round 15 adds a decisive split test: `/sys/kernel/debug/dri/0/dsi_tpg`
+(patch 0007) switches both DSI hosts to their built-in test pattern
+generator, bypassing MDP entirely. A clean pattern means DSI + panel are
+fine and the scramble is in the MDP-to-DSI pixel hand-off; a scrambled
+pattern means the DDI's dual-link mode is not what we feed it. The round
+also collects `/sys/kernel/debug/dri/0/state` and `kms`.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
