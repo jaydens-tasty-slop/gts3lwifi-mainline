@@ -8,6 +8,10 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 - Kernel: [msm8996-mainline/linux](https://gitlab.com/msm8996-mainline/linux) `v6.19.5-msm8996`,
   packaged as postmarketOS `linux-postmarketos-qcom-msm8996`
 
+## Variants
+
+The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825, `gts3llte`) shares the SoC, display and touch and should be a small addition once the Wi-Fi model is done.
+
 ## Status
 
 | Feature | Status |
@@ -19,7 +23,7 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 | postmarketOS initramfs + debug shell over USB | works |
 | Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
 | TLMM GPIOs | work, 8 TrustZone-owned pins reserved |
-| Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong: the DDI appears to combine the two links per pixel rather than side by side, link-isolation test in progress (docs/display.md). No brightness control yet |
+| Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong; link-isolation images and the DSI test pattern place the fault between the DSI controller and the panel controller, most likely the panel init being sent as short DSI packets where the vendor uses long ones (fix in test, docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
 | GPU, video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
