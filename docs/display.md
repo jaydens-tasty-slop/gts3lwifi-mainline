@@ -192,6 +192,24 @@ fine and the scramble is in the MDP-to-DSI pixel hand-off; a scrambled
 pattern means the DDI's dual-link mode is not what we feed it. The round
 also collects `/sys/kernel/debug/dri/0/state` and `kms`.
 
+Rounds 14 + 15 results (2026-10-20):
+- bars sent on **one** link only (other link black) show as clean, evenly
+  spaced bars across the **whole** screen, colour-mapped exactly like the
+  fills (W white, R green, G purple, B yellow, Y lavender, C salmon,
+  M pale green). So each link spans the full width and the colour scramble
+  is inside one link's own byte stream.
+- DSI TPG (display engine bypassed): clean rectangle grid, scrambled
+  colours (green/red/olive/lavender). The problem is between the DSI
+  controller and the DDI.
+- drm state: LM0 + LM1, one DMA0 pipe 2048 wide, XR24, as intended.
+Conclusion: the DDI is not in the mode the vendor init puts it in. The
+one difference left in how we talk to it: the vendor sends every B1/B2
+register write as a DCS **long** packet (type 0x39) even for 1-byte
+payloads; the mainline helpers use short packets (0x15) for <=2 bytes.
+Round 16 sends the init with the vendor packet types
+(`panel_samsung_ams968hh01.long_writes`, default on), which would
+explain "dual DSI setting"/"compression mode" never taking effect.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

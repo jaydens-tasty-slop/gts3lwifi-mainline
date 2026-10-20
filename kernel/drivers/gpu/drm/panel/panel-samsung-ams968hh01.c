@@ -91,6 +91,51 @@ static bool gamma_ref = true;
 module_param(gamma_ref, bool, 0444);
 MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
 
+static bool long_writes = true;
+module_param(long_writes, bool, 0444);
+MODULE_PARM_DESC(long_writes, "Send the 1-2 byte register writes as DCS long packets like the vendor driver (default), 0 = short packets");
+
+/*
+ * The vendor init table sends every B1/B2 register write as a DCS long
+ * write (type 0x39) even for one-byte payloads. The generic helpers use
+ * short writes for payloads up to two bytes; keep the vendor packet type.
+ */
+static void ams968hh01_reg_write(struct mipi_dsi_multi_context *ctx,
+				 const u8 *buf, size_t len)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi;
+	struct mipi_dsi_msg msg = {
+		.channel = dsi->channel,
+		.type = MIPI_DSI_DCS_LONG_WRITE,
+		.tx_buf = buf,
+		.tx_len = len,
+	};
+	ssize_t ret;
+
+	if (ctx->accum_err)
+		return;
+
+	if (!long_writes) {
+		mipi_dsi_dcs_write_buffer_multi(ctx, buf, len);
+		return;
+	}
+
+	if (dsi->mode_flags & MIPI_DSI_MODE_LPM)
+		msg.flags |= MIPI_DSI_MSG_USE_LPM;
+
+	ret = dsi->host->ops->transfer(dsi->host, &msg);
+	if (ret < 0) {
+		dev_err(&dsi->dev, "long write %02x failed: %zd\n", buf[0], ret);
+		ctx->accum_err = ret;
+	}
+}
+
+#define ams968hh01_reg(ctx, seq...)					\
+	do {								\
+		static const u8 d[] = { seq };				\
+		ams968hh01_reg_write(ctx, d, ARRAY_SIZE(d));		\
+	} while (0)
+
 static int colmod = -1;
 module_param(colmod, int, 0444);
 MODULE_PARM_DESC(colmod, "Send DCS set_pixel_format with this value at init (e.g. 0x77 for 24 bpp); -1 = don't (default)");
@@ -152,21 +197,22 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 {
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x34);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x64, 0x00);	/* check fail off */
+	ams968hh01_reg(ctx, 0xb2, 0x64, 0x00);	/* check fail off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x75);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x28);		/* INTR setting */
+	ams968hh01_reg(ctx, 0xb2, 0x28);		/* INTR setting */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x51);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x06);		/* dual DSI */
+	ams968hh01_reg(ctx, 0xb1, 0x06);		/* dual DSI */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd9);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x08);		/* Anapass compression mode */
+	ams968hh01_reg(ctx, 0xb1, 0x08);		/* Anapass compression mode */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x7f);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x15);		/* TSP HTE / VTE */
+	ams968hh01_reg(ctx, 0xb2, 0x15);		/* TSP HTE / VTE */
 
-	mipi_dsi_dcs_set_tear_on_multi(ctx, MIPI_DSI_DCS_TEAR_MODE_VBLANK);
-	mipi_dsi_dcs_set_tear_scanline_multi(ctx, 1526);
+	if (!long_writes)
+		mipi_dsi_dcs_set_tear_on_multi(ctx, MIPI_DSI_DCS_TEAR_MODE_VBLANK);
+	ams968hh01_reg(ctx, 0x44, 0x05, 0xf6);		/* tear scanline 1526 */
 
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xbc);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x04);		/* gamma offset index */
+	ams968hh01_reg(ctx, 0xb2, 0x04);		/* gamma offset index */
 
 	/*
 	 * Brightness condition set (gamma). Layout from the vendor smart
@@ -178,7 +224,7 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 	 * range and is replaced by a computed table before anything is shown.
 	 */
 	if (gamma_ref)
-		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
+		ams968hh01_reg(ctx, 0x83,
 					     0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
@@ -186,24 +232,24 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
 					     0x00, 0x00, 0x00);
 	else
-		mipi_dsi_dcs_write_seq_multi(ctx, 0x83,
+		ams968hh01_reg(ctx, 0x83,
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
 					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
 
-	mipi_dsi_dcs_write_seq_multi(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
+	ams968hh01_reg(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x67);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x0f);		/* ELVSS, 360 nit */
+	ams968hh01_reg(ctx, 0xb2, 0x0f);		/* ELVSS, 360 nit */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x4d);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x04);		/* 16 frame avg, ACL off */
+	ams968hh01_reg(ctx, 0xb2, 0x04);		/* 16 frame avg, ACL off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x36);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x10);		/* ACL off */
+	ams968hh01_reg(ctx, 0xb2, 0x10);		/* ACL off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x6d);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x85);		/* CAPS on */
+	ams968hh01_reg(ctx, 0xb2, 0x85);		/* CAPS on */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x35);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb2, 0x01);		/* gamma update key */
+	ams968hh01_reg(ctx, 0xb2, 0x01);		/* gamma update key */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd0);
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
+	ams968hh01_reg(ctx, 0xb1, 0x1d);		/* UPLL_F = 35 */
 	mipi_dsi_msleep(ctx, 215);
 
 	/* bring-up aid: interface pixel format (DCS COLMOD), not sent by the vendor driver */
