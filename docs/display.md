@@ -210,6 +210,25 @@ Round 16 sends the init with the vendor packet types
 (`panel_samsung_ams968hh01.long_writes`, default on), which would
 explain "dual DSI setting"/"compression mode" never taking effect.
 
+**Independent confirmation from the Galaxy Tab S2 9.7 (2026-10-21).** The
+Tab S2 uses the same panel and DDI (ANA38401 + AMS968HH01, 2048x1536):
+- Exynos 5433 model (pmaports `linux-samsung-gts210lte`, kernel
+  `universal5433`, `drivers/video/exynos/panels/ana38401_*`): the panel is
+  driven over **one** 4-lane DSI at 896 Mbps/lane with Samsung **MIC**
+  (Mobile Image Compression, fixed 2:1, i.e. 12 bits per pixel) enabled
+  (`mic = <1>`). Its init sends INTR, TSP, tear scanline, gamma offset
+  index, brightness and UPLL only; it never writes "compression mode"
+  (B0 D9/B1 08) or "dual DSI" (B0 51/B1 06).
+- Snapdragon msm8976 "VE" model (`linux-samsung-gts210vewifi`) and the
+  Tab S3: dual DSI, uncompressed, with those two writes added at the top
+  of the init.
+So the DDI's power-on default is "MIC-compressed, single stream, 12 bpp",
+and the two Qualcomm-only writes switch it to uncompressed dual-link.
+Everything we observed (clean geometry, 3072 bytes per line per link
+consumed as 2048 x 12 bits, both links in every pixel, value-dependent hue
+stripes) is the DDI still in its default mode: our B1 writes are not being
+applied. Round 16 (vendor long-packet types) is the direct test.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
