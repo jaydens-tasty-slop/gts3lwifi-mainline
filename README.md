@@ -10,7 +10,7 @@ Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
 
 ## Variants
 
-The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825, `gts3llte`) shares the SoC, display and touch and should be a small addition once the Wi-Fi model is done.
+The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825, `gts3llte`) shares the board apart from the modem; a device tree (`dts/msm8996-samsung-gts3llte.dts`) and an lk2nd build for it exist but are untested so far (docs/TESTING-t825-round1.md).
 
 ## Status
 

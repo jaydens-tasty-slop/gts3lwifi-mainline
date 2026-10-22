@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Samsung Galaxy Tab S3 LTE (SM-T825, gts3llte): MSM8996 (msm-id 246) with
+ * modem, otherwise the same board as the Wi-Fi model (same PMICs, eMMC,
+ * USB, display, touch, TrustZone-owned GPIOs). Downstream differences are
+ * only the grip sensors and fuel-gauge pin names. Reuse the Wi-Fi device
+ * tree and override what differs.
+ */
+
+#include "apq8096-samsung-gts3lwifi.dts"
+
+/ {
+	model = "Samsung Galaxy Tab S3 LTE";
+	compatible = "samsung,gts3llte", "qcom,msm8996";
+
+	qcom,msm-id = <246 0x30001>;
+	qcom,board-id = <8 5>;
+
+	reserved-memory {
+		/* Downstream modem_shared_mem_region@0x93000000, LTE model only */
+		memory@93000000 {
+			reg = <0x0 0x93000000 0x0 0x6000000>;
+			no-map;
+		};
+	};
+};

@@ -1,0 +1,19 @@
+#include "test-touch.dts"
+
+/* Test: the display + touch test tree, on the LTE model (SM-T825). */
+
+/ {
+	model = "Samsung Galaxy Tab S3 LTE";
+	compatible = "samsung,gts3llte", "qcom,msm8996";
+
+	qcom,msm-id = <246 0x30001>;
+	qcom,board-id = <8 5>;
+
+	reserved-memory {
+		/* Downstream modem_shared_mem_region@0x93000000, LTE model only */
+		memory@93000000 {
+			reg = <0x0 0x93000000 0x0 0x6000000>;
+			no-map;
+		};
+	};
+};

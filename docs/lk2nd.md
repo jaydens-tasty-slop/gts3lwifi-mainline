@@ -67,3 +67,11 @@ off, and v3 (which lacked this) changed nothing on hardware.
 Registers read on the device: SPLIT_DPL_EN = 1, splash on VIG0 and VIG1
 both reading 0x9a401000, DMA pipes unused. `lk2nd-samsung-gts3lwifi-v4.img`
 carries the patch; untested at the time of writing.
+
+## LTE model (SM-T825, gts3llte)
+
+Same packing with the LTE donor's four stock device trees (Rev00-Rev05,
+msm-id 246, board-id 8/x) and `LK2ND_DTB=msm8996-samsung-gts3llte`:
+`LK2ND_DTB=msm8996-samsung-gts3llte scripts/pack-lk2nd-samsung.sh <t825-boot.img> lk2nd-gts3llte.img`
+(donor used: LineageOS 21 gts3llte boot.img). Built 2026-10-22, not yet
+tested on hardware. Checksums in `lk2nd/lk2nd-gts3llte.sha256`.
