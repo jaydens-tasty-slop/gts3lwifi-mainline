@@ -8,10 +8,14 @@ Needs: SM-T825 with OEM unlock enabled, USB cable, a Linux PC (Windows works
 with Odin + platform-tools but USB networking may need a driver).
 Files: boot.img, lk2nd-gts3llte.img, lk2nd-gts3llte-odin.tar, SHA256SUMS
 
-1) Install lk2nd
-   Power off. Hold Power + Volume Down + Home for Download mode.
-   Flash lk2nd-gts3llte-odin.tar in Odin (AP slot), or on Linux:
-     heimdall flash --BOOT lk2nd-gts3llte.img
+1) Install lk2nd (pick one)
+   - TWRP: Install > Install Image > lk2nd-gts3llte.img > partition "Boot".
+   - Odin: Download mode (Power + Volume Down + Home), lk2nd-gts3llte-odin.tar
+     in the AP slot.
+   - Linux: heimdall flash --BOOT lk2nd-gts3llte.img
+   Only the boot partition changes; TWRP in recovery stays. To undo, flash
+   your stock or LineageOS boot.img back the same way. Do NOT flash the
+   boot.img from this package, it is only booted from RAM in step 3.
    The tablet reboots. After the Samsung logo it should stay in the lk2nd
    menu / fastboot. If it only shows the Samsung logo or reboots in a loop,
    stop and tell us (and which firmware you had: build number).
