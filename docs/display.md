@@ -229,7 +229,7 @@ consumed as 2048 x 12 bits, both links in every pixel, value-dependent hue
 stripes) is the DDI still in its default mode: our B1 writes are not being
 applied. Round 16 (vendor long-packet types) is the direct test.
 
-Round 16 (2026-10-23): no change with long packets. The DSI host
+Round 16 (2026-10-23): no change with long packets (caveat: the panel module's version tag was not bumped for v10/v11, so the log cannot prove the v11 panel module ran; round 17 tags v12). The DSI host
 configuration was then cross-checked register by register against the
 downstream driver and the round 15 register dump (CMD_CFG0 = RGB888, no
 colour select, TRIG_CTRL TE + SW DMA trigger, EoT append on, burst mode

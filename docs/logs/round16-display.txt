@@ -1,0 +1,72 @@
+[    0.000000] Linux version 6.19.5 (pmos@wh1t3r0s3) (Alpine clang version 23.1.2, LLD 23.1.2) #3-postmarketos-qcom-msm8996 SMP PREEMPT Sat Sep 26 14:48:07 UTC
+[    0.000000] GIC: enabling workaround for GICv3: Qualcomm MSM8996 broken firmware
+[    0.120729] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.120923] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.121187] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.121373] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.121755] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.122013] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.122277] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.122464] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.130278] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.130524] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.130931] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.131166] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    0.131558] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.131857] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.132160] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.132390] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[    3.080722] msm_serial: driver initialized
+[   15.356941] systemd[1]: Starting Load Kernel Module drm...
+[   15.579622] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   15.581533] systemd[1]: Finished Load Kernel Module drm.
+[   16.109655] gcc-msm8996 300000.clock-controller: sync_state() pending due to 83000.rng
+[   16.109680] gcc-msm8996 300000.clock-controller: sync_state() pending due to 644000.dma-controller
+[   16.109705] gcc-msm8996 300000.clock-controller: sync_state() pending due to 67a000.crypto
+[   16.109732] mmcc-msm8996 8c0000.clock-controller: sync_state() pending due to 900000.display-subsystem
+[   16.109757] qnoc-msm8996 408000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   16.109782] qnoc-msm8996 5a4000.interconnect: sync_state() pending due to 900000.display-subsystem
+[   20.041961] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   20.042030] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   20.046406] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   20.046848] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   20.046920] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   20.047374] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   20.047503] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   20.063738] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   20.064147] /soc@0/display-subsystem@900000/display-controller@901000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   20.064470] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   20.064519] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/display-controller@901000
+[   20.070804] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   20.106808] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   20.114988] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   20.233951] msm_mdp 901000.display-controller: bound 994000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   20.234148] msm_mdp 901000.display-controller: bound 996000.dsi (ops msm_dsi_phy_driver_unregister [msm])
+[   20.235124] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] MDP5 version v1.7
+[   20.265826] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] bonded DSI: split display v5, master DSI0
+[   20.285288] [drm] Initialized msm 1.13.0 for 901000.display-controller on minor 0
+[   20.285404] msm_mdp 901000.display-controller: no GPU device was found
+[   20.316692] msm_mdp 901000.display-controller: [drm:mdp5_mixer_assign [msm]] split display: LM0 (pp0) + LM1 (pp1) for crtc-0
+[   20.376314] msm_mdp 901000.display-controller: pp done time out, lm=0
+[   20.376372] msm_mdp 901000.display-controller: split dbg #1: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x0 pp1 cnt 0x0 | ctl0 op 0x0 flush 0x0 | ctl1 op 0x0 flush 0x0 | lm0 out 0x0 lm1 out 0x0 | split en 0 up 0x0 lo 0x0 spare0 0x0 | intr 0x0
+[   20.376412] msm_mdp 901000.display-controller: [drm:mdp5_crtc_mode_set_nofb [msm]] lm0 dspp0 op_mode was 0x20000
+[   20.376554] msm_mdp 901000.display-controller: [drm:mdp5_crtc_mode_set_nofb [msm]] lm1 dspp1 op_mode was 0x20000
+[   20.376822] msm_mdp 901000.display-controller: [drm:mdp5_crtc_mode_set_nofb [msm]] lm0 dspp0 op_mode was 0x0
+[   20.376926] msm_mdp 901000.display-controller: [drm:mdp5_crtc_mode_set_nofb [msm]] lm1 dspp1 op_mode was 0x0
+[   20.880868] panel-samsung-ams968hh01 994000.dsi.0: mDNIe bypass programmed (v9)
+[   20.881618] panel-samsung-ams968hh01 994000.dsi.0: readback: ID 42 40 16 (ret 1 1 1)
+[   20.881999] msm_dsi_host_cmd_rx:Invalid response cmd
+[   20.882253] msm_dsi_host_cmd_rx:Invalid response cmd
+[   20.882287] panel-samsung-ams968hh01 994000.dsi.0: readback: B9@A8 00 00 00 00 00 00 00 00 (ret 0), 83 00 00 00 00 00 00 00 00 (ret 0)
+[   20.938395] msm_mdp 901000.display-controller: [drm] fb0: msmdrmfb frame buffer device
+[   22.533573] msm_mdp 901000.display-controller: split dbg #2: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x58061d pp1 cnt 0x58061d | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   24.585414] msm_mdp 901000.display-controller: split dbg #3: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0xc00619 pp1 cnt 0xc00619 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   26.617561] msm_mdp 901000.display-controller: split dbg #4: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x1270618 pp1 cnt 0x1270618 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   28.649881] msm_mdp 901000.display-controller: split dbg #5: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x18e0627 pp1 cnt 0x18e0627 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   30.701573] msm_mdp 901000.display-controller: split dbg #6: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x1f60616 pp1 cnt 0x1f60616 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   32.733758] msm_mdp 901000.display-controller: split dbg #7: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x25d0618 pp1 cnt 0x25d0618 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   34.785620] msm_mdp 901000.display-controller: split dbg #8: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x2c50616 pp1 cnt 0x2c50616 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   36.817841] msm_mdp 901000.display-controller: split dbg #9: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x32c061c pp1 cnt 0x32c061c | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   38.849971] msm_mdp 901000.display-controller: split dbg #10: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x3930619 pp1 cnt 0x3930619 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   40.901832] msm_mdp 901000.display-controller: split dbg #11: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x3fb0617 pp1 cnt 0x3fb0617 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
+[   42.953721] msm_mdp 901000.display-controller: split dbg #12: intf1 frame 0 line 0 | intf2 frame 0 line 0 | pp0 cnt 0x4630618 pp1 cnt 0x4630618 | ctl0 op 0x20020 flush 0x60000000 | ctl1 op 0x20030 flush 0x60000000 | lm0 out 0x6000400 lm1 out 0x6000400 | split en 1 up 0x102 lo 0x102 spare0 0x0 | intr 0x32200
