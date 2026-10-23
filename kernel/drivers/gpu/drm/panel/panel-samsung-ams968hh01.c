@@ -20,6 +20,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/regulator/consumer.h>
+#include <linux/string.h>
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
@@ -91,6 +92,20 @@ static bool gamma_ref = true;
 module_param(gamma_ref, bool, 0444);
 MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
 
+static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx);
+
+static int dual_dsi = 0x06;
+module_param(dual_dsi, int, 0444);
+MODULE_PARM_DESC(dual_dsi, "Value written to B1 at offset 0x51 (vendor: 0x06, 'dual dsi setting')");
+
+static int cmode = 0x08;
+module_param(cmode, int, 0444);
+MODULE_PARM_DESC(cmode, "Value written to B1 at offset 0xD9 (vendor: 0x08, 'Anapass compression mode')");
+
+static bool late_mode;
+module_param(late_mode, bool, 0444);
+MODULE_PARM_DESC(late_mode, "Also rewrite the two mode registers after display-on, in HS mode");
+
 static bool long_writes = true;
 module_param(long_writes, bool, 0444);
 MODULE_PARM_DESC(long_writes, "Send the 1-2 byte register writes as DCS long packets like the vendor driver (default), 0 = short packets");
@@ -148,8 +163,16 @@ MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (b
 static void ams968hh01_readback(struct ams968hh01 *ctx)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi[0];
-	u8 id[3] = {}, b9[8] = {}, gamma[8] = {};
-	int r0, r1, r2, r3, r4;
+	static const struct { u8 off, reg, len; const char *what; } regs[] = {
+		{ 0x51, 0xb1, 1, "dual dsi (want 06)" },
+		{ 0xd9, 0xb1, 1, "compression mode (want 08)" },
+		{ 0x75, 0xb2, 1, "INTR (want 28)" },
+		{ 0x7f, 0xb2, 1, "TSP (want 15)" },
+		{ 0xd0, 0xb1, 1, "UPLL (want 1d)" },
+		{ 0x5a, 0xd8, 8, "MTP (vendor reads this)" },
+	};
+	u8 id[3] = {}, buf[8];
+	int i, r0, r1, r2, ret;
 
 	r0 = mipi_dsi_dcs_read(dsi, 0xda, &id[0], 1);
 	r1 = mipi_dsi_dcs_read(dsi, 0xdb, &id[1], 1);
@@ -157,13 +180,16 @@ static void ams968hh01_readback(struct ams968hh01 *ctx)
 	dev_info(&dsi->dev, "readback: ID %02x %02x %02x (ret %d %d %d)\n",
 		 id[0], id[1], id[2], r0, r1, r2);
 
-	/* mDNIe block, start of the first table written above */
-	mipi_dsi_dcs_write_buffer(dsi, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
-	r3 = mipi_dsi_dcs_read(dsi, 0xb9, b9, sizeof(b9));
-	/* gamma: offset 0, register 0x83 */
-	r4 = mipi_dsi_dcs_read(dsi, 0x83, gamma, sizeof(gamma));
-	dev_info(&dsi->dev, "readback: B9@A8 %*ph (ret %d), 83 %*ph (ret %d)\n",
-		 (int)sizeof(b9), b9, r3, (int)sizeof(gamma), gamma, r4);
+	mipi_dsi_set_maximum_return_packet_size(dsi, sizeof(buf));
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		u8 sel[] = { 0xb0, regs[i].off };
+
+		memset(buf, 0, sizeof(buf));
+		mipi_dsi_dcs_write_buffer(dsi, sel, sizeof(sel));
+		ret = mipi_dsi_dcs_read(dsi, regs[i].reg, buf, regs[i].len);
+		dev_info(&dsi->dev, "readback: %02x@%02x = %*ph (ret %d) %s\n",
+			 regs[i].reg, regs[i].off, (int)regs[i].len, buf, ret, regs[i].what);
+	}
 }
 
 /*
@@ -179,6 +205,11 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 		return;
 
 	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	if (late_mode) {
+		ams968hh01_mode_regs(&dsi_ctx);
+		dev_info(&dsi->dev, "mode registers rewritten after display-on (dual %#x, cmode %#x)\n",
+			 dual_dsi, cmode);
+	}
 	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr1, sizeof(ams968hh01_mdnie_addr1));
 	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_bypass1, sizeof(ams968hh01_mdnie_bypass1));
 	mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, ams968hh01_mdnie_addr2, sizeof(ams968hh01_mdnie_addr2));
@@ -188,22 +219,30 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 	if (dsi_ctx.accum_err)
 		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 	else
-		dev_info(&dsi->dev, "mDNIe bypass programmed (v9)\n");
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v12)\n");
 
 	ams968hh01_readback(ctx);
 }
 
 /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
+/* "dual DSI" and "Anapass compression mode": the two writes the Qualcomm models add */
+static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx)
+{
+	u8 d1[] = { 0xb1, dual_dsi }, d2[] = { 0xb1, cmode };
+
+	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x51);
+	ams968hh01_reg_write(ctx, d1, sizeof(d1));		/* dual DSI */
+	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd9);
+	ams968hh01_reg_write(ctx, d2, sizeof(d2));		/* Anapass compression mode */
+}
+
 static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 {
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x34);
 	ams968hh01_reg(ctx, 0xb2, 0x64, 0x00);	/* check fail off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x75);
 	ams968hh01_reg(ctx, 0xb2, 0x28);		/* INTR setting */
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x51);
-	ams968hh01_reg(ctx, 0xb1, 0x06);		/* dual DSI */
-	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xd9);
-	ams968hh01_reg(ctx, 0xb1, 0x08);		/* Anapass compression mode */
+	ams968hh01_mode_regs(ctx);
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x7f);
 	ams968hh01_reg(ctx, 0xb2, 0x15);		/* TSP HTE / VTE */
 

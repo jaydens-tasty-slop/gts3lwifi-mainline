@@ -229,6 +229,16 @@ consumed as 2048 x 12 bits, both links in every pixel, value-dependent hue
 stripes) is the DDI still in its default mode: our B1 writes are not being
 applied. Round 16 (vendor long-packet types) is the direct test.
 
+Round 16 (2026-10-23): no change with long packets. The DSI host
+configuration was then cross-checked register by register against the
+downstream driver and the round 15 register dump (CMD_CFG0 = RGB888, no
+colour select, TRIG_CTRL TE + SW DMA trigger, EoT append on, burst mode
+on): identical. So whether the two mode writes reach the DDI is the only
+open question. Round 17 reads them back through the DDI's own offset-read
+mechanism (B0 offset, then a DCS read, as the vendor reads MTP data) and
+adds `dual_dsi=`, `cmode=` and `late_mode=1` (rewrite after display-on in
+HS) as boot-time knobs.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
