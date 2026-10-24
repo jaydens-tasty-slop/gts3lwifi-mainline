@@ -42,11 +42,30 @@ static inline struct ams968hh01 *to_ams968hh01(struct drm_panel *panel)
 }
 
 /*
- * Full-panel mode. The msm DSI host halves the horizontal timings per link
- * in bonded mode, so these are twice the downstream per-link values
- * (1024 active, hfp 212, hpw 16, hbp 108; vfp 10, vpw 2, vbp 6).
+ * Full-panel mode. In command mode the porches never reach the wire; they
+ * only set the link rate (and the tear-check counter via htotal x vtotal x
+ * refresh). The vendor kernel runs each link at 893.2 Mbit/s per lane
+ * (pclk 148.867 MHz, byte clock 111.65 MHz per link, measured on a running
+ * SM-T820), and the DDI's UPLL setting (B0 D0 / B1 1D) is chosen for that
+ * rate. Match it by widening the front porch; vrefresh stays 60.
  */
 static const struct drm_display_mode ams968hh01_mode = {
+	.clock = 297733,		/* 3194 * 1554 * 60 Hz / 1000 */
+	.hdisplay = 2048,
+	.hsync_start = 2048 + 898,
+	.hsync_end = 2048 + 898 + 32,
+	.htotal = 2048 + 898 + 32 + 216,
+	.vdisplay = 1536,
+	.vsync_start = 1536 + 10,
+	.vsync_end = 1536 + 10 + 2,
+	.vtotal = 1536 + 10 + 2 + 6,
+	.width_mm = 196,
+	.height_mm = 147,
+	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
+};
+
+/* Previous mode (760.8 Mbit/s per lane), kept for comparison: slow_link=1 */
+static const struct drm_display_mode ams968hh01_mode_slow = {
 	.clock = 253613,		/* 2720 * 1554 * 60 Hz / 1000 */
 	.hdisplay = 2048,
 	.hsync_start = 2048 + 424,
@@ -60,6 +79,10 @@ static const struct drm_display_mode ams968hh01_mode = {
 	.height_mm = 147,
 	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
 };
+
+static bool slow_link;
+module_param(slow_link, bool, 0444);
+MODULE_PARM_DESC(slow_link, "Use the old 760.8 Mbit/s mode instead of the vendor 893.2 Mbit/s");
 
 /*
  * mDNIe (the DDI's colour processing block) "bypass" tables from the
@@ -219,7 +242,7 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 	if (dsi_ctx.accum_err)
 		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 	else
-		dev_info(&dsi->dev, "mDNIe bypass programmed (v12)\n");
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v12, %s link)\n", slow_link ? "760.8" : "893.2");
 
 	ams968hh01_readback(ctx);
 }
@@ -373,7 +396,8 @@ static int ams968hh01_unprepare(struct drm_panel *panel)
 static int ams968hh01_get_modes(struct drm_panel *panel,
 				struct drm_connector *connector)
 {
-	return drm_connector_helper_get_modes_fixed(connector, &ams968hh01_mode);
+	return drm_connector_helper_get_modes_fixed(connector, slow_link ?
+						   &ams968hh01_mode_slow : &ams968hh01_mode);
 }
 
 static const struct drm_panel_funcs ams968hh01_panel_funcs = {

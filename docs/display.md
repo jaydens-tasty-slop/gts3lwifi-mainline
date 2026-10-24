@@ -239,6 +239,21 @@ mechanism (B0 offset, then a DCS read, as the vendor reads MTP data) and
 adds `dual_dsi=`, `cmode=` and `late_mode=1` (rewrite after display-on in
 HS) as boot-time knobs.
 
+**Stock register reference (2026-10-24).** Jayden Milne captured the live
+MDSS/DSI state of a running SM-T820 under the vendor 3.18 kernel:
+https://gist.github.com/jaydens-tasty-slop/8829d71d3dc54a8ab7e42e80b0f79d42
+(read-only capture, plus a write-up of the 3.18 debugfs traps). Diffed
+against our round 15 dump: MDP top, split-display registers (EN 1,
+upper = lower = 0x102), CTL_0/1 op modes, LM out sizes, tear check and the
+DSI command-mode registers all match. Real differences:
+- **link rate**: stock 893.2 Mbit/s per lane (pclk 148.867 MHz, byte clock
+  111.65 MHz per link, both links on the DSI0 PLL); ours was 760.8. The
+  DDI's UPLL value (B0 D0 / B1 1D) is set for the stock rate. Round 17 now
+  uses a mode that reproduces the stock rate (htotal 3194, clock 297733,
+  vrefresh still 60); `slow_link=1` restores the old one.
+- minor: stock programs MDP stream 1 like stream 0, EoT RX-ignore set,
+  CLKOUT timing 0x0d30 vs our computed 0x0c2b, HS timer values.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
