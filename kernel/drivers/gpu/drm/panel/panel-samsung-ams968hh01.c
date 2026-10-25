@@ -16,6 +16,7 @@
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_graph.h>
@@ -117,6 +118,10 @@ MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) inst
 
 static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx);
 
+static unsigned int init_delay_ms;
+module_param(init_delay_ms, uint, 0444);
+MODULE_PARM_DESC(init_delay_ms, "Extra wait after TCON_RDY before sending the init sequence");
+
 static int dual_dsi = 0x06;
 module_param(dual_dsi, int, 0444);
 MODULE_PARM_DESC(dual_dsi, "Value written to B1 at offset 0x51 (vendor: 0x06, 'dual dsi setting')");
@@ -183,16 +188,24 @@ module_param(mdnie_bypass, bool, 0644);
 MODULE_PARM_DESC(mdnie_bypass, "Program the DDI mDNIe block with the identity (bypass) tables at init");
 
 /* Bring-up aid: does the DDI answer reads, and did the register writes land? */
-static void ams968hh01_readback(struct ams968hh01 *ctx)
+/*
+ * Bring-up aid: read DDI registers back. The vendor reads with "B0 <offset>"
+ * (short write) followed by a GENERIC read with two parameters (type 0x24:
+ * register, length), e.g. MTP = B0 5A + read(D8, 8). DCS reads (0x06) of the
+ * B1/B2 write ports are not answered (round 17 got the previous byte back).
+ */
+static void ams968hh01_readback(struct ams968hh01 *ctx, const char *when)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi[0];
 	static const struct { u8 off, reg, len; const char *what; } regs[] = {
+		{ 0x5a, 0xd8, 8, "MTP via D8 (vendor method, sanity check)" },
 		{ 0x51, 0xb1, 1, "dual dsi (want 06)" },
 		{ 0xd9, 0xb1, 1, "compression mode (want 08)" },
+		{ 0xd0, 0xb1, 1, "UPLL (want 1d)" },
 		{ 0x75, 0xb2, 1, "INTR (want 28)" },
 		{ 0x7f, 0xb2, 1, "TSP (want 15)" },
-		{ 0xd0, 0xb1, 1, "UPLL (want 1d)" },
-		{ 0x5a, 0xd8, 8, "MTP (vendor reads this)" },
+		{ 0x51, 0xd8, 1, "D8 bank at 0x51" },
+		{ 0xd9, 0xd8, 1, "D8 bank at 0xd9" },
 	};
 	u8 id[3] = {}, buf[8];
 	int i, r0, r1, r2, ret;
@@ -200,18 +213,20 @@ static void ams968hh01_readback(struct ams968hh01 *ctx)
 	r0 = mipi_dsi_dcs_read(dsi, 0xda, &id[0], 1);
 	r1 = mipi_dsi_dcs_read(dsi, 0xdb, &id[1], 1);
 	r2 = mipi_dsi_dcs_read(dsi, 0xdc, &id[2], 1);
-	dev_info(&dsi->dev, "readback: ID %02x %02x %02x (ret %d %d %d)\n",
-		 id[0], id[1], id[2], r0, r1, r2);
+	dev_info(&dsi->dev, "readback %s: ID %02x %02x %02x (ret %d %d %d)\n",
+		 when, id[0], id[1], id[2], r0, r1, r2);
 
 	mipi_dsi_set_maximum_return_packet_size(dsi, sizeof(buf));
 	for (i = 0; i < ARRAY_SIZE(regs); i++) {
 		u8 sel[] = { 0xb0, regs[i].off };
+		u8 rd[] = { regs[i].reg, regs[i].len };
 
-		memset(buf, 0, sizeof(buf));
+		memset(buf, 0xee, sizeof(buf));
 		mipi_dsi_dcs_write_buffer(dsi, sel, sizeof(sel));
-		ret = mipi_dsi_dcs_read(dsi, regs[i].reg, buf, regs[i].len);
-		dev_info(&dsi->dev, "readback: %02x@%02x = %*ph (ret %d) %s\n",
-			 regs[i].reg, regs[i].off, (int)regs[i].len, buf, ret, regs[i].what);
+		ret = mipi_dsi_generic_read(dsi, rd, sizeof(rd), buf, regs[i].len);
+		dev_info(&dsi->dev, "readback %s: %02x@%02x = %*ph (ret %d) %s\n",
+			 when, regs[i].reg, regs[i].off, (int)regs[i].len, buf, ret,
+			 regs[i].what);
 	}
 }
 
@@ -242,9 +257,9 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 	if (dsi_ctx.accum_err)
 		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 	else
-		dev_info(&dsi->dev, "mDNIe bypass programmed (v12, %s link)\n", slow_link ? "760.8" : "893.2");
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v13, %s link)\n", slow_link ? "760.8" : "893.2");
 
-	ams968hh01_readback(ctx);
+	ams968hh01_readback(ctx, "after on");
 }
 
 /* Downstream qcom,mdss-dsi-on-command. B0 = register offset, B1/B2 = write. */
@@ -331,7 +346,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 {
 	struct ams968hh01 *ctx = to_ams968hh01(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
-	int val, ret;
+	int val, ret, before;
+	ktime_t t0;
 
 	ret = regulator_enable(ctx->vdd);
 	if (ret)
@@ -343,20 +359,28 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 	 * DDI wants 70 ms plus margin between LP11 and reset.
 	 */
 	msleep(75);
+	before = gpiod_get_value_cansleep(ctx->tcon_ready_gpio);
+	t0 = ktime_get();
 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
 
 	/* The DDI raises TCON_RDY once it accepts commands (downstream: up to 1 s) */
 	ret = read_poll_timeout(gpiod_get_value_cansleep, val, val,
 				1000, 1000000, false, ctx->tcon_ready_gpio);
-	if (ret)
-		dev_warn(panel->dev, "TCON_RDY not asserted, continuing anyway\n");
+	dev_info(panel->dev, "TCON_RDY: %d before reset release, %s after %lld ms\n",
+		 before, ret ? "NOT high" : "high", ktime_ms_delta(ktime_get(), t0));
 	usleep_range(1000, 2000);
+	if (init_delay_ms) {
+		msleep(init_delay_ms);
+		dev_info(panel->dev, "extra %u ms before init\n", init_delay_ms);
+	}
 
 	ams968hh01_init(&dsi_ctx);
 	if (dsi_ctx.accum_err) {
 		ams968hh01_power_off(ctx);
 		return dsi_ctx.accum_err;
 	}
+
+	ams968hh01_readback(ctx, "after init");
 
 	return 0;
 }

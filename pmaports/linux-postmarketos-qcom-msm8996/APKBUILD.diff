@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..68479267e0 100644
+index 601fa9f44e..fa25339752 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -35,7 +35,7 @@ index 601fa9f44e..68479267e0 100644
 +feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
 +71cef6df692ccaeb8575bce830b32bbf4c11debdda209b7ac3f7a19dee9395f88d0981f46b72534d1d9a2f3cd742e721167afaff91ed7b0ce92c5b481ce05787  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 +81ef96ef5e975c6c7b1249ea37b02f8a69154a399cd1426f234a0e44a8f5e4e9357da99dcd64629da0c7922678c0bb3e42dc8b05e53a72449dc8328c7c3655cb  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
-+d7e00dcc123555ddf3a4efbed7067402f9532874d4c2042b7c6a41805f32e090d4fd7c6b6d5f31eb167c63e5ce33ed4038b4dd4b82f690e841c4f6d43e86d026  0005-drm-panel-ams968hh01-mdnie-bypass.patch
-+59925d4067b8e46ab111af4abeb20e04aef9b56cf36ce16278687f84f4d4df950691693f2ab0af24eaaf34f3f273714e7989e5816be8b3ff53b50d1913e3a101  0006-drm-msm-dsi-rgb-swap-param.patch
-+412182c61a1ccf8bee1af3e85827cbf3289cffea8340f026e7bce4df908f3ede3e70fd8546bde958494871021a6a0943b011160222edb5f7c77e30ab3a7ac000  0007-drm-msm-debugfs-dsi-tpg.patch
++582aa3289fac523ba33fbbd90a4044046f8e6860d809117cfbff255fa38d1cf5e48618b1c8c950c3ca2f4c9a5875e1a9f4cf1bdaea4fe3f4a1f1eaacc9c7e796  0005-drm-panel-ams968hh01-mdnie-bypass.patch
++32d4dace57971e97668f97a04b88088f482ce23606a66150e36e14adb0b1657b0d2ec52c6d8bab8ab9282b7077729c291b64c13896389ede9d089d02ce073304  0006-drm-msm-dsi-rgb-swap-param.patch
++8aa44e11f2bc042198b23e63973154c8ff7303942f5ea3db5f4e1826a23a109b04661817557b0a06c5c82c6d735ead93b01848d6de21a889d5e0fbeb6cb232a5  0007-drm-msm-debugfs-dsi-tpg.patch
  "

@@ -254,6 +254,24 @@ DSI command-mode registers all match. Real differences:
 - minor: stock programs MDP stream 1 like stream 0, EoT RX-ignore set,
   CLKOUT timing 0x0d30 vs our computed 0x0c2b, HS timer values.
 
+Round 17 (2026-10-25):
+- Boot A (stock 893.2 Mbit/s link): no visible change, colours as before.
+  Readback with DCS reads (0x06) of B1/B2 returned 0x16 for every offset,
+  i.e. the last ID byte again: the DDI does not answer DCS reads of the
+  write ports, so these values mean nothing.
+- Boot B (`late_mode=1`: B0 51/B1 06 and B0 D9/B1 08 rewritten after
+  display-on, in HS): the console area blinks on and off, and afterwards
+  the DDI answers no reads at all (even the ID). So writing those two
+  registers while the panel runs changes its state, which suggests the
+  same writes at init time had not taken effect (identical values should
+  be a no-op otherwise). Candidate cause: init sent before the T-CON has
+  finished booting (Galaxy Tab S6 port: ~330 ms after reset, commands
+  before that are silently dropped).
+Round 18 logs TCON_RDY before reset release and how long it takes to go
+high, reads registers the vendor way (B0 offset, then GENERIC read with two
+parameters, type 0x24; D8@5A MTP as a sanity check), right after init and
+after display-on, and boot B adds `init_delay_ms=500` before init.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
