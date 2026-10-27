@@ -1,0 +1,35 @@
+[    0.109018] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.109589] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.109844] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.110109] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.118622] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.119242] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.119540] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.119840] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.937363] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.937568] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   17.937616] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   17.949919] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   17.950160] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   18.073790] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] bonded DSI: split display v5, master DSI0
+[   18.108957] msm_mdp 901000.display-controller: [drm:mdp5_mixer_assign [msm]] split display: LM0 (pp0) + LM1 (pp1) for crtc-0
+[   18.371303] panel-samsung-ams968hh01 994000.dsi.0: TCON_RDY: 0 before reset release, high after 61 ms
+[   18.594594] panel-samsung-ams968hh01 994000.dsi.0: readback after init: ID 00 00 00 (ret 0 0 0)
+[   18.595122] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@5a = ee ee ee ee ee ee ee ee (ret 0) MTP via D8 (vendor method, sanity check)
+[   18.595524] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@51 = ee (ret 0) dual dsi (want 06)
+[   18.595936] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@d9 = ee (ret 0) compression mode (want 08)
+[   18.596331] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@d0 = ee (ret 0) UPLL (want 1d)
+[   18.596725] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b2@75 = ee (ret 0) INTR (want 28)
+[   18.597113] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b2@7f = ee (ret 0) TSP (want 15)
+[   18.597523] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@51 = ee (ret 0) D8 bank at 0x51
+[   18.598128] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@d9 = ee (ret 0) D8 bank at 0xd9
+[   18.662324] panel-samsung-ams968hh01 994000.dsi.0: mDNIe bypass programmed (v13, 893.2 link)
+[   18.663036] panel-samsung-ams968hh01 994000.dsi.0: readback after on: ID 42 40 16 (ret 1 1 1)
+[   18.663539] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@5a = 1f 47 4e 3d 34 51 5b 36 (ret 8) MTP via D8 (vendor method, sanity check)
+[   18.663946] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@51 = ee (ret 0) dual dsi (want 06)
+[   18.664348] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@d9 = ee (ret 0) compression mode (want 08)
+[   18.664748] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@d0 = ee (ret 0) UPLL (want 1d)
+[   18.665159] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b2@75 = ee (ret 0) INTR (want 28)
+[   18.665559] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b2@7f = ee (ret 0) TSP (want 15)
+[   18.666087] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@51 = 00 (ret 1) D8 bank at 0x51
+[   18.666471] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@d9 = 00 (ret 1) D8 bank at 0xd9

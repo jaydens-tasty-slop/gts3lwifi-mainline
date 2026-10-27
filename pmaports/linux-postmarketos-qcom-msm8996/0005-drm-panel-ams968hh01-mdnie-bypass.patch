@@ -1,4 +1,4 @@
-From 75bb318f0c2e149c652f84a77ee8ff1d9d979c41 Mon Sep 17 00:00:00 2001
+From 0a6dce6c82b7a00d06ae1ad66d47e7db0a60f645 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Thu, 8 Oct 2026 11:08:46 +0530
 Subject: [PATCH] drm/panel: samsung-ams968hh01: program the mDNIe block to
@@ -14,11 +14,11 @@ sequence. A module parameter allows skipping this for experiments.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ---
- .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 310 ++++++++++++++++--
- 1 file changed, 278 insertions(+), 32 deletions(-)
+ .../gpu/drm/panel/panel-samsung-ams968hh01.c  | 338 ++++++++++++++++--
+ 1 file changed, 306 insertions(+), 32 deletions(-)
 
 diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
-index 9900bda9f..5e57edbc8 100644
+index 9900bda9f..2d8aa255d 100644
 --- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 +++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
 @@ -10,16 +10,18 @@
@@ -75,7 +75,7 @@ index 9900bda9f..5e57edbc8 100644
  	.clock = 253613,		/* 2720 * 1554 * 60 Hz / 1000 */
  	.hdisplay = 2048,
  	.hsync_start = 2048 + 424,
-@@ -60,46 +81,257 @@ static const struct drm_display_mode ams968hh01_mode = {
+@@ -60,46 +81,258 @@ static const struct drm_display_mode ams968hh01_mode = {
  	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
  };
  
@@ -115,6 +115,14 @@ index 9900bda9f..5e57edbc8 100644
 +MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
 +
 +static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx);
++
++static bool init_in_enable;
++module_param(init_in_enable, bool, 0444);
++MODULE_PARM_DESC(init_in_enable, "Send the init sequence from enable() (link fully up) instead of prepare()");
++
++static bool late_init;
++module_param(late_init, bool, 0444);
++MODULE_PARM_DESC(late_init, "After display-on, send the whole init sequence again and display-on once more");
 +
 +static unsigned int init_delay_ms;
 +module_param(init_delay_ms, uint, 0444);
@@ -196,14 +204,7 @@ index 9900bda9f..5e57edbc8 100644
 +{
 +	struct mipi_dsi_device *dsi = ctx->dsi[0];
 +	static const struct { u8 off, reg, len; const char *what; } regs[] = {
-+		{ 0x5a, 0xd8, 8, "MTP via D8 (vendor method, sanity check)" },
-+		{ 0x51, 0xb1, 1, "dual dsi (want 06)" },
-+		{ 0xd9, 0xb1, 1, "compression mode (want 08)" },
-+		{ 0xd0, 0xb1, 1, "UPLL (want 1d)" },
-+		{ 0x75, 0xb2, 1, "INTR (want 28)" },
-+		{ 0x7f, 0xb2, 1, "TSP (want 15)" },
-+		{ 0x51, 0xd8, 1, "D8 bank at 0x51" },
-+		{ 0xd9, 0xd8, 1, "D8 bank at 0xd9" },
++		{ 0x5a, 0xd8, 8, "MTP via D8 (vendor method)" },
 +	};
 +	u8 id[3] = {}, buf[8];
 +	int i, r0, r1, r2, ret;
@@ -255,7 +256,7 @@ index 9900bda9f..5e57edbc8 100644
 +	if (dsi_ctx.accum_err)
 +		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 +	else
-+		dev_info(&dsi->dev, "mDNIe bypass programmed (v13, %s link)\n", slow_link ? "760.8" : "893.2");
++		dev_info(&dsi->dev, "mDNIe bypass programmed (v14, %s link)\n", slow_link ? "760.8" : "893.2");
 +
 +	ams968hh01_readback(ctx, "after on");
 +}
@@ -356,7 +357,7 @@ index 9900bda9f..5e57edbc8 100644
  }
  
  static void ams968hh01_power_off(struct ams968hh01 *ctx)
-@@ -114,7 +346,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
+@@ -114,7 +347,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
  {
  	struct ams968hh01 *ctx = to_ams968hh01(panel);
  	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
@@ -366,7 +367,7 @@ index 9900bda9f..5e57edbc8 100644
  
  	ret = regulator_enable(ctx->vdd);
  	if (ret)
-@@ -126,14 +359,20 @@ static int ams968hh01_prepare(struct drm_panel *panel)
+@@ -126,14 +360,24 @@ static int ams968hh01_prepare(struct drm_panel *panel)
  	 * DDI wants 70 ms plus margin between LP11 and reset.
  	 */
  	msleep(75);
@@ -386,20 +387,39 @@ index 9900bda9f..5e57edbc8 100644
 +		msleep(init_delay_ms);
 +		dev_info(panel->dev, "extra %u ms before init\n", init_delay_ms);
 +	}
++
++	ams968hh01_readback(ctx, "prepare, before init");
++	if (init_in_enable)
++		return 0;
  
  	ams968hh01_init(&dsi_ctx);
  	if (dsi_ctx.accum_err) {
-@@ -141,6 +380,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
+@@ -141,6 +385,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
  		return dsi_ctx.accum_err;
  	}
  
-+	ams968hh01_readback(ctx, "after init");
++	ams968hh01_readback(ctx, "prepare, after init");
 +
  	return 0;
  }
  
-@@ -151,8 +392,12 @@ static int ams968hh01_enable(struct drm_panel *panel)
+@@ -149,10 +395,37 @@ static int ams968hh01_enable(struct drm_panel *panel)
+ 	struct ams968hh01 *ctx = to_ams968hh01(panel);
+ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
  
++	/* Bring-up aid: does the DDI answer once the display pipeline runs? */
++	if (!init_in_enable)
++		ams968hh01_readback(ctx, "enable, before display-on");
++
++	if (init_in_enable) {
++		ams968hh01_readback(ctx, "enable, before init");
++		ams968hh01_init(&dsi_ctx);
++		if (dsi_ctx.accum_err)
++			return dsi_ctx.accum_err;
++		dev_info(panel->dev, "init sent from enable()\n");
++		ams968hh01_readback(ctx, "enable, after init");
++	}
++
  	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
  	mipi_dsi_msleep(&dsi_ctx, 50);
 +	if (dsi_ctx.accum_err)
@@ -408,11 +428,21 @@ index 9900bda9f..5e57edbc8 100644
 -	return dsi_ctx.accum_err;
 +	ams968hh01_mdnie_init(ctx);
 +
++	if (late_init) {
++		ams968hh01_init(&dsi_ctx);
++		mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++		mipi_dsi_msleep(&dsi_ctx, 50);
++		dev_info(panel->dev, "init sent again after display-on (err %d)\n",
++			 dsi_ctx.accum_err);
++		dsi_ctx.accum_err = 0;
++		ams968hh01_readback(ctx, "after late init");
++	}
++
 +	return 0;
  }
  
  static int ams968hh01_disable(struct drm_panel *panel)
-@@ -175,7 +420,8 @@ static int ams968hh01_unprepare(struct drm_panel *panel)
+@@ -175,7 +448,8 @@ static int ams968hh01_unprepare(struct drm_panel *panel)
  static int ams968hh01_get_modes(struct drm_panel *panel,
  				struct drm_connector *connector)
  {

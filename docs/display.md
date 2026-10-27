@@ -272,6 +272,30 @@ high, reads registers the vendor way (B0 offset, then GENERIC read with two
 parameters, type 0x24; D8@5A MTP as a sanity check), right after init and
 after display-on, and boot B adds `init_delay_ms=500` before init.
 
+Round 18 (2026-10-27):
+- TCON_RDY is a real handshake: low before reset release, high 61 ms later.
+  So the init is not sent before the T-CON says it is ready.
+- The vendor read method works: B0 5A + generic read(D8, 8) returns real
+  MTP data (1f 47 4e 3d 34 51 5b 36) after display-on. The B1/B2 write
+  ports cannot be read back by any method tried, so the two mode
+  registers cannot be checked directly.
+- **Every read during prepare fails, even the panel ID**, and works after
+  display-on. 500 ms of extra delay changes nothing. So during prepare(),
+  where the whole init sequence is sent, the DDI is not receiving or not
+  answering our commands, while the same link works later. Combined with
+  round 17 boot B (rewriting the mode registers after display-on visibly
+  changes the panel), the most likely story is that the init sequence sent
+  in prepare() never takes effect and the panel runs on power-on defaults
+  (MIC 12 bpp) until something is written later.
+- Difference from the vendor sequence noted for later: stock holds all
+  lanes in LP-11 during reset and only then forces the clock lane to HS;
+  mainline forces continuous HS clock at host power-on, before the panel
+  comes out of reset.
+Round 19 moves the init: boot B sends it from enable() (pipeline running,
+`init_in_enable=1`), boot C sends it again after display-on (`late_init=1`),
+and readbacks now also run just before display-on to see when the DDI
+starts answering. The dmesg filter now includes DSI host errors.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

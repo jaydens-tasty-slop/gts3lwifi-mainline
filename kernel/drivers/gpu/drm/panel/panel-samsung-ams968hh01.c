@@ -118,6 +118,14 @@ MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) inst
 
 static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx);
 
+static bool init_in_enable;
+module_param(init_in_enable, bool, 0444);
+MODULE_PARM_DESC(init_in_enable, "Send the init sequence from enable() (link fully up) instead of prepare()");
+
+static bool late_init;
+module_param(late_init, bool, 0444);
+MODULE_PARM_DESC(late_init, "After display-on, send the whole init sequence again and display-on once more");
+
 static unsigned int init_delay_ms;
 module_param(init_delay_ms, uint, 0444);
 MODULE_PARM_DESC(init_delay_ms, "Extra wait after TCON_RDY before sending the init sequence");
@@ -198,14 +206,7 @@ static void ams968hh01_readback(struct ams968hh01 *ctx, const char *when)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi[0];
 	static const struct { u8 off, reg, len; const char *what; } regs[] = {
-		{ 0x5a, 0xd8, 8, "MTP via D8 (vendor method, sanity check)" },
-		{ 0x51, 0xb1, 1, "dual dsi (want 06)" },
-		{ 0xd9, 0xb1, 1, "compression mode (want 08)" },
-		{ 0xd0, 0xb1, 1, "UPLL (want 1d)" },
-		{ 0x75, 0xb2, 1, "INTR (want 28)" },
-		{ 0x7f, 0xb2, 1, "TSP (want 15)" },
-		{ 0x51, 0xd8, 1, "D8 bank at 0x51" },
-		{ 0xd9, 0xd8, 1, "D8 bank at 0xd9" },
+		{ 0x5a, 0xd8, 8, "MTP via D8 (vendor method)" },
 	};
 	u8 id[3] = {}, buf[8];
 	int i, r0, r1, r2, ret;
@@ -257,7 +258,7 @@ static void ams968hh01_mdnie_init(struct ams968hh01 *ctx)
 	if (dsi_ctx.accum_err)
 		dev_err(&dsi->dev, "mDNIe bypass failed: %d\n", dsi_ctx.accum_err);
 	else
-		dev_info(&dsi->dev, "mDNIe bypass programmed (v13, %s link)\n", slow_link ? "760.8" : "893.2");
+		dev_info(&dsi->dev, "mDNIe bypass programmed (v14, %s link)\n", slow_link ? "760.8" : "893.2");
 
 	ams968hh01_readback(ctx, "after on");
 }
@@ -374,13 +375,17 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 		dev_info(panel->dev, "extra %u ms before init\n", init_delay_ms);
 	}
 
+	ams968hh01_readback(ctx, "prepare, before init");
+	if (init_in_enable)
+		return 0;
+
 	ams968hh01_init(&dsi_ctx);
 	if (dsi_ctx.accum_err) {
 		ams968hh01_power_off(ctx);
 		return dsi_ctx.accum_err;
 	}
 
-	ams968hh01_readback(ctx, "after init");
+	ams968hh01_readback(ctx, "prepare, after init");
 
 	return 0;
 }
@@ -390,12 +395,35 @@ static int ams968hh01_enable(struct drm_panel *panel)
 	struct ams968hh01 *ctx = to_ams968hh01(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
 
+	/* Bring-up aid: does the DDI answer once the display pipeline runs? */
+	if (!init_in_enable)
+		ams968hh01_readback(ctx, "enable, before display-on");
+
+	if (init_in_enable) {
+		ams968hh01_readback(ctx, "enable, before init");
+		ams968hh01_init(&dsi_ctx);
+		if (dsi_ctx.accum_err)
+			return dsi_ctx.accum_err;
+		dev_info(panel->dev, "init sent from enable()\n");
+		ams968hh01_readback(ctx, "enable, after init");
+	}
+
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);
 	if (dsi_ctx.accum_err)
 		return dsi_ctx.accum_err;
 
 	ams968hh01_mdnie_init(ctx);
+
+	if (late_init) {
+		ams968hh01_init(&dsi_ctx);
+		mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+		mipi_dsi_msleep(&dsi_ctx, 50);
+		dev_info(panel->dev, "init sent again after display-on (err %d)\n",
+			 dsi_ctx.accum_err);
+		dsi_ctx.accum_err = 0;
+		ams968hh01_readback(ctx, "after late init");
+	}
 
 	return 0;
 }

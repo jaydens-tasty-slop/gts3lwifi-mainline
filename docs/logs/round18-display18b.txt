@@ -1,0 +1,40 @@
+[    0.000000] Kernel command line: console=tty0 panel_samsung_ams968hh01.init_delay_ms=500 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults
+[    0.121643] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.122208] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.122463] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.122728] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.131347] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[    0.131968] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[    0.132266] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[    0.132569] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.662760] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.663898] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   17.664000] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   17.678319] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   17.678662] /soc@0/display-subsystem@900000/dsi@996000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.700766] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@996000
+[   17.832529] /soc@0/display-subsystem@900000/dsi@994000: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000/panel@0
+[   17.833327] /soc@0/display-subsystem@900000/dsi@994000/panel@0: Fixed dependency cycle(s) with /soc@0/display-subsystem@900000/dsi@994000
+[   17.892019] msm_mdp 901000.display-controller: [drm:mdp5_kms_init [msm]] bonded DSI: split display v5, master DSI0
+[   17.935365] msm_mdp 901000.display-controller: [drm:mdp5_mixer_assign [msm]] split display: LM0 (pp0) + LM1 (pp1) for crtc-0
+[   18.208884] panel-samsung-ams968hh01 994000.dsi.0: TCON_RDY: 0 before reset release, high after 61 ms
+[   18.727137] panel-samsung-ams968hh01 994000.dsi.0: extra 500 ms before init
+[   18.947774] panel-samsung-ams968hh01 994000.dsi.0: readback after init: ID 00 00 00 (ret 0 0 0)
+[   18.948176] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@5a = ee ee ee ee ee ee ee ee (ret 0) MTP via D8 (vendor method, sanity check)
+[   18.948493] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@51 = ee (ret 0) dual dsi (want 06)
+[   18.948801] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@d9 = ee (ret 0) compression mode (want 08)
+[   18.949108] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b1@d0 = ee (ret 0) UPLL (want 1d)
+[   18.949418] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b2@75 = ee (ret 0) INTR (want 28)
+[   18.949721] panel-samsung-ams968hh01 994000.dsi.0: readback after init: b2@7f = ee (ret 0) TSP (want 15)
+[   18.950025] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@51 = ee (ret 0) D8 bank at 0x51
+[   18.950330] panel-samsung-ams968hh01 994000.dsi.0: readback after init: d8@d9 = ee (ret 0) D8 bank at 0xd9
+[   19.015456] panel-samsung-ams968hh01 994000.dsi.0: mDNIe bypass programmed (v13, 893.2 link)
+[   19.016030] panel-samsung-ams968hh01 994000.dsi.0: readback after on: ID 42 40 16 (ret 1 1 1)
+[   19.016409] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@5a = 1f 47 4e 3d 34 51 5b 36 (ret 8) MTP via D8 (vendor method, sanity check)
+[   19.016736] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@51 = ee (ret 0) dual dsi (want 06)
+[   19.017057] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@d9 = ee (ret 0) compression mode (want 08)
+[   19.017376] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b1@d0 = ee (ret 0) UPLL (want 1d)
+[   19.017702] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b2@75 = ee (ret 0) INTR (want 28)
+[   19.018021] panel-samsung-ams968hh01 994000.dsi.0: readback after on: b2@7f = ee (ret 0) TSP (want 15)
+[   19.018312] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@51 = 00 (ret 1) D8 bank at 0x51
+[   19.018600] panel-samsung-ams968hh01 994000.dsi.0: readback after on: d8@d9 = 00 (ret 1) D8 bank at 0xd9
