@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..781471f18c 100644
+index 601fa9f44e..9923f252b8 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -36,6 +36,6 @@ index 601fa9f44e..781471f18c 100644
 +71cef6df692ccaeb8575bce830b32bbf4c11debdda209b7ac3f7a19dee9395f88d0981f46b72534d1d9a2f3cd742e721167afaff91ed7b0ce92c5b481ce05787  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 +81ef96ef5e975c6c7b1249ea37b02f8a69154a399cd1426f234a0e44a8f5e4e9357da99dcd64629da0c7922678c0bb3e42dc8b05e53a72449dc8328c7c3655cb  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
 +23637d41a8e587b48454fd0fb8ee688177dba32e5c22f12b5cb322d02f20763e2d9dfe6833ee65550241df9493c4b9ae1e02a84acff78d1252e3d131621e2524  0005-drm-panel-ams968hh01-mdnie-bypass.patch
-+0c865419f40c20a0e776f73484967043bdad43643328942a3ed6ada6877989509bc750d211422304e6e438343106686d01ee36e46bc7b1bc239628adb918b073  0006-drm-msm-dsi-rgb-swap-param.patch
-+012e38a64e5413d89b78fa7a24d84e39f76b66ff6be425b15084426e46b83732670a95b3947ade716d461f7cdc76c7236008f90781c9a60ecc3fb746aab14178  0007-drm-msm-debugfs-dsi-tpg.patch
++ac1c25203f364cc2cff75d1aec875d80c7a3d3326452226ed2c398a2589d2c430ce6569485323e3bd9f7d4e666df5208d9eaabafdb5c491c50241772ee83c1a4  0006-drm-msm-dsi-rgb-swap-param.patch
++8ef106a9eec607d77bb4bcaea3a0c63c36bb0c87998cdcf620003922b0745de960c50f9a48dd39a88fa84defbc231c6ce05b1aa1df6a2eab5ca5944a7802e02c  0007-drm-msm-debugfs-dsi-tpg.patch
  "

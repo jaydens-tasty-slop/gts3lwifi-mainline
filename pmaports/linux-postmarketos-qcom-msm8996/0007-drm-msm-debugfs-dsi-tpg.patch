@@ -1,4 +1,4 @@
-From a8debe9c5857f10549a63b1c90c7c6b2edf59ddd Mon Sep 17 00:00:00 2001
+From 749ee058b72cb7d490d57a19d206d6d797b6fb75 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
 Date: Mon, 19 Oct 2026 11:10:51 +0530
 Subject: [PATCH] drm/msm: add a debugfs trigger for the DSI test pattern

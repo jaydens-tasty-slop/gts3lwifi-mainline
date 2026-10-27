@@ -9,7 +9,7 @@ SRC=$HOME/samsung/linux/drivers/gpu/drm/msm/disp/mdp5/mdp5_ctl.c
 OUT=$P/tester-round19
 [ -f "$KO" ] || { echo "error: $KO not found" >&2; exit 1; }
 [ "$KO" -nt "$SRC" ] || { echo "error: msm.ko is older than the mdp5 sources; rebuild with 'make -j\$(nproc) modules' in envkernel" >&2; exit 1; }
-strings -a "$KO" | grep -q "split_start_both" && strings -a "$KO" | grep -q "split display v5" && strings -a "$KO" | grep -q "rgb_swap" && strings -a "$KO" | grep -q "enabling DSI test pattern" || { echo "error: msm.ko does not contain the split display code" >&2; exit 1; }
+strings -a "$KO" | grep -q "split_start_both" && strings -a "$KO" | grep -q "split display v5" && strings -a "$KO" | grep -q "defer_hs_clk" && strings -a "$KO" | grep -q "enabling DSI test pattern" || { echo "error: msm.ko does not contain the split display code" >&2; exit 1; }
 strings -a "$KO" | grep -m1 "^vermagic=" | grep -q "^vermagic=6.19.5 " || { echo "error: unexpected vermagic" >&2; exit 1; }
 STRIP=$(command -v llvm-strip || ls /usr/lib/llvm-*/bin/llvm-strip 2>/dev/null | head -1 || true)
 PKO=$HOME/samsung/linux/.output/drivers/gpu/drm/panel/panel-samsung-ams968hh01.ko
@@ -23,9 +23,10 @@ zstd -q -19 --rm "$OUT/msm.ko" -o "$OUT/lib/modules/6.19.5/kernel/drivers/gpu/dr
 tar -C "$OUT" -czf "$OUT/msm-split-display-v14.tar.gz" lib
 rm -rf "$OUT/lib"
 cat > "$OUT/README-round19.txt" <<'TXT'
-Round 19: send the panel setup at a different moment. Modules v14
-(msm + panel). RAM boot only, same boot image as round 8. Three boots, one
-text file each, plus a photo or short video of the screen for boots B and C.
+Round 19: send the panel setup the way Samsung's driver does it, three
+variants. Modules v14 (msm + panel). RAM boot only, same boot image as
+round 8. Three boots, one text file each, plus a photo or short video of
+the screen for boots B and C.
 
 1) Install:
      scp msm-split-display-v14.tar.gz test@172.16.42.1:
@@ -39,14 +40,14 @@ text file each, plus a photo or short video of the screen for boots B and C.
      sudo dmesg | grep -iE "panel|ams968|readback|TCON|init sent|split display|dsi" > display19a.txt; sync
      sudo reboot
 
-3) Boot B (setup sent when the picture pipeline is already running):
-     fastboot --cmdline "console=tty0 panel_samsung_ams968hh01.init_in_enable=1 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults" boot boot-display-touch.img
+3) Boot B (link clock started after the panel reset, like Samsung):
+     fastboot --cmdline "console=tty0 msm.defer_hs_clk=1 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults" boot boot-display-touch.img
    look at the screen (photo/video), then over ssh:
      sudo dmesg | grep -iE "panel|ams968|readback|TCON|init sent|split display|dsi" > display19b.txt; sync
      sudo reboot
 
-4) Boot C (setup sent a second time after the screen is on):
-     fastboot --cmdline "console=tty0 panel_samsung_ams968hh01.late_init=1 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults" boot boot-display-touch.img
+4) Boot C (setup sent once the picture pipeline is running):
+     fastboot --cmdline "console=tty0 panel_samsung_ams968hh01.init_in_enable=1 pmos_boot_uuid=6a690fa9-50e7-4341-a1c4-a2da8bd45995 pmos_root_uuid=6c62b2bd-62ef-48c9-8231-73857f873a6a pmos_rootfsopts=defaults" boot boot-display-touch.img
    look at the screen (photo/video), then over ssh:
      sudo dmesg | grep -iE "panel|ams968|readback|TCON|init sent|split display|dsi" > display19c.txt; sync
 

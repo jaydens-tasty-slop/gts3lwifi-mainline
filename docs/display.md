@@ -291,10 +291,22 @@ Round 18 (2026-10-27):
   lanes in LP-11 during reset and only then forces the clock lane to HS;
   mainline forces continuous HS clock at host power-on, before the panel
   comes out of reset.
-Round 19 moves the init: boot B sends it from enable() (pipeline running,
-`init_in_enable=1`), boot C sends it again after display-on (`late_init=1`),
-and readbacks now also run just before display-on to see when the DDI
-starts answering. The dmesg filter now includes DSI host errors.
+Why the DDI might ignore everything during prepare(): the vendor brings
+the link up as LP-11 on all lanes through the panel reset, and only then
+forces the clock lane into continuous HS before the LP init commands.
+Mainline forces continuous HS at host power-on, i.e. *before* our
+prepare() releases the panel reset, so the DDI comes out of reset with the
+clock already running and never sees a clock-lane HS entry sequence. If
+its command interface runs from the DSI clock (it derives its UPLL from
+it), it would drop LP commands and reads until something re-syncs it,
+which fits every observation so far.
+
+Round 19 tests this directly: boot B uses `msm.defer_hs_clk=1` (patch
+0006: the clock lane stays LP-11 until the first command after the panel
+reset, then goes HS, like the vendor), boot C sends the init from enable()
+(`init_in_enable=1`). `late_init=1` (init again after display-on) is also
+available. Readbacks now also run just before display-on, and the dmesg
+filter includes DSI host messages.
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
