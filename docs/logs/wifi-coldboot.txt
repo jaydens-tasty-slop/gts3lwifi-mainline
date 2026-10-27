@@ -1,0 +1,41 @@
+[    0.870641] vreg_l18a_2p85: Bringing 0uV into 2850000-2850000uV
+[    0.871267] vreg_l30a_1p8: Bringing 0uV into 1800000-1800000uV
+[    1.209262] qcom-pcie 600000.pcie: host bridge /soc@0/bus@0/pcie@600000 ranges:
+[    1.209380] qcom-pcie 600000.pcie:       IO 0x000c200000..0x000c2fffff -> 0x0000000000
+[    1.209435] qcom-pcie 600000.pcie:      MEM 0x000c300000..0x000cffffff -> 0x000c300000
+[    2.341179] qcom-pcie 600000.pcie: iATU: unroll F, 32 ob, 8 ib, align 4K, limit 4G
+[    2.341220] qcom-pcie 600000.pcie: Invalid eDMA IRQs found
+[    2.434968] qcom-pcie 600000.pcie: PCIe Gen.1 x1 link up
+[    2.435823] qcom-pcie 600000.pcie: PCI host bridge to bus 0000:00
+[    2.436346] pci 0000:00:00.0: [17cb:0104] type 01 class 0x060400 PCIe Root Port
+[    2.436445] pci 0000:00:00.0: BAR 0 [mem 0x00000000-0x00000fff]
+[    2.436507] pci 0000:00:00.0: PCI bridge to [bus 01-ff]
+[    2.436568] pci 0000:00:00.0:   bridge window [io  0x0000-0x0fff]
+[    2.436625] pci 0000:00:00.0:   bridge window [mem 0x00000000-0x000fffff]
+[    2.436692] pci 0000:00:00.0:   bridge window [mem 0x00000000-0x000fffff 64bit pref]
+[    2.436857] pci 0000:00:00.0: PME# supported from D0 D3hot
+[    2.445897] pci 0000:01:00.0: [168c:003e] type 00 class 0x028000 PCIe Endpoint
+[    2.446468] pci 0000:01:00.0: BAR 0 [mem 0x00000000-0x001fffff 64bit]
+[    2.447639] pci 0000:01:00.0: PME# supported from D0 D3hot D3cold
+[    2.455071] pci 0000:01:00.0: ASPM: default states L1
+[    2.455574] pci 0000:00:00.0: bridge window [mem 0x0c400000-0x0c5fffff]: assigned
+[    2.455666] pci 0000:00:00.0: BAR 0 [mem 0x0c300000-0x0c300fff]: assigned
+[    2.455762] pci 0000:01:00.0: BAR 0 [mem 0x0c400000-0x0c5fffff 64bit]: assigned
+[    2.456287] pci 0000:00:00.0: PCI bridge to [bus 01-ff]
+[    2.456363] pci 0000:00:00.0:   bridge window [mem 0x0c400000-0x0c5fffff]
+[    2.467950] pcieport 0000:00:00.0: PME: Signaling with IRQ 68
+[    2.468942] pcieport 0000:00:00.0: AER: enabled with IRQ 68
+[   18.527866] ath10k_pci 0000:01:00.0: enabling device (0000 -> 0002)
+[   18.529752] ath10k_pci 0000:01:00.0: pci irq msi oper_irq_mode 2 irq_mode 0 reset_mode 0
+[   18.775984] ath10k_pci 0000:01:00.0: qca6174 hw3.2 target 0x05030000 chip_id 0x00340aff sub 0000:0000
+[   18.776011] ath10k_pci 0000:01:00.0: kconfig debug 1 debugfs 1 tracing 0 dfs 0 testmode 0
+[   18.776128] ath10k_pci 0000:01:00.0: firmware ver WLAN.RM.4.4.1-00309- api 6 features wowlan,ignore-otp,mfp crc32 0793bcf2
+[   18.844573] ath10k_pci 0000:01:00.0: failed to fetch board data for bus=pci,vendor=168c,device=003e,subsystem-vendor=0000,subsystem-device=0000 from ath10k/QCA6174/hw3.0/board-2.bin
+[   18.845604] ath10k_pci 0000:01:00.0: board_file api 1 bmi_id N/A crc32 579f7063
+[   18.943588] ath10k_pci 0000:01:00.0: htt-ver 3.87 wmi-op 4 htt-op 3 cal otp max-sta 32 raw 0 hwcrypto 1
+[   19.015388] ath: EEPROM regdomain: 0x833a
+[   19.015404] ath: EEPROM indicates we should expect a country code
+[   19.015413] ath: doing EEPROM country->regdmn map search
+[   19.015420] ath: country maps to regdmn code: 0x37
+[   19.015428] ath: Country alpha2 being used: GB
+[   19.015435] ath: Regpair used: 0x37

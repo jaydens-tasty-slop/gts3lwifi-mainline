@@ -27,7 +27,9 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, dts/test/test-gpu.dts) |
-| Video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
+| Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, dts/test/test-wifi.dts) |
+| Bluetooth (QCA6174, UART) | not started |
+| Video codec, audio | not started (need Samsung-signed firmware) |
 | Battery / charger (SM5705), Type-C controller (S2MM005) | no mainline drivers |
 
 Solved: Samsung's TrustZone owns the fingerprint SPI pins (TLMM 25-28) and the
@@ -41,8 +43,9 @@ the tablet about 9 s into boot. The board DTS lists them in
 - `pmaports/` - postmarketOS device package and the kernel patch
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages
+- `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain
 - `kernel/` - out-of-tree kernel additions (panel driver, binding, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display analysis
+- `docs/` - tester instructions, boot logs, display, GPU and Wi-Fi notes
 
 ## lk2nd
 

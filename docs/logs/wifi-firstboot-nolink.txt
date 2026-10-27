@@ -1,0 +1,20 @@
+[    1.135726] vreg_l18a_2p85: Bringing 0uV into 2850000-2850000uV
+[    1.136390] vreg_l30a_1p8: Bringing 0uV into 1800000-1800000uV
+[    1.753908] qcom-pcie 600000.pcie: host bridge /soc@0/bus@0/pcie@600000 ranges:
+[    1.754004] qcom-pcie 600000.pcie:       IO 0x000c200000..0x000c2fffff -> 0x0000000000
+[    1.754048] qcom-pcie 600000.pcie:      MEM 0x000c300000..0x000cffffff -> 0x000c300000
+[    1.939186] qcom-pcie 600000.pcie: iATU: unroll F, 32 ob, 8 ib, align 4K, limit 4G
+[    1.939572] qcom-pcie 600000.pcie: Invalid eDMA IRQs found
+[    2.899392] qcom-pcie 600000.pcie: Phy link never came up
+[    2.900430] qcom-pcie 600000.pcie: PCI host bridge to bus 0000:00
+[    2.901105] pci 0000:00:00.0: [17cb:0104] type 01 class 0x060400 PCIe Root Port
+[    2.901232] pci 0000:00:00.0: BAR 0 [mem 0x00000000-0x00000fff]
+[    2.901311] pci 0000:00:00.0: PCI bridge to [bus 01-ff]
+[    2.901389] pci 0000:00:00.0:   bridge window [io  0x0000-0x0fff]
+[    2.901462] pci 0000:00:00.0:   bridge window [mem 0x00000000-0x000fffff]
+[    2.901548] pci 0000:00:00.0:   bridge window [mem 0x00000000-0x000fffff 64bit pref]
+[    2.901752] pci 0000:00:00.0: PME# supported from D0 D3hot
+[    2.913522] pci 0000:00:00.0: BAR 0 [mem 0x0c300000-0x0c300fff]: assigned
+[    2.913646] pci 0000:00:00.0: PCI bridge to [bus 01-ff]
+[    2.925067] pcieport 0000:00:00.0: PME: Signaling with IRQ 68
+[    2.926199] pcieport 0000:00:00.0: AER: enabled with IRQ 68

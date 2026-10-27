@@ -1,0 +1,117 @@
+# Wi-Fi: QCA6174 ("Rome") under mainline
+
+## Status (2026-10-28): working
+
+On a Tab S3 with no panel attached, booted from RAM with
+`dts/test/test-wifi.dts`:
+
+- PCIe0 trains at boot (`PCIe Gen.1 x1 link up`), the chip enumerates as
+  `168c:003e` (subsystem `0000:0000`);
+- `ath10k_pci` reports **QCA6174 hw3.2** (chip_id 0x00340aff) and runs
+  firmware **WLAN.RM.4.4.1-00309** (API 6) from linux-firmware, with
+  Samsung's own board data;
+- 2x2 (TX/RX antennas 0x3), HT MCS 0-15 on 2.4 GHz, VHT on 5 GHz;
+- scans find networks on both bands with sensible signal levels, and
+  NetworkManager manages `wlan0`.
+
+Not checked yet: association and throughput (needs a network password typed
+on the tablet), suspend.
+
+Logs: `docs/logs/wifi-coldboot.txt` (working boot) and
+`docs/logs/wifi-firstboot-nolink.txt` (first attempt, no link).
+
+## Wiring
+
+From the stock DT (`qcom,cnss`, `qcom,wlan-rc-num = <0>`). It is the same as
+the Xiaomi MSM8996 boards in mainline (`msm8996-xiaomi-common.dtsi`):
+
+| Signal / rail | Where |
+|---|---|
+| Rome 3.3 V (stock `rome_vreg`, also `bt_vreg`) | fixed regulator enabled by PM8994 GPIO 9, 4 ms startup |
+| WLAN_EN (stock `wlan_en_vreg`) | PM8994 GPIO 8 |
+| BT_EN | PM8994 GPIO 19 |
+| 32.768 kHz sleep clock | PM8994 GPIO 18, function 2 (Qualcomm MTP: "Rome Sleep Clock") |
+| PERST#, WAKE#, CLKREQ# | TLMM 35, 37, 36 (`pcie0_state_on` in msm8996.dtsi) |
+| I/O 1.8 V | PM8994 S4 |
+| Crystal 1.8 V | PM8994 L30 |
+| Core 1.3 V | PM8994 S3 |
+| Antenna switch | PM8994 L18 (stock `pm8994_l18_pin_ctrl`, 2.7-2.9 V) |
+| PCIe PHY | L28 0.925 V, L12 1.8 V (as on every MSM8996 board) |
+
+ath10k does not manage the cnss rails, so the test DTS keeps L30, S3 and L18
+always on.
+
+## The catch: BT_EN must be low when the 3.3 V rail comes up
+
+The first boot with the obvious DT (Xiaomi template) gave
+`qcom-pcie 600000.pcie: Phy link never came up`. Everything on the SoC side
+checked out against stock: rails, pin muxing, PHY PLL locked, PCS ready,
+endpoint refclk drive on, `gcc_pcie_clkref_clk` (stock `pcie_0_ldo`) and
+LN_BB enabled. Samsung's PCIe driver uses the stock Qualcomm PHY sequence
+(their extra `pcie_sec_phy_init` is compiled out for gts3lwifi).
+
+What the hardware said, using the tools in `tools/` (MMIO and PMIC registers
+from userspace, link retrained by hand without rebooting):
+
+- The root port's LTSSM sat in **Polling.Compliance** (0x03): a receiver was
+  detected, but the chip never sent training sequences.
+- With PERST# held low, or WLAN_EN low, or the 3.3 V rail off, no receiver
+  was detected at all. So the chip was powered and following PERST#. It just
+  never started transmitting.
+- The bootloader leaves **BT_EN (PM8994 GPIO 19) high**. Stock configures it
+  low until Bluetooth starts.
+
+| Power-up sequence | Result |
+|---|---|
+| BT_EN high while the 3.3 V rail rises | Polling.Compliance (the failure seen at boot) |
+| BT_EN low while the 3.3 V rail rises | link up (L0), chip enumerates, ath10k loads |
+| clean power-up, then BT_EN raised | link stays up |
+| BT_EN high, only WLAN_EN cycled after a clean power-up | link up |
+| PHY values switched to Samsung's (CLK_SELECT 0x35, SSC off, SIGDET 0x1a, ...) | no effect either way |
+
+So BT_EN only has to be low at the moment Rome's 3.3 V rail ramps. Bluetooth
+can be enabled any time after that.
+
+The fix in `dts/test/test-wifi.dts`:
+
+- the 3.3 V regulator is **not** always-on. regulator-fixed drives its GPIO
+  low at probe, so the rail starts off even if the bootloader left it on;
+- `off-on-delay-us = <1000000>` makes the regulator core keep it off for
+  1 s after probe (it records `last_off` at registration);
+- its pinctrl state also drives BT_EN low and muxes the sleep clock;
+- `vreg_wlan_en` has the 3.3 V regulator as `vin-supply`, and the PCIe driver
+  enables it as `vddpe-3v3`. The sequence is 3.3 V, 4 ms, WLAN_EN, 70 ms,
+  then PERST# release.
+
+## Firmware
+
+- `apk add linux-firmware-ath10k` (gives `ath10k/QCA6174/hw3.0/firmware-6.bin`
+  and `board-2.bin`).
+- `board-2.bin` has no entry for this board (subsystem IDs are 0000:0000), so
+  ath10k falls back to `board.bin`. Use Samsung's board data from the tablet
+  (read-only, not in this repo): copy `/system/etc/firmware/bdwlan30.bin`
+  (8124 bytes) to `/lib/firmware/ath10k/QCA6174/hw3.0/board.bin`.
+  Calibration still comes from the chip's OTP (`cal otp` in the log).
+- The postmarketOS kernel has `CONFIG_FW_LOADER_USER_HELPER_FALLBACK=y`, so
+  each optional file ath10k probes for (`cal-pci-0000:01:00.0.bin`,
+  `board-pci-0000:01:00.0.bin`) waits 60 s for a helper that never answers.
+  Add `sysctl.kernel.firmware_config.ignore_sysfs_fallback=1` to the kernel
+  command line. With it, Wi-Fi is up as soon as udev loads `ath10k_pci`.
+
+## Open items
+
+- **Regulatory domain:** the chip's OTP says GB (EEPROM regdomain 0x833a).
+  Setting the local country needs `iw reg set` or a cfg80211 hint. Check
+  whether ath accepts a user override.
+- **MAC address:** ath10k uses the address from the chip's OTP (a Qualcomm
+  OUI), not Samsung's per-device address (kept in `/efs`). Pass it through a
+  `local-mac-address` on a PCIe child node, or set it in NetworkManager.
+- The link trains at Gen1. Check whether Gen2 works.
+- **Bluetooth:** same chip over UART. Stock uses `uart@7570000` (mainline
+  `blsp1_uart2`, as on db820c and the OnePlus 3), BT_EN on PM8994 GPIO 19 and
+  `hci_qca` (`qcom,qca6174-bt`). Firmware: `rampatch_tlv_3.2.tlv` and
+  `nvm_tlv_3.2.bin` from `/system/etc/firmware`.
+- Move the nodes into the main DTS, and put the cmdline sysctl in the
+  device package.
+- Reboot from Linux still hangs, also with sysrq-b (no shutdown hooks). So the
+  hang is in the reset itself, not in a driver's shutdown path.
