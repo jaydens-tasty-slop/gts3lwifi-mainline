@@ -1,0 +1,32 @@
+#include "../apq8096-samsung-gts3lwifi.dts"
+
+/*
+ * Test: Adreno 530 GPU, headless. VDD_GFX is PM8004 S2 (downstream qpnp
+ * regulator at 0x1700, 400-1015 mV; GFX CPR ceiling at the top corner is
+ * 1015 mV). Without GFX CPR in mainline, pin it at the top corner like the
+ * Sony msm8996 boards do. Boot with msm.separate_gpu_kms=1 so the GPU gets
+ * its own DRM device while MDSS stays disabled.
+ */
+
+&pm8004_spmi_regulators {
+	vdd_s2-supply = <&vph_pwr>;
+
+	vdd_gfx: s2 {
+		regulator-name = "vdd_gfx";
+		regulator-min-microvolt = <1015000>;
+		regulator-max-microvolt = <1015000>;
+		regulator-always-on;
+	};
+};
+
+&mmcc {
+	vdd-gfx-supply = <&vdd_gfx>;
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/a530_zap.mdt";
+};

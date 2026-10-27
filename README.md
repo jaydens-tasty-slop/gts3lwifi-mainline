@@ -26,7 +26,8 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong; link-isolation images and the DSI test pattern place the fault between the DSI controller and the panel controller, most likely the panel init being sent as short DSI packets where the vendor uses long ones (fix in test, docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
-| GPU, video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
+| GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, dts/test/test-gpu.dts) |
+| Video codec, audio, Wi-Fi/BT | not started (need Samsung-signed firmware) |
 | Battery / charger (SM5705), Type-C controller (S2MM005) | no mainline drivers |
 
 Solved: Samsung's TrustZone owns the fingerprint SPI pins (TLMM 25-28) and the
