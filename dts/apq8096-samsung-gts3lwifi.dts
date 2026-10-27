@@ -161,6 +161,41 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&lcd_ldo_en_default>;
 	};
+
+	/*
+	 * Restart. Samsung's TrustZone never returns from PSCI SYSTEM_RESET:
+	 * the CPU stays stuck in the call, and about a minute later a secure
+	 * watchdog leaves the tablet in a state that needs a forced restart.
+	 * The vendor kernel never uses PSCI for this; it drops PS_HOLD
+	 * (MPM2 PS_HOLD, 0x004ab000 bit 0, writable from Linux) and the PMIC
+	 * resets. syscon-reboot does the same and, at its default priority
+	 * (192), runs before the PSCI handler (129). pm8941-pwrkey programs
+	 * the PMIC PS_HOLD reset type (hard reset) on a normal reboot.
+	 */
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&pshold>;
+		offset = <0x0>;
+		mask = <0x1>;
+		value = <0x0>;
+	};
+};
+
+&soc {
+	pshold: syscon@4ab000 {
+		compatible = "syscon";
+		reg = <0x004ab000 0x4>;
+	};
+};
+
+/*
+ * Restart reasons as Samsung's bootloader reads them (vendor
+ * PON_RESTART_REASON_*, stored in the PON spare register shifted by 2).
+ * bootloader (0x02) and recovery (0x01) already match pm8994.dtsi;
+ * NORMALBOOT (0x14) is what the vendor kernel writes on a plain reboot.
+ */
+&pm8994_pon {
+	mode-normal = <0x14>;
 };
 
 /*

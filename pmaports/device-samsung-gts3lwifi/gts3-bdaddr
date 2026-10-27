@@ -1,0 +1,24 @@
+#!/bin/sh
+# Give the QCA6174 Bluetooth controller its per-device address.
+# The NVM file only carries a placeholder (00:00:00:00:5a:ad), so hci_qca
+# leaves hci0 unconfigured until a public address is set. Samsung keeps the
+# real one in bluetooth/bt_addr on the efs partition; mount it read-only
+# (noload: never replay the journal) just long enough to read it.
+set -eu
+dev=/dev/disk/by-partlabel/efs
+mnt=$(mktemp -d)
+trap 'umount "$mnt" 2>/dev/null; rmdir "$mnt"' EXIT
+mount -o ro,noload "$dev" "$mnt"
+addr=$(tr -d '\r\n ' < "$mnt/bluetooth/bt_addr")
+case "$addr" in
+??:??:??:??:??:??) ;;
+*) echo "gts3-bdaddr: unexpected bt_addr format" >&2; exit 1 ;;
+esac
+# hci0 shows up before hci_qca has finished loading the patch and NVM;
+# the management interface only accepts the address after that.
+i=0
+until btmgmt --index 0 public-addr "$addr" >/dev/null 2>&1; do
+	i=$((i + 1))
+	[ "$i" -lt 30 ] || { echo "gts3-bdaddr: controller not ready" >&2; exit 1; }
+	sleep 1
+done

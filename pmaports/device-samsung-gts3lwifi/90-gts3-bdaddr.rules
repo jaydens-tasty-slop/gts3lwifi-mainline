@@ -1,0 +1,2 @@
+# hci0 comes up unconfigured (placeholder address in the NVM); set the real one.
+ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="gts3-bdaddr.service"

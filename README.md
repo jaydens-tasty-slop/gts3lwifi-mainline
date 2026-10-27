@@ -22,13 +22,14 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | PM8994 regulators via RPM | works (only the rails needed so far) |
 | postmarketOS initramfs + debug shell over USB | works |
 | Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
+| Reboot | works: PS_HOLD through syscon-reboot, because PSCI SYSTEM_RESET hangs in Samsung's TrustZone (docs/reboot.md). Power-off untested |
 | TLMM GPIOs | work, 8 TrustZone-owned pins reserved |
 | Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong; link-isolation images and the DSI test pattern place the fault between the DSI controller and the panel controller, most likely the panel init being sent as short DSI packets where the vendor uses long ones (fix in test, docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, dts/test/test-gpu.dts) |
 | Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, dts/test/test-wifi.dts) |
-| Bluetooth (QCA6174, UART) | not started |
+| Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, dts/test/test-bt.dts) |
 | Video codec, audio | not started (need Samsung-signed firmware) |
 | Battery / charger (SM5705), Type-C controller (S2MM005) | no mainline drivers |
 
@@ -45,7 +46,7 @@ the tablet about 9 s into boot. The board DTS lists them in
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain
 - `kernel/` - out-of-tree kernel additions (panel driver, binding, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display, GPU and Wi-Fi notes
+- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth and reboot notes
 
 ## lk2nd
 

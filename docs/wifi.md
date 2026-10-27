@@ -107,11 +107,6 @@ The fix in `dts/test/test-wifi.dts`:
   OUI), not Samsung's per-device address (kept in `/efs`). Pass it through a
   `local-mac-address` on a PCIe child node, or set it in NetworkManager.
 - The link trains at Gen1. Check whether Gen2 works.
-- **Bluetooth:** same chip over UART. Stock uses `uart@7570000` (mainline
-  `blsp1_uart2`, as on db820c and the OnePlus 3), BT_EN on PM8994 GPIO 19 and
-  `hci_qca` (`qcom,qca6174-bt`). Firmware: `rampatch_tlv_3.2.tlv` and
-  `nvm_tlv_3.2.bin` from `/system/etc/firmware`.
-- Move the nodes into the main DTS, and put the cmdline sysctl in the
-  device package.
-- Reboot from Linux still hangs, also with sysrq-b (no shutdown hooks). So the
-  hang is in the reset itself, not in a driver's shutdown path.
+- Bluetooth (same chip, over UART) works: see docs/bluetooth.md.
+- Move the nodes into the main DTS. The cmdline sysctl is in the device
+  package's deviceinfo now.

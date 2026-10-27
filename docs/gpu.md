@@ -38,6 +38,6 @@ and `msm.separate_gpu_kms=1`:
 - Run the db820c dEQP-GLES31 baseline from Mesa CI on the tablet.
 - Vulkan: see docs/vulkan-a5xx.md (this was milestone M0 there).
 
-Known issue found on the way: rebooting from Linux hangs (both busybox
-`reboot` in the initramfs and `systemctl reboot`); the tablet needs a forced
-restart (Power + Volume Down, ~10 s).
+Known issue found on the way: rebooting from Linux hung (PSCI
+`SYSTEM_RESET` never returns from Samsung's TrustZone). Fixed in the board
+DTS, see docs/reboot.md.

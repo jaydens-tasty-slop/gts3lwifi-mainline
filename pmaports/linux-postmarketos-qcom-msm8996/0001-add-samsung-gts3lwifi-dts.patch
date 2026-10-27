@@ -1,6 +1,6 @@
-From 6a10971158c99059bb86051c9533540bb2245891 Mon Sep 17 00:00:00 2001
+From f4d98c640205e24a2802b1cacc5c95d90e7d3020 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Thu, 24 Sep 2026 04:19:00 +0000
+Date: Tue, 27 Oct 2026 21:27:16 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
 Minimal bring-up device tree for the Samsung Galaxy Tab S3 Wi-Fi
@@ -13,8 +13,8 @@ Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |   1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 341 ++++++++++++++++++
- 2 files changed, 342 insertions(+)
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 376 ++++++++++++++++++
+ 2 files changed, 377 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -31,10 +31,10 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..eaa2d42
+index 0000000..b1cd917
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,376 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -198,6 +198,41 @@ index 0000000..eaa2d42
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&lcd_ldo_en_default>;
 +	};
++
++	/*
++	 * Restart. Samsung's TrustZone never returns from PSCI SYSTEM_RESET:
++	 * the CPU stays stuck in the call, and about a minute later a secure
++	 * watchdog leaves the tablet in a state that needs a forced restart.
++	 * The vendor kernel never uses PSCI for this; it drops PS_HOLD
++	 * (MPM2 PS_HOLD, 0x004ab000 bit 0, writable from Linux) and the PMIC
++	 * resets. syscon-reboot does the same and, at its default priority
++	 * (192), runs before the PSCI handler (129). pm8941-pwrkey programs
++	 * the PMIC PS_HOLD reset type (hard reset) on a normal reboot.
++	 */
++	reboot {
++		compatible = "syscon-reboot";
++		regmap = <&pshold>;
++		offset = <0x0>;
++		mask = <0x1>;
++		value = <0x0>;
++	};
++};
++
++&soc {
++	pshold: syscon@4ab000 {
++		compatible = "syscon";
++		reg = <0x004ab000 0x4>;
++	};
++};
++
++/*
++ * Restart reasons as Samsung's bootloader reads them (vendor
++ * PON_RESTART_REASON_*, stored in the PON spare register shifted by 2).
++ * bootloader (0x02) and recovery (0x01) already match pm8994.dtsi;
++ * NORMALBOOT (0x14) is what the vendor kernel writes on a plain reboot.
++ */
++&pm8994_pon {
++	mode-normal = <0x14>;
 +};
 +
 +/*
