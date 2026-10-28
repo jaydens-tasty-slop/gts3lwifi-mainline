@@ -49,10 +49,22 @@ from the battery node at probe. After that the battery first runs down to
 4.30 V on USB power (the current above, -625 mA, is that), then the charger
 holds it there.
 
+Pulling the USB cable and plugging it back in (logged every 2 s):
+
+```
+12:27:06 online=1 chg=Full        bat=Full        i=-498535 irq=5
+12:30:40 online=0 chg=Discharging bat=Discharging i=-229492 irq=5
+12:30:42 online=1 chg=Charging    bat=Charging    i=-199707 irq=8
+12:30:44 online=1 chg=Full        bat=Full        i=-420410 irq=9
+```
+
+Each change raised the charger interrupt and a `change` uevent on both
+supplies; the battery follows through `external_power_changed`. UPower
+recorded the battery as discharging and set line power back online at
+replug. USB networking came back by itself.
+
 Not done yet:
 
-- plug/unplug events still need a check with the cable actually pulled
-  (the interrupt fires on charging state changes);
 - the cable type: the SM5705 MUIC at 0x25 detects it, no driver yet;
 - the flash LED, which shares the charger's I2C device;
 - the fuel gauge's alert interrupt and battery model init.
@@ -151,7 +163,6 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
-- Plug/unplug test with the cable pulled.
 - SM5705 MUIC: cable type (USB port, charger, ...) and a matching input
   current limit for wall chargers. Mainline's `extcon-sm5502` handles the
   SM5502/SM5504/SM5703 MUICs and may cover it.
