@@ -5,7 +5,8 @@
  * Reports whether USB power is present and what the charger does, and
  * applies the charge voltage, charge current and termination current of
  * the monitored battery. With an extcon device (the SM5705 MUIC) it sets
- * the input current limit for the detected USB charger type. Without one
+ * the input current limit for the detected USB charger type, including
+ * Samsung AFC chargers at 9 V. Without one
  * the limit stays as the bootloader set it. Either way the charger's AICL
  * lowers the input current when the source sags.
  *
@@ -57,6 +58,7 @@
 #define SM5705_SDP_INPUT_LIMIT_UA	500000	/* USB 2.0 */
 #define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
 #define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
+#define SM5705_FAST_INPUT_LIMIT_UA	1650000	/* Samsung's 9 V AFC setting */
 
 /* BATREG: 0 is 3.8 V, 1 is 4.0 V, then 4.01 V in 10 mV steps */
 #define SM5705_BATREG_MIN_UV		4010000
@@ -332,7 +334,10 @@ static void sm5705_chg_cable_work(struct work_struct *work)
 					      cable_work);
 	int type, limit = 0;
 
-	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
+	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
+		type = POWER_SUPPLY_USB_TYPE_DCP;
+		limit = SM5705_FAST_INPUT_LIMIT_UA;
+	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
 		type = POWER_SUPPLY_USB_TYPE_DCP;
 		limit = SM5705_DCP_INPUT_LIMIT_UA;
 	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_CDP) > 0) {

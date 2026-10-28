@@ -8,11 +8,19 @@
  * layout differs from the SM5502 family: a third interrupt register at 0x05
  * moves the masks, ADC and device type registers.
  *
- * Accessory (ID resistor) detection, the manual switch and Samsung's AFC
- * high voltage charging are not supported. Register layout from the
- * Samsung vendor driver (muic_regmap_sm5705.c).
+ * With the afc module parameter it also negotiates 9 V with Samsung AFC
+ * (Adaptive Fast Charging) wall chargers, or with Quick Charge 2.0 ones
+ * when AFC fails, and reports them as EXTCON_CHG_USB_FAST. That is off by
+ * default: Samsung's firmware only does this once the Type-C controller
+ * has seen the 56 kOhm pull-up of a legacy USB-A to C cable, which this
+ * driver cannot check.
+ *
+ * Accessory (ID resistor) detection and the manual switch are not
+ * supported. Register layout and the AFC sequence follow the Samsung
+ * vendor driver (muic_regmap_sm5705.c).
  */
 
+#include <linux/delay.h>
 #include <linux/extcon-provider.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
@@ -26,6 +34,29 @@
 #define SM5705_MUIC_REG_INTMASK1	0x06
 #define SM5705_MUIC_REG_RSVD_ID1	0x15
 #define SM5705_MUIC_REG_CHG_TYPE	0x17
+#define SM5705_MUIC_REG_AFC_CNTL	0x18
+#define SM5705_MUIC_REG_AFC_TXD		0x19
+#define SM5705_MUIC_REG_AFC_STATUS	0x1a
+#define SM5705_MUIC_REG_VBUS_STATUS	0x1b
+
+/* INT3 */
+#define SM5705_MUIC_INT3_AFC_TA_ATTACHED	BIT(0)
+#define SM5705_MUIC_INT3_AFC_ACCEPTED		BIT(1)
+#define SM5705_MUIC_INT3_VBUS_UPDATE		BIT(2)
+#define SM5705_MUIC_INT3_AFC_ERROR		BIT(5)
+
+/* AFC_CNTL */
+#define SM5705_MUIC_AFC_CNTL_ENAFC	BIT(0)
+#define SM5705_MUIC_AFC_CNTL_VBUS_READ	BIT(3)
+#define SM5705_MUIC_AFC_CNTL_ENQC20	BIT(6)	/* QC 2.0 at 9 V */
+
+/* AFC_TXD: requested voltage in bits 7:4, current in 3:0; 0x46 is 9 V, 1.65 A */
+#define SM5705_MUIC_AFC_TXD_9V		0x46
+#define SM5705_MUIC_AFC_VOLTAGE(txd)	(((txd) >> 4) & 0xf)
+#define SM5705_MUIC_VBUS_VOLTAGE(st)	((st) & 0xf)
+#define SM5705_MUIC_AFC_RETRIES		5
+
+#define SM5705_MUIC_DEVICE_ID_QC20	BIT(3)
 
 #define SM5705_MUIC_CONTROL_MASK_INT	BIT(0)
 #define SM5705_MUIC_RSVD_ID1_VBUS_VALID	BIT(0)
@@ -45,14 +76,23 @@ static const unsigned int sm5705_muic_cables[] = {
 	EXTCON_CHG_USB_SDP,
 	EXTCON_CHG_USB_DCP,
 	EXTCON_CHG_USB_CDP,
+	EXTCON_CHG_USB_FAST,
 	EXTCON_NONE,
 };
+
+static bool afc;
+module_param(afc, bool, 0444);
+MODULE_PARM_DESC(afc, "Negotiate 9 V with Samsung AFC or QC 2.0 chargers (USB-A to C cable only)");
 
 struct sm5705_muic {
 	struct device *dev;
 	struct regmap *regmap;
 	struct extcon_dev *edev;
 	struct mutex lock;
+	bool afc_9v;
+	bool qc20;
+	unsigned int afc_retries;
+	unsigned int vbus_retries;
 };
 
 static int sm5705_muic_detect(struct sm5705_muic *muic)
@@ -90,15 +130,147 @@ static int sm5705_muic_detect(struct sm5705_muic *muic)
 		}
 	}
 
-	dev_dbg(muic->dev, "vbus %#04x chg type %#04x\n", vbus, type);
+	if (!(vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID))
+		muic->afc_9v = false;
+
+	dev_dbg(muic->dev, "vbus %#04x chg type %#04x afc %d\n", vbus, type,
+		muic->afc_9v);
 
 	/* charger type first, so consumers of EXTCON_USB see it */
+	extcon_set_state_sync(muic->edev, EXTCON_CHG_USB_FAST,
+			      dcp && muic->afc_9v);
 	extcon_set_state_sync(muic->edev, EXTCON_CHG_USB_SDP, sdp);
 	extcon_set_state_sync(muic->edev, EXTCON_CHG_USB_DCP, dcp);
 	extcon_set_state_sync(muic->edev, EXTCON_CHG_USB_CDP, cdp);
 	extcon_set_state_sync(muic->edev, EXTCON_USB, usb);
 
 	return 0;
+}
+
+static int sm5705_muic_afc_enable(struct sm5705_muic *muic, bool on)
+{
+	return regmap_assign_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+				  SM5705_MUIC_AFC_CNTL_ENAFC, on);
+}
+
+static void sm5705_muic_afc_read_vbus(struct sm5705_muic *muic)
+{
+	regmap_set_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			SM5705_MUIC_AFC_CNTL_VBUS_READ);
+	regmap_clear_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			  SM5705_MUIC_AFC_CNTL_VBUS_READ);
+}
+
+static void sm5705_muic_afc_stop(struct sm5705_muic *muic)
+{
+	regmap_clear_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			  SM5705_MUIC_AFC_CNTL_ENAFC |
+			  SM5705_MUIC_AFC_CNTL_ENQC20);
+	muic->qc20 = false;
+}
+
+/* The charger answered the AFC ping: ask it for 9 V */
+static void sm5705_muic_afc_start(struct sm5705_muic *muic)
+{
+	unsigned int status;
+
+	regmap_read(muic->regmap, SM5705_MUIC_REG_AFC_STATUS, &status);
+	muic->afc_retries = 0;
+	muic->vbus_retries = 0;
+	muic->qc20 = false;
+	msleep(120);
+	regmap_write(muic->regmap, SM5705_MUIC_REG_AFC_TXD,
+		     SM5705_MUIC_AFC_TXD_9V);
+	sm5705_muic_afc_enable(muic, true);
+	dev_dbg(muic->dev, "AFC: requesting 9 V\n");
+}
+
+/* The charger accepted the request: measure VBUS */
+static void sm5705_muic_afc_accepted(struct sm5705_muic *muic)
+{
+	unsigned int type;
+
+	regmap_read(muic->regmap, SM5705_MUIC_REG_CHG_TYPE, &type);
+	if ((type & SM5705_MUIC_CHG_TYPE_MASK) == SM5705_MUIC_CHG_TYPE_AFC)
+		regmap_set_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+				SM5705_MUIC_AFC_CNTL_VBUS_READ);
+	else
+		sm5705_muic_afc_enable(muic, false);
+}
+
+/* VBUS measured: done if it is within one step of the requested voltage */
+static void sm5705_muic_afc_vbus_update(struct sm5705_muic *muic)
+{
+	unsigned int st, txd;
+	int diff;
+
+	regmap_read(muic->regmap, SM5705_MUIC_REG_VBUS_STATUS, &st);
+	regmap_read(muic->regmap, SM5705_MUIC_REG_AFC_TXD, &txd);
+	/* the 9 V request in AFC_TXD also stands for QC 2.0's 9 V */
+	diff = SM5705_MUIC_VBUS_VOLTAGE(st) - SM5705_MUIC_AFC_VOLTAGE(txd);
+
+	if (abs(diff) <= 1) {
+		/* QC 2.0 holds 9 V only while ENQC20 stays set */
+		sm5705_muic_afc_enable(muic, false);
+		muic->afc_9v = true;
+		dev_info(muic->dev, "%s: charger at 9 V\n",
+			 muic->qc20 ? "QC 2.0" : "AFC");
+	} else if (muic->vbus_retries++ < SM5705_MUIC_AFC_RETRIES) {
+		sm5705_muic_afc_read_vbus(muic);
+		msleep(100);
+	} else {
+		sm5705_muic_afc_stop(muic);
+		dev_info(muic->dev, "AFC: VBUS stayed at %#x, using 5 V\n", st);
+	}
+}
+
+/* AFC failed: switch a QC 2.0 charger to 9 V, otherwise try AFC again */
+static void sm5705_muic_afc_error(struct sm5705_muic *muic)
+{
+	unsigned int status, id, type;
+
+	regmap_read(muic->regmap, SM5705_MUIC_REG_AFC_STATUS, &status);
+	regmap_read(muic->regmap, SM5705_MUIC_REG_DEVICE_ID, &id);
+	regmap_read(muic->regmap, SM5705_MUIC_REG_CHG_TYPE, &type);
+	dev_dbg(muic->dev, "AFC: error, status %#04x chg type %#04x\n",
+		status, type);
+
+	if (muic->afc_retries++ >= SM5705_MUIC_AFC_RETRIES) {
+		sm5705_muic_afc_stop(muic);
+		dev_info(muic->dev, "AFC: no agreement, using 5 V\n");
+	} else if ((id & SM5705_MUIC_DEVICE_ID_QC20) &&
+		   (type & SM5705_MUIC_CHG_TYPE_MASK) == SM5705_MUIC_CHG_TYPE_QC20) {
+		sm5705_muic_afc_enable(muic, false);
+		regmap_set_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+				SM5705_MUIC_AFC_CNTL_ENQC20);
+		muic->qc20 = true;
+		dev_dbg(muic->dev, "QC 2.0: requesting 9 V\n");
+		regmap_set_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+				SM5705_MUIC_AFC_CNTL_VBUS_READ);
+	} else {
+		msleep(100);
+		sm5705_muic_afc_enable(muic, true);
+	}
+}
+
+static void sm5705_muic_afc(struct sm5705_muic *muic, u8 int3)
+{
+	unsigned int vbus;
+
+	if (regmap_read(muic->regmap, SM5705_MUIC_REG_RSVD_ID1, &vbus) ||
+	    !(vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID)) {
+		sm5705_muic_afc_stop(muic);
+		return;
+	}
+
+	if (int3 & SM5705_MUIC_INT3_AFC_TA_ATTACHED)
+		sm5705_muic_afc_start(muic);
+	if (int3 & SM5705_MUIC_INT3_AFC_ACCEPTED)
+		sm5705_muic_afc_accepted(muic);
+	if (int3 & SM5705_MUIC_INT3_VBUS_UPDATE)
+		sm5705_muic_afc_vbus_update(muic);
+	if (int3 & SM5705_MUIC_INT3_AFC_ERROR)
+		sm5705_muic_afc_error(muic);
 }
 
 static irqreturn_t sm5705_muic_irq(int irq, void *data)
@@ -114,6 +286,9 @@ static irqreturn_t sm5705_muic_irq(int irq, void *data)
 			       sizeof(ints));
 	if (!ret) {
 		dev_dbg(muic->dev, "interrupt %*ph\n", (int)sizeof(ints), ints);
+		/* also on detach, to drop AFC/QC 2.0 mode with VBUS */
+		if (afc)
+			sm5705_muic_afc(muic, ints[2]);
 		sm5705_muic_detect(muic);
 	}
 
@@ -130,8 +305,11 @@ static const struct regmap_config sm5705_muic_regmap_config = {
 
 static int sm5705_muic_probe(struct i2c_client *client)
 {
-	/* attach/detach; VBUS on, ADC change, VBUS off; no AFC events */
-	static const u8 int_mask[3] = { 0xfc, 0x7a, 0xff };
+	/*
+	 * attach/detach; VBUS on, ADC change, VBUS off; with afc also AFC TA
+	 * attached, accepted, VBUS update and error
+	 */
+	u8 int_mask[3] = { 0xfc, 0x7a, afc ? 0xd8 : 0xff };
 	struct device *dev = &client->dev;
 	struct sm5705_muic *muic;
 	unsigned int id;
@@ -190,7 +368,7 @@ static int sm5705_muic_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to detect cable\n");
 
-	dev_info(dev, "SM5705 MUIC, id %#04x\n", id);
+	dev_info(dev, "SM5705 MUIC, id %#04x%s\n", id, afc ? ", AFC on" : "");
 	return 0;
 }
 

@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..8b4bf69848 100644
+index 601fa9f44e..d9336230b4 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -11,7 +11,7 @@ index 601fa9f44e..8b4bf69848 100644
  pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
  arch="aarch64"
  _carch="arm64"
-@@ -32,6 +32,24 @@ _tag=v${pkgver//_/-}-msm8996
+@@ -32,6 +32,26 @@ _tag=v${pkgver//_/-}-msm8996
  source="
  	linux-$_tag.tar.gz::$url/-/archive/$_tag/linux-$_tag.tar.gz
  	config-$_flavor.$arch
@@ -33,10 +33,12 @@ index 601fa9f44e..8b4bf69848 100644
 +	0016-dt-bindings-extcon-sm5705-muic.patch
 +	0017-extcon-sm5705-muic-driver.patch
 +	0018-cpuidle-psci-domain-accept-osi-only-firmware-msm8996.patch
++	0019-extcon-sm5705-afc-qc20.patch
++	0020-power-supply-sm5705-charger-fast-charger-limit.patch
  "
  builddir="$srcdir/linux-$_tag"
  
-@@ -62,5 +80,23 @@ package() {
+@@ -62,5 +82,25 @@ package() {
  }
  sha512sums="
  dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
@@ -60,4 +62,6 @@ index 601fa9f44e..8b4bf69848 100644
 +494bb7df17bb3a04cea99dfaeb45b019f5852e2171395b499b636af4e027f8ac57a2c7a50ea300185e27166c4e8bf51bb57d835ea7b8ce117b13507e2a6f2ce4  0016-dt-bindings-extcon-sm5705-muic.patch
 +40c9327e2f539966d0f14d597cbdb09386fc5940fc5425fc7c135f663e5cb6630ddf95969013ba82ec05e59b76089acf729346423a3da07d1681950a19fc167a  0017-extcon-sm5705-muic-driver.patch
 +de38a04d308c26f42201222ae0792ccdb45755b3c5d1f64e13c123454af2f836bfad2ce2f3db00fb144e692aaa17b01c951af5262aa385865a50906f53912f61  0018-cpuidle-psci-domain-accept-osi-only-firmware-msm8996.patch
++e843ebadc75545e6b32e0321f9d2d0171bb02ad297b1e6c1aff556fa2d4e4bac1221729e754a43e0e6c174d78b6882f346fdcbb9eda803cbf819c3b11274cfb5  0019-extcon-sm5705-afc-qc20.patch
++a204bd70aea0cd94930d49be7c1b3c1474ebc4ad7f14e095caa60bc04676fcdd6b4122920bf9bc999460c5c2ef2d37c60289033a45558f80bc7f0281e37cc30a  0020-power-supply-sm5705-charger-fast-charger-limit.patch
  "

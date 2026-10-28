@@ -117,7 +117,7 @@ Not done yet:
 | Fuel gauge bus | TLMM 6 (SDA) / 7 (SCL). Stock drives them as an `i2c-gpio` bus, but they are the BLSP2 QUP2 I2C pins, so the test DT uses the hardware controller `&blsp2_i2c2` (0x75b6000) at 100 kHz |
 | Fuel gauge alert | PM8994 GPIO 1 (stock `fuelgauge,fuel_int`), not used: the driver polls every 30 s |
 | Charger | SM5705 charger and flash LED, I2C 0x49, device ID 0xf9, interrupt TLMM 38 (active low, pull-up) |
-| MUIC | SM5705 MUIC (cable detection), I2C 0x25, device ID 0x09, interrupt PM8994 GPIO 4: push-pull 1.8 V, active low, so the pin needs `power-source = <PM8994_GPIO_S4>` (with the default VPH reference it reads low) |
+| MUIC | SM5705 MUIC (cable detection, AFC and QC 2.0), I2C 0x25, device ID 0x09 (bit 3: QC 2.0 support), interrupt PM8994 GPIO 4: push-pull 1.8 V, active low, so the pin needs `power-source = <PM8994_GPIO_S4>` (with the default VPH reference it reads low) |
 | Charger bus | TLMM 33 (SDA) / 32 (SCL). These are HDMI DDC pins, not a BLSP pair, so like stock it is an `i2c-gpio` bus |
 | Charge enable | PM8994 GPIO 13, active low. The bootloader leaves it low (charging on); Linux does not touch it |
 | Battery | EB-BT825ABE, 6000 mAh, 3.85 V, 23.1 Wh |
@@ -130,6 +130,43 @@ the battery. The charger driver applies `constant-charge-voltage-max-microvolt`,
 `charge-term-current-microamp`, and refuses writes above the battery's
 maximums. The fuel gauge names the charger in `power-supplies` and takes
 its status from it.
+
+## Fast charging: AFC and QC 2.0 at 9 V (opt-in)
+
+Kernel patches 0019-0020. The MUIC driver negotiates 9 V with Samsung AFC
+chargers, and falls back to Quick Charge 2.0 when AFC fails, like the
+vendor driver: request 9 V (`AFC_TXD` 0x46 = 9 V / 1.65 A, `ENAFC`), measure
+VBUS once the charger accepts (`VBUS_READ`), and take a `VBUS_STATUS`
+within one step of the request as success; five failures leave it at 5 V.
+A 9 V charger shows up as `FAST-CHARGER` in the extcon state and the charger
+driver sets a 1.65 A input limit (Samsung's 9 V setting). The charge
+current stays at 2 A: stock uses 2.7 A on 9 V chargers, but also limits it
+by temperature, which nothing does here yet.
+
+**Off by default.** Samsung's firmware only starts AFC after the S2MM005
+Type-C controller has seen the 56 kOhm Rp of a legacy USB-A to C cable
+("to prevent damage by RP0 cable"), and mainline has no S2MM005 driver
+yet. Turn it on only for USB-A chargers with an A-to-C cable:
+
+    echo "options extcon_sm5705 afc=1" > /etc/modprobe.d/afc.conf
+
+Tested with a Xiaomi 18 W charger (QC 3.0, also answers AFC) and a USB-A to
+C cable:
+
+```
+17:35:27 DCP=1 FAST-CHARGER=0 lim=1800000 | DEVICE_TYPE3=0x40 CHG_TYPE=0x10 VBUS_STATUS=0x00
+17:35:30 DCP=1 FAST-CHARGER=1 lim=1650000 | DEVICE_TYPE3=0xc0 CHG_TYPE=0x11 VBUS_STATUS=0x04
+...      9 V held for 2 minutes, charger online, no over-voltage
+17:37:38 back on the PC: SDP, 500 mA
+sm5705-muic 1-0025: AFC: charger at 9 V
+```
+
+The charger's OVPSEL bit (CHGCNTL7 bit 2, set by the bootloader and by
+stock) selects the high VBUS over-voltage threshold that 9 V needs. The
+QC 2.0 path is written but has not run yet (the Xiaomi answered AFC).
+
+USB-C PD chargers (for example Samsung's 25 W with a C-to-C cable) need the
+S2MM005 for Power Delivery; until then they charge at 5 V.
 
 ## Fuel gauge registers
 
