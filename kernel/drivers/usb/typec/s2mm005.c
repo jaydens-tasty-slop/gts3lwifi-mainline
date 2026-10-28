@@ -1,0 +1,446 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Samsung S2MM005 USB Type-C and Power Delivery controller
+ *
+ * The S2MM005 ("CCIC" in Samsung's kernels) runs the Type-C state machine
+ * and the PD policy engine in its own firmware: as a sink it accepts the
+ * source's capabilities and requests one of them by itself. This driver
+ * reports what the firmware negotiated: the attach state, the current the
+ * source advertises on CC, and the PD contract. A power supply carries the
+ * contract to the charger.
+ *
+ * Registers have 16-bit addresses. Register 0x10 takes commands; the
+ * firmware's state words and PD message buffers sit at fixed addresses.
+ * Based on the Samsung vendor driver (drivers/ccic/s2mm005*.c).
+ *
+ * Copyright (C) 2015 Samsung Electronics
+ * Copyright (C) 2026 psigod <psigod@example.com>
+ */
+
+#include <linux/bitfield.h>
+#include <linux/bits.h>
+#include <linux/i2c.h>
+#include <linux/interrupt.h>
+#include <linux/kernel.h>
+#include <linux/mod_devicetable.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/power_supply.h>
+#include <linux/property.h>
+#include <linux/regmap.h>
+#include <linux/usb/pd.h>
+#include <linux/usb/typec.h>
+
+#define S2MM005_REG_CMD			0x0010
+#define S2MM005_REG_FUNC_STATE		0x0020
+#define S2MM005_REG_INT_STATUS		0x0030
+#define S2MM005_REG_LP_STATE		0x0060
+#define S2MM005_REG_TX_REQUEST		0x0240
+#define S2MM005_REG_RX_SRC_CAPS		0x0260
+#define S2MM005_REG_MAX			0x02ff
+
+/* after S2MM005_CMD_FLASH_READ, the low addresses read the firmware version */
+#define S2MM005_REG_FW_BOOT		0x0008
+#define S2MM005_REG_FW_MAIN		0x0009
+
+#define S2MM005_CMD_INT_CLEAR		0x01
+#define S2MM005_CMD_FLASH_READ		0xaa
+/* two-byte command: automatic low power mode while detached */
+#define S2MM005_CMD_LPM			0x0f
+#define S2MM005_LPM_AUTO		0x06
+
+/* FUNC_STATE, little endian */
+#define S2MM005_FUNC_PD_STATE		GENMASK(7, 0)
+#define S2MM005_FUNC_ATTACHED		BIT(24)
+#define S2MM005_FUNC_SOURCE		BIT(25)
+#define S2MM005_FUNC_DFP		BIT(26)
+#define S2MM005_FUNC_RP_LEVEL		GENMASK(28, 27)
+#define S2MM005_FUNC_RESET		BIT(31)
+
+/* LP_STATE, little endian */
+#define S2MM005_LP_AUTO_LPM		BIT(0)
+#define S2MM005_LP_WATER		BIT(3)
+
+/* PD_STATE values of the firmware's policy engine */
+#define S2MM005_PE_SNK_READY		21
+
+/* RP_LEVEL: the source's pull-up, i.e. the current it allows without PD */
+#define S2MM005_RP_DEFAULT		1
+#define S2MM005_RP_1_5A			2
+#define S2MM005_RP_3_0A			3
+
+/* PD message buffers: a 32-bit header word, then up to 7 data objects */
+#define S2MM005_MSG_LEN			32
+
+#define S2MM005_DEFAULT_UA		500000
+
+struct s2mm005 {
+	struct device *dev;
+	struct regmap *regmap;
+	struct mutex lock;		/* the state below */
+
+	struct typec_port *port;
+	struct typec_partner *partner;
+	struct power_supply *psy;
+
+	bool attached;
+	bool pd;
+	enum typec_pwr_opmode opmode;
+	int voltage_uv;
+	int current_ua;
+};
+
+static const struct regmap_config s2mm005_regmap_config = {
+	.reg_bits = 16,
+	.val_bits = 8,
+	.max_register = S2MM005_REG_MAX,
+};
+
+static int s2mm005_read32(struct s2mm005 *s, unsigned int reg, u32 *val)
+{
+	__le32 buf;
+	int ret;
+
+	ret = regmap_bulk_read(s->regmap, reg, &buf, sizeof(buf));
+	if (ret)
+		return ret;
+
+	*val = le32_to_cpu(buf);
+	return 0;
+}
+
+static int s2mm005_cmd(struct s2mm005 *s, const u8 *cmd, size_t len)
+{
+	return regmap_raw_write(s->regmap, S2MM005_REG_CMD, cmd, len);
+}
+
+/* The firmware sleeps between events; a few reads wake it up for commands */
+static void s2mm005_wake(struct s2mm005 *s)
+{
+	unsigned int val;
+	int i;
+
+	for (i = 0; i < 5; i++)
+		regmap_read(s->regmap, S2MM005_REG_FW_BOOT, &val);
+}
+
+/*
+ * Read the PD contract: the request the firmware sent and the source
+ * capability it points to. Only fixed supplies are expected here.
+ */
+static int s2mm005_read_contract(struct s2mm005 *s, int *uv, int *ua,
+				 u16 *pd_rev)
+{
+	__le32 caps[S2MM005_MSG_LEN / 4], req[2];
+	unsigned int pos, cnt;
+	u32 pdo, rdo;
+	u16 header;
+	int ret;
+
+	ret = regmap_bulk_read(s->regmap, S2MM005_REG_TX_REQUEST, req,
+			       sizeof(req));
+	if (ret)
+		return ret;
+	ret = regmap_bulk_read(s->regmap, S2MM005_REG_RX_SRC_CAPS, caps,
+			       sizeof(caps));
+	if (ret)
+		return ret;
+
+	rdo = le32_to_cpu(req[1]);
+	pos = (rdo >> RDO_OBJ_POS_SHIFT) & RDO_OBJ_POS_MASK;
+	header = le32_to_cpu(caps[0]) & 0xffff;
+	cnt = pd_header_cnt(header);
+	if (!pos || pos > cnt || pos >= ARRAY_SIZE(caps))
+		return -EINVAL;
+
+	pdo = le32_to_cpu(caps[pos]);
+	if (pdo_type(pdo) != PDO_TYPE_FIXED)
+		return -EINVAL;
+
+	*uv = pdo_fixed_voltage(pdo) * 1000;
+	*ua = ((rdo >> RDO_FIXED_OP_CURR_SHIFT) & RDO_CURR_MASK) * 10000;
+	/* specification revision: 0 is 1.0, 1 is 2.0, 2 is 3.0 */
+	*pd_rev = (pd_header_rev(header) + 1) << 8;
+
+	return 0;
+}
+
+static void s2mm005_update(struct s2mm005 *s)
+{
+	enum typec_pwr_opmode opmode = TYPEC_PWR_MODE_USB;
+	struct typec_partner_desc desc = { };
+	int voltage_uv = 5000000, current_ua = S2MM005_DEFAULT_UA;
+	bool attached, pd = false, changed;
+	u16 pd_rev = 0;
+	u32 func, lp;
+	u8 cmd[2];
+	int ret;
+
+	ret = s2mm005_read32(s, S2MM005_REG_FUNC_STATE, &func);
+	if (ret) {
+		dev_err(s->dev, "failed to read state: %d\n", ret);
+		return;
+	}
+
+	/* the firmware restarted: let it save power while detached again */
+	if (func & S2MM005_FUNC_RESET &&
+	    !s2mm005_read32(s, S2MM005_REG_LP_STATE, &lp) &&
+	    !(lp & S2MM005_LP_AUTO_LPM)) {
+		dev_dbg(s->dev, "firmware reset, enabling low power mode\n");
+		cmd[0] = S2MM005_CMD_LPM;
+		cmd[1] = S2MM005_LPM_AUTO;
+		s2mm005_wake(s);
+		s2mm005_cmd(s, cmd, sizeof(cmd));
+	}
+
+	/* only the sink role is supported; a sink on the other end gets nothing */
+	attached = (func & S2MM005_FUNC_ATTACHED) && !(func & S2MM005_FUNC_SOURCE);
+
+	if (attached && FIELD_GET(S2MM005_FUNC_PD_STATE, func) ==
+			S2MM005_PE_SNK_READY &&
+	    !s2mm005_read_contract(s, &voltage_uv, &current_ua, &pd_rev)) {
+		pd = true;
+		opmode = TYPEC_PWR_MODE_PD;
+	} else if (attached) {
+		switch (FIELD_GET(S2MM005_FUNC_RP_LEVEL, func)) {
+		case S2MM005_RP_3_0A:
+			opmode = TYPEC_PWR_MODE_3_0A;
+			current_ua = 3000000;
+			break;
+		case S2MM005_RP_1_5A:
+			opmode = TYPEC_PWR_MODE_1_5A;
+			current_ua = 1500000;
+			break;
+		default:
+			break;
+		}
+	}
+
+	mutex_lock(&s->lock);
+
+	changed = attached != s->attached || pd != s->pd ||
+		  opmode != s->opmode || voltage_uv != s->voltage_uv ||
+		  current_ua != s->current_ua;
+
+	/* the PD contract usually follows the attach: register the partner again */
+	if (s->partner && (!attached || pd != s->pd)) {
+		typec_unregister_partner(s->partner);
+		s->partner = NULL;
+	}
+
+	if (attached && !s->partner) {
+		desc.usb_pd = pd;
+		desc.pd_revision = pd_rev;
+		s->partner = typec_register_partner(s->port, &desc);
+		if (IS_ERR(s->partner)) {
+			dev_err(s->dev, "failed to register partner: %ld\n",
+				PTR_ERR(s->partner));
+			s->partner = NULL;
+		}
+		typec_set_pwr_role(s->port, TYPEC_SINK);
+		typec_set_data_role(s->port, TYPEC_DEVICE);
+	}
+
+	typec_set_pwr_opmode(s->port, opmode);
+
+	s->attached = attached;
+	s->pd = pd;
+	s->opmode = opmode;
+	s->voltage_uv = voltage_uv;
+	s->current_ua = current_ua;
+
+	mutex_unlock(&s->lock);
+
+	if (changed) {
+		if (attached)
+			dev_info(s->dev, "%s: %d mV, %d mA\n",
+				 pd ? "PD contract" : "Type-C source",
+				 voltage_uv / 1000, current_ua / 1000);
+		else
+			dev_dbg(s->dev, "detached\n");
+		power_supply_changed(s->psy);
+	}
+}
+
+static irqreturn_t s2mm005_irq(int irq, void *data)
+{
+	struct s2mm005 *s = data;
+	u8 status[20], cmd = S2MM005_CMD_INT_CLEAR;
+	int ret;
+
+	/* sync, control, data and extended message flags, then the summary */
+	ret = regmap_bulk_read(s->regmap, S2MM005_REG_INT_STATUS, status,
+			       sizeof(status));
+	if (ret)
+		return IRQ_NONE;
+
+	dev_dbg(s->dev, "interrupt %*ph\n", (int)sizeof(status), status);
+	s2mm005_cmd(s, &cmd, 1);
+	s2mm005_update(s);
+
+	return IRQ_HANDLED;
+}
+
+static const enum power_supply_property s2mm005_psy_props[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_USB_TYPE,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
+};
+
+static int s2mm005_psy_get_property(struct power_supply *psy,
+				    enum power_supply_property psp,
+				    union power_supply_propval *val)
+{
+	struct s2mm005 *s = power_supply_get_drvdata(psy);
+
+	guard(mutex)(&s->lock);
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = s->attached;
+		break;
+	case POWER_SUPPLY_PROP_USB_TYPE:
+		val->intval = s->pd ? POWER_SUPPLY_USB_TYPE_PD :
+				      POWER_SUPPLY_USB_TYPE_C;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		val->intval = s->attached ? s->voltage_uv : 0;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		val->intval = s->attached ? s->current_ua : 0;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int s2mm005_psy_register(struct s2mm005 *s)
+{
+	struct power_supply_config cfg = {
+		.drv_data = s,
+		.fwnode = dev_fwnode(s->dev),
+	};
+	struct power_supply_desc *desc;
+
+	desc = devm_kzalloc(s->dev, sizeof(*desc), GFP_KERNEL);
+	if (!desc)
+		return -ENOMEM;
+
+	desc->name = devm_kasprintf(s->dev, GFP_KERNEL, "s2mm005-source-%s",
+				    dev_name(s->dev));
+	if (!desc->name)
+		return -ENOMEM;
+
+	desc->type = POWER_SUPPLY_TYPE_USB;
+	desc->usb_types = BIT(POWER_SUPPLY_USB_TYPE_C) |
+			  BIT(POWER_SUPPLY_USB_TYPE_PD);
+	desc->properties = s2mm005_psy_props;
+	desc->num_properties = ARRAY_SIZE(s2mm005_psy_props);
+	desc->get_property = s2mm005_psy_get_property;
+
+	s->psy = devm_power_supply_register(s->dev, desc, &cfg);
+
+	return PTR_ERR_OR_ZERO(s->psy);
+}
+
+static void s2mm005_unregister_port(void *data)
+{
+	struct s2mm005 *s = data;
+
+	typec_unregister_partner(s->partner);
+	typec_unregister_port(s->port);
+}
+
+static int s2mm005_probe(struct i2c_client *client)
+{
+	struct device *dev = &client->dev;
+	struct typec_capability cap = { };
+	struct fwnode_handle *connector;
+	unsigned int boot;
+	u8 main[3], cmd;
+	struct s2mm005 *s;
+	int ret;
+
+	s = devm_kzalloc(dev, sizeof(*s), GFP_KERNEL);
+	if (!s)
+		return -ENOMEM;
+
+	s->dev = dev;
+	s->opmode = TYPEC_PWR_MODE_USB;
+	ret = devm_mutex_init(dev, &s->lock);
+	if (ret)
+		return ret;
+
+	s->regmap = devm_regmap_init_i2c(client, &s2mm005_regmap_config);
+	if (IS_ERR(s->regmap))
+		return dev_err_probe(dev, PTR_ERR(s->regmap),
+				     "failed to init regmap\n");
+
+	s2mm005_wake(s);
+	cmd = S2MM005_CMD_FLASH_READ;
+	ret = s2mm005_cmd(s, &cmd, 1);
+	if (!ret)
+		ret = regmap_read(s->regmap, S2MM005_REG_FW_BOOT, &boot);
+	if (!ret)
+		ret = s2mm005_cmd(s, &cmd, 1);
+	if (!ret)
+		ret = regmap_bulk_read(s->regmap, S2MM005_REG_FW_MAIN, main,
+				       sizeof(main));
+	if (ret)
+		return dev_err_probe(dev, ret, "no answer\n");
+
+	ret = s2mm005_psy_register(s);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to register supply\n");
+
+	connector = device_get_named_child_node(dev, "connector");
+	cap.revision = USB_TYPEC_REV_1_2;
+	cap.pd_revision = 0x300;
+	cap.type = TYPEC_PORT_SNK;
+	cap.data = TYPEC_PORT_UFP;
+	cap.fwnode = connector;
+
+	s->port = typec_register_port(dev, &cap);
+	fwnode_handle_put(connector);
+	if (IS_ERR(s->port))
+		return dev_err_probe(dev, PTR_ERR(s->port),
+				     "failed to register port\n");
+
+	ret = devm_add_action_or_reset(dev, s2mm005_unregister_port, s);
+	if (ret)
+		return ret;
+
+	cmd = S2MM005_CMD_INT_CLEAR;
+	s2mm005_cmd(s, &cmd, 1);
+	s2mm005_update(s);
+
+	ret = devm_request_threaded_irq(dev, client->irq, NULL, s2mm005_irq,
+					IRQF_ONESHOT, "s2mm005", s);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to request irq\n");
+
+	dev_info(dev, "S2MM005, firmware %02x boot %d\n", main[0], boot);
+
+	return 0;
+}
+
+static const struct of_device_id s2mm005_of_match[] = {
+	{ .compatible = "samsung,s2mm005" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, s2mm005_of_match);
+
+static struct i2c_driver s2mm005_driver = {
+	.driver = {
+		.name = "s2mm005",
+		.of_match_table = s2mm005_of_match,
+	},
+	.probe = s2mm005_probe,
+};
+module_i2c_driver(s2mm005_driver);
+
+MODULE_DESCRIPTION("Samsung S2MM005 USB Type-C and PD controller driver");
+MODULE_LICENSE("GPL");

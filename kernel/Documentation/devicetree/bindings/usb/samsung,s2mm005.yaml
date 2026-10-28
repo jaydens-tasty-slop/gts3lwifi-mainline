@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/usb/samsung,s2mm005.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung S2MM005 USB Type-C and Power Delivery controller
+
+maintainers:
+  - psigod <psigod@example.com>
+
+description:
+  The S2MM005 is a USB Type-C port controller with a USB Power Delivery
+  policy engine running in its own firmware, controlled over I2C. As a sink
+  it negotiates a power contract with the source by itself; the host reads
+  the attach state and the contract. It raises its open-drain interrupt line
+  while an event is pending.
+
+properties:
+  compatible:
+    const: samsung,s2mm005
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  connector:
+    type: object
+    $ref: /schemas/connector/usb-connector.yaml#
+    unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        typec@33 {
+            compatible = "samsung,s2mm005";
+            reg = <0x33>;
+            interrupts-extended = <&tlmm 73 IRQ_TYPE_LEVEL_LOW>;
+
+            connector {
+                compatible = "usb-c-connector";
+                label = "USB-C";
+                power-role = "sink";
+                data-role = "device";
+            };
+        };
+    };

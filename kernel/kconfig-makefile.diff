@@ -108,3 +108,39 @@ index d687d4f74..d23aadf6e 100644
  obj-$(CONFIG_SND_SOC_RT9120)	+= snd-soc-rt9120.o
  obj-$(CONFIG_SND_SOC_RT9123)	+= snd-soc-rt9123.o
  obj-$(CONFIG_SND_SOC_RT9123P)	+= snd-soc-rt9123p.o
+diff --git a/drivers/usb/typec/Kconfig b/drivers/usb/typec/Kconfig
+index 2f80c2792..18829aaf0 100644
+--- a/drivers/usb/typec/Kconfig
++++ b/drivers/usb/typec/Kconfig
+@@ -77,6 +77,20 @@ config TYPEC_RT1719
+ 	  If you choose to build this driver as a dynamically linked module, the
+ 	  module will be called rt1719.ko
+ 
++config TYPEC_S2MM005
++	tristate "Samsung S2MM005 Type-C and PD controller driver"
++	depends on I2C
++	depends on POWER_SUPPLY
++	select REGMAP_I2C
++	help
++	  Say Y or M here if your system has a Samsung S2MM005 USB Type-C and
++	  Power Delivery controller, as in Samsung's 2017 phones and tablets.
++	  The PD negotiation runs in the controller's firmware; the driver
++	  reports the attach state and the power contract to the charger.
++
++	  If you choose to build this driver as a dynamically linked module, the
++	  module will be called s2mm005.ko
++
+ config TYPEC_HD3SS3220
+ 	tristate "TI HD3SS3220 Type-C DRP Port controller driver"
+ 	depends on I2C
+diff --git a/drivers/usb/typec/Makefile b/drivers/usb/typec/Makefile
+index 7a368fea6..48067c9d9 100644
+--- a/drivers/usb/typec/Makefile
++++ b/drivers/usb/typec/Makefile
+@@ -10,5 +10,6 @@ obj-$(CONFIG_TYPEC_ANX7411)	+= anx7411.o
+ obj-$(CONFIG_TYPEC_HD3SS3220)	+= hd3ss3220.o
+ obj-$(CONFIG_TYPEC_STUSB160X) 	+= stusb160x.o
+ obj-$(CONFIG_TYPEC_RT1719)	+= rt1719.o
++obj-$(CONFIG_TYPEC_S2MM005)	+= s2mm005.o
+ obj-$(CONFIG_TYPEC_WUSB3801)	+= wusb3801.o
+ obj-$(CONFIG_TYPEC)		+= mux/

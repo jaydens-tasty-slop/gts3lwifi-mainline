@@ -1,6 +1,6 @@
-# Battery, charger and USB charger detection: SM5705
+# Battery, charger, USB charger detection and USB-C: SM5705, S2MM005
 
-## Status (2026-10-28): fuel gauge, charger and MUIC work
+## Status (2026-10-28): fuel gauge, charger, MUIC and USB-C/PD work
 
 With `dts/test/test-charger.dts` (merged into the main DTS on 2026-10-28) (which includes `test-battery.dts`) and
 kernel patches 0012-0017 there are two power supplies and an extcon device:
@@ -70,7 +70,14 @@ from the MUIC):
 | SDP (PC port, or data contact timeout) | 500 mA | USB 2.0; stock uses 460 mA |
 | CDP | 1500 mA | BC1.2; stock uses 1000 mA |
 | DCP (wall charger, also Samsung AFC, QC 2.0, U200) | 1800 mA | stock's setting for Samsung wall chargers |
+| AFC / QC 2.0 at 9 V (opt-in, below) | 1650 mA | stock's 9 V setting |
+| USB-C source, Type-C current or PD contract (S2MM005, below) | up to 3000 mA at 5 V | used when higher than the BC1.2 limit |
 | nothing detected | unchanged | |
+
+**Charge current:** 2.7 A with a source of about 15 W (9 V AFC, or 3 A at
+5 V over USB-C), like Samsung's firmware for its 15 W chargers; 2.0 A (the
+bootloader's setting) otherwise. The temperature guard's limits still
+apply. Patch 0028.
 
 The bootloader had left 1500 mA for the PC port. `input_current_limit` is
 writable, until the next cable event. AFC (9 V) is not negotiated, so
@@ -190,8 +197,57 @@ The charger's OVPSEL bit (CHGCNTL7 bit 2, set by the bootloader and by
 stock) selects the high VBUS over-voltage threshold that 9 V needs. The
 QC 2.0 path is written but has not run yet (the Xiaomi answered AFC).
 
-USB-C PD chargers (for example Samsung's 25 W with a C-to-C cable) need the
-S2MM005 for Power Delivery; until then they charge at 5 V.
+USB-C PD chargers: see the next section; they give 3 A at 5 V.
+
+## USB-C and Power Delivery: S2MM005
+
+Kernel patches 0029-0032, main DTS. The S2MM005 ("CCIC" in Samsung's
+kernels) is a Type-C port controller whose firmware also runs the PD
+policy engine: as a sink it takes the source's capabilities and requests
+one by itself. The new driver reports what it negotiated:
+
+- `/sys/class/typec/port0` (sink, device) with a partner while a USB-C
+  source is attached, `power_operation_mode` `usb_power_delivery`,
+  `3.0A`, `1.5A` or `default`;
+- a power supply `s2mm005-source-2-0033` with `online`, `usb_type`
+  (C or PD), `voltage_now` and `current_max`, which supplies the charger
+  (`power-supplies` in the charger node).
+
+The charger uses the higher of the MUIC's BC1.2 limit and what the USB-C
+source allows (at most 3 A at 5 V, Samsung's 1.65 A above 5.5 V).
+
+Tested with Samsung's 25 W PD charger (USB-C to C cable):
+
+```
+s2mm005 2-0033: Type-C source: 5000 mV, 3000 mA
+sm5705-charger 3-0049: 15 W source, charging at up to 2700 mA
+s2mm005 2-0033: PD contract: 5000 mV, 3000 mA
+```
+
+input limit 3 A, charge current 2.7 A, PD revision 3.0. It offers 5 V
+3 A, 9 V 2.77 A, 12 V 2.1 A and PPS 3.3-5.9 V 3 A / 3.3-11 V; the firmware
+requests the first. Unplugged and on the PC port (this cable shows no
+Type-C pull-up, so there is no attach): 500 mA input, 2.0 A charge current.
+
+**9 V over PD does not work yet.** Asking the firmware for the 9 V
+capability (the vendor's `select_pdo`: command `03 03 02`, then `03 02 11`
+to request again) gets an Accept, the charger starts ramping (the MUIC
+measured about 7 V), then the chip sees CC1 open and detaches about 0.4 s
+after the Accept, and everything restarts at 5 V. VBUS never drops (no
+hard reset), the tablet's load does not matter (same at 500 mA input), and
+the MUIC stays quiet. Samsung's battery driver for this tablet probably
+never asks for more than 5 V either: its PD list is built from
+`battery,step_charging_charge_power`, which the Tab S3 does not set. With
+3 A at 5 V the PD charger already gives the same 15 W as 9 V AFC.
+
+| | |
+|---|---|
+| Bus | BLSP1 QUP5 I2C (TLMM 83 SDA, 84 SCL), 100 kHz, address 0x33; msm8996.dtsi has no node for this QUP, the board DTS adds it |
+| Interrupt | TLMM 73, open drain, low while an event is pending; the board pulls it up, so the pin needs `bias-disable` (with the default pull-down it always reads low) |
+| Firmware | main version 0xd5, boot 6, hardware boot 4 (no ftrim fix-up needed, that is for boot 2 and older); never flashed by this driver |
+| Registers | 16-bit addresses, big endian; 0x10 command, 0x20 state, 0x30 message flags, 0x60 low power state, 0x0220 own sink capabilities (5 V 0.5 A, variable 5-12 V 0.5 A), 0x0240 last request, 0x0260 source capabilities |
+| State word 0x20 | byte 0 PD state (21 = sink ready, 17 = waiting for capabilities, 20 = transition), bit 24 attached, 25 source, 26 DFP, 27-28 Rp level (1 default, 2 1.5 A, 3 3 A), 31 firmware reset |
+| Commands | `01` clear interrupt; `aa` maps the firmware version to 0x08/0x09; `0f 06` automatic low power mode; `03 03 n` select capability n; `03 02 s` go to PD state s |
 
 ## Fuel gauge registers
 
@@ -288,6 +344,8 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
+- 9 V over PD (see above), and gating AFC on USB-C cables: the MUIC
+  still tries AFC with a C-to-C PD charger, which fails harmlessly.
 - CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
   are no CPU idle states. Worth trying for idle power, carefully, since
   Samsung's TrustZone already mishandles PSCI SYSTEM_RESET.

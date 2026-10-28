@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 20:58:13 +0530
+Subject: [PATCH] dt-bindings: power: supply: sm5705-charger: allow a Type-C
+ supply
+
+A USB Type-C controller can supply the charger with what the USB-C source
+allows, beyond what the MUIC's BC1.2 detection reports.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../power/supply/siliconmitus,sm5705-charger.yaml         | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+index 87b8e4d7b..d49fa487a 100644
+--- a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
++++ b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+@@ -35,6 +35,13 @@ properties:
+       The SM5705 MUIC, which reports the USB charger type. The input
+       current limit follows it.
+ 
++  power-supplies:
++    maxItems: 1
++    description:
++      A USB Type-C controller supplying this charger. The input current
++      limit also follows the current the USB-C source allows (Type-C
++      current or PD contract), whichever of the two is higher.
++
+ required:
+   - compatible
+   - reg
+@@ -55,5 +62,6 @@ examples:
+         interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
+         monitored-battery = <&battery>;
+         extcon = <&muic>;
++        power-supplies = <&typec>;
+       };
+     };
+-- 
+2.53.0
+

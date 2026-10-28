@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 20:57:54 +0530
+Subject: [PATCH] power: supply: sm5705_charger: charge at 2.7 A from 15 W
+ sources
+
+The charge current stays at whatever the hardware holds at probe, 2.0 A
+from the bootloader, for every source. Samsung's firmware charges at
+2.7 A when a 15 W charger is attached (9 V AFC), so a fast charger only
+gave headroom, not faster charging.
+
+Charge at 2.7 A while the MUIC reports a fast charger, within the
+temperature guard's limits and the battery's maximum if it has one, and
+at the default otherwise. Start from a fixed 2.0 A instead of reading the
+hardware: after a driver reload or a reboot on a fast charger, the
+hardware still holds 2.7 A and that became the default.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/sm5705_charger.c | 33 +++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index 6cc0f110a..c88e6d4bf 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -65,6 +65,13 @@
+ #define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
+ #define SM5705_FAST_INPUT_LIMIT_UA	1650000	/* Samsung's 9 V AFC setting */
+ 
++/*
++ * Charge current with a 15 W source (Samsung: 9 V AFC), else the default
++ * (the bootloader's setting) unless the battery node gives one
++ */
++#define SM5705_FAST_CHARGE_UA		2700000
++#define SM5705_DEFAULT_CHARGE_UA	2000000
++
+ /*
+  * Battery temperature guard, in tenths of a degree, after Samsung's
+  * firmware: no charging outside the battery's alert range (0-50 C unless
+@@ -104,6 +111,7 @@ struct sm5705_chg {
+ 	struct notifier_block extcon_nb;
+ 	struct work_struct cable_work;
+ 	int usb_type;
++	bool fast;			/* a 15 W source is attached */
+ 
+ 	/* battery temperature guard */
+ 	struct mutex lock;
+@@ -404,10 +412,12 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
+ 					      cable_work);
+ 	int type, limit = 0;
++	bool fast = false;
+ 
+ 	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+ 		limit = SM5705_FAST_INPUT_LIMIT_UA;
++		fast = true;
+ 	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+ 		limit = SM5705_DCP_INPUT_LIMIT_UA;
+@@ -427,6 +437,17 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 
+ 	dev_dbg(chg->dev, "usb type %d, input limit %d uA\n", type, limit);
+ 	chg->usb_type = type;
++
++	mutex_lock(&chg->lock);
++	if (fast != chg->fast) {
++		chg->fast = fast;
++		sm5705_chg_apply_zone(chg);
++		dev_info(chg->dev, "%s source, charging at up to %d mA\n",
++			 fast ? "15 W" : "standard",
++			 (fast ? SM5705_FAST_CHARGE_UA : chg->cfg_current) / 1000);
++	}
++	mutex_unlock(&chg->lock);
++
+ 	power_supply_changed(chg->psy);
+ }
+ 
+@@ -452,6 +473,9 @@ static const char * const sm5705_zone_names[] = {
+ static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ {
+ 	int voltage = chg->cfg_voltage, current_ua = chg->cfg_current;
++
++	if (chg->fast)
++		current_ua = SM5705_FAST_CHARGE_UA;
+ 	unsigned int mode, cntl;
+ 	bool charge = true;
+ 
+@@ -667,6 +691,15 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 			chg->temp_max = chg->bat->temp_alert_max * 10;
+ 	}
+ 
++	/* the hardware may still hold the fast setting of an earlier run */
++	if (!chg->bat || chg->bat->constant_charge_current_max_ua <= 0) {
++		ret = sm5705_chg_set_charge_current(chg,
++						    SM5705_DEFAULT_CHARGE_UA);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "failed to set charge current\n");
++	}
++
+ 	ret = sm5705_chg_get_charge_voltage(chg, &chg->cfg_voltage);
+ 	if (!ret)
+ 		ret = sm5705_chg_get_charge_current(chg, &chg->cfg_current);
+-- 
+2.53.0
+

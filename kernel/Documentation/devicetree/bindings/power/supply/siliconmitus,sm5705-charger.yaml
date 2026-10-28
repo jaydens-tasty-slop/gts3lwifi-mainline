@@ -35,6 +35,13 @@ properties:
       The SM5705 MUIC, which reports the USB charger type. The input
       current limit follows it.
 
+  power-supplies:
+    maxItems: 1
+    description:
+      A USB Type-C controller supplying this charger. The input current
+      limit also follows the current the USB-C source allows (Type-C
+      current or PD contract), whichever of the two is higher.
+
 required:
   - compatible
   - reg
@@ -55,5 +62,6 @@ examples:
         interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
         monitored-battery = <&battery>;
         extcon = <&muic>;
+        power-supplies = <&typec>;
       };
     };

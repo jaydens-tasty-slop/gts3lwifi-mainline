@@ -1,0 +1,166 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 20:58:13 +0530
+Subject: [PATCH] power: supply: sm5705_charger: input limit from a USB-C
+ supply
+
+With a USB-C source the MUIC's BC1.2 detection undersells it: a Samsung
+25 W PD charger shows up as a DCP, 1.8 A, while it grants 3 A at 5 V over
+Type-C and PD.
+
+Take the current the source allows from the Type-C controller listed in
+"power-supplies" and use it when it is higher than the BC1.2 limit:
+at most 3 A at 5 V, and Samsung's 1.65 A AFC limit above 5.5 V. Such a
+source of about 15 W also gets the 2.7 A charge current. The cable work
+now also runs when the supplier changes, so it is set up before the
+power supply is registered.
+
+Tested on a Samsung Galaxy Tab S3 with a Samsung 25 W PD charger (3 A
+input, 2.7 A charge current) and a PC port (500 mA, 2.0 A).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/sm5705_charger.c | 69 +++++++++++++++++++++++----
+ 1 file changed, 61 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index c88e6d4bf..5e7715391 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -64,6 +64,8 @@
+ #define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
+ #define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
+ #define SM5705_FAST_INPUT_LIMIT_UA	1650000	/* Samsung's 9 V AFC setting */
++#define SM5705_TYPEC_INPUT_LIMIT_UA	3000000	/* USB-C at 5 V: 3 A at most */
++#define SM5705_HV_MIN_UV		5500000	/* above this, the 9 V limit */
+ 
+ /*
+  * Charge current with a 15 W source (Samsung: 9 V AFC), else the default
+@@ -71,6 +73,7 @@
+  */
+ #define SM5705_FAST_CHARGE_UA		2700000
+ #define SM5705_DEFAULT_CHARGE_UA	2000000
++#define SM5705_FAST_SOURCE_MW		14000	/* 9 V x 1.65 A counts too */
+ 
+ /*
+  * Battery temperature guard, in tenths of a degree, after Samsung's
+@@ -378,18 +381,28 @@ static const enum power_supply_property sm5705_chg_props[] = {
+ 	POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT,
+ };
+ 
++static void sm5705_chg_external_power_changed(struct power_supply *psy)
++{
++	struct sm5705_chg *chg = power_supply_get_drvdata(psy);
++
++	schedule_work(&chg->cable_work);
++}
++
+ static const struct power_supply_desc sm5705_chg_desc = {
+ 	.name = "sm5705-charger",
+ 	.type = POWER_SUPPLY_TYPE_USB,
+ 	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
+ 		     BIT(POWER_SUPPLY_USB_TYPE_SDP) |
+ 		     BIT(POWER_SUPPLY_USB_TYPE_DCP) |
+-		     BIT(POWER_SUPPLY_USB_TYPE_CDP),
++		     BIT(POWER_SUPPLY_USB_TYPE_CDP) |
++		     BIT(POWER_SUPPLY_USB_TYPE_C) |
++		     BIT(POWER_SUPPLY_USB_TYPE_PD),
+ 	.properties = sm5705_chg_props,
+ 	.num_properties = ARRAY_SIZE(sm5705_chg_props),
+ 	.get_property = sm5705_chg_get_property,
+ 	.set_property = sm5705_chg_set_property,
+ 	.property_is_writeable = sm5705_chg_property_is_writeable,
++	.external_power_changed = sm5705_chg_external_power_changed,
+ };
+ 
+ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+@@ -407,12 +420,44 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+ 	return IRQ_HANDLED;
+ }
+ 
++/*
++ * What a USB-C source allows, from the Type-C controller in "power-supplies":
++ * its Type-C current or PD contract, capped to what Samsung's firmware uses.
++ */
++static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
++				  bool *fast)
++{
++	union power_supply_propval online, uv, ua, usb_type;
++	int limit;
++
++	if (power_supply_get_property_from_supplier(chg->psy,
++			POWER_SUPPLY_PROP_ONLINE, &online) || !online.intval)
++		return 0;
++	if (power_supply_get_property_from_supplier(chg->psy,
++			POWER_SUPPLY_PROP_VOLTAGE_NOW, &uv) ||
++	    power_supply_get_property_from_supplier(chg->psy,
++			POWER_SUPPLY_PROP_CURRENT_MAX, &ua))
++		return 0;
++	if (power_supply_get_property_from_supplier(chg->psy,
++			POWER_SUPPLY_PROP_USB_TYPE, &usb_type))
++		usb_type.intval = POWER_SUPPLY_USB_TYPE_C;
++
++	limit = min(ua.intval, uv.intval > SM5705_HV_MIN_UV ?
++			       SM5705_FAST_INPUT_LIMIT_UA :
++			       SM5705_TYPEC_INPUT_LIMIT_UA);
++	*type = usb_type.intval;
++	*fast = (uv.intval / 1000) * (limit / 1000) / 1000 >=
++		SM5705_FAST_SOURCE_MW;
++
++	return limit;
++}
++
+ static void sm5705_chg_cable_work(struct work_struct *work)
+ {
+ 	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
+ 					      cable_work);
+-	int type, limit = 0;
+-	bool fast = false;
++	int type, limit = 0, typec_type, typec_limit;
++	bool fast = false, typec_fast = false;
+ 
+ 	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+@@ -431,6 +476,14 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 		type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+ 	}
+ 
++	/* a USB-C source may allow more than its BC1.2 type says */
++	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast);
++	if (typec_limit > limit) {
++		type = typec_type;
++		limit = typec_limit;
++		fast = typec_fast;
++	}
++
+ 	/* nothing attached: keep the limit for the next cable */
+ 	if (limit && sm5705_chg_set_input_limit(chg, limit))
+ 		dev_err(chg->dev, "failed to set input limit %d uA\n", limit);
+@@ -667,6 +720,11 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to read device id\n");
+ 
++	/* external_power_changed() can run as soon as the supply exists */
++	ret = devm_work_autocancel(dev, &chg->cable_work, sm5705_chg_cable_work);
++	if (ret)
++		return ret;
++
+ 	cfg.drv_data = chg;
+ 	cfg.fwnode = dev_fwnode(dev);
+ 	chg->psy = devm_power_supply_register(dev, &sm5705_chg_desc, &cfg);
+@@ -737,11 +795,6 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 	}
+ 
+ 	if (chg->edev) {
+-		ret = devm_work_autocancel(dev, &chg->cable_work,
+-					   sm5705_chg_cable_work);
+-		if (ret)
+-			return ret;
+-
+ 		chg->extcon_nb.notifier_call = sm5705_chg_extcon_notifier;
+ 		ret = devm_extcon_register_notifier_all(dev, chg->edev,
+ 							&chg->extcon_nb);
+-- 
+2.53.0
+

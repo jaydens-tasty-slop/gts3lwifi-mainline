@@ -64,6 +64,16 @@
 #define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
 #define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
 #define SM5705_FAST_INPUT_LIMIT_UA	1650000	/* Samsung's 9 V AFC setting */
+#define SM5705_TYPEC_INPUT_LIMIT_UA	3000000	/* USB-C at 5 V: 3 A at most */
+#define SM5705_HV_MIN_UV		5500000	/* above this, the 9 V limit */
+
+/*
+ * Charge current with a 15 W source (Samsung: 9 V AFC), else the default
+ * (the bootloader's setting) unless the battery node gives one
+ */
+#define SM5705_FAST_CHARGE_UA		2700000
+#define SM5705_DEFAULT_CHARGE_UA	2000000
+#define SM5705_FAST_SOURCE_MW		14000	/* 9 V x 1.65 A counts too */
 
 /*
  * Battery temperature guard, in tenths of a degree, after Samsung's
@@ -104,6 +114,7 @@ struct sm5705_chg {
 	struct notifier_block extcon_nb;
 	struct work_struct cable_work;
 	int usb_type;
+	bool fast;			/* a 15 W source is attached */
 
 	/* battery temperature guard */
 	struct mutex lock;
@@ -370,18 +381,28 @@ static const enum power_supply_property sm5705_chg_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT,
 };
 
+static void sm5705_chg_external_power_changed(struct power_supply *psy)
+{
+	struct sm5705_chg *chg = power_supply_get_drvdata(psy);
+
+	schedule_work(&chg->cable_work);
+}
+
 static const struct power_supply_desc sm5705_chg_desc = {
 	.name = "sm5705-charger",
 	.type = POWER_SUPPLY_TYPE_USB,
 	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
 		     BIT(POWER_SUPPLY_USB_TYPE_SDP) |
 		     BIT(POWER_SUPPLY_USB_TYPE_DCP) |
-		     BIT(POWER_SUPPLY_USB_TYPE_CDP),
+		     BIT(POWER_SUPPLY_USB_TYPE_CDP) |
+		     BIT(POWER_SUPPLY_USB_TYPE_C) |
+		     BIT(POWER_SUPPLY_USB_TYPE_PD),
 	.properties = sm5705_chg_props,
 	.num_properties = ARRAY_SIZE(sm5705_chg_props),
 	.get_property = sm5705_chg_get_property,
 	.set_property = sm5705_chg_set_property,
 	.property_is_writeable = sm5705_chg_property_is_writeable,
+	.external_power_changed = sm5705_chg_external_power_changed,
 };
 
 static irqreturn_t sm5705_chg_irq(int irq, void *data)
@@ -399,15 +420,49 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * What a USB-C source allows, from the Type-C controller in "power-supplies":
+ * its Type-C current or PD contract, capped to what Samsung's firmware uses.
+ */
+static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
+				  bool *fast)
+{
+	union power_supply_propval online, uv, ua, usb_type;
+	int limit;
+
+	if (power_supply_get_property_from_supplier(chg->psy,
+			POWER_SUPPLY_PROP_ONLINE, &online) || !online.intval)
+		return 0;
+	if (power_supply_get_property_from_supplier(chg->psy,
+			POWER_SUPPLY_PROP_VOLTAGE_NOW, &uv) ||
+	    power_supply_get_property_from_supplier(chg->psy,
+			POWER_SUPPLY_PROP_CURRENT_MAX, &ua))
+		return 0;
+	if (power_supply_get_property_from_supplier(chg->psy,
+			POWER_SUPPLY_PROP_USB_TYPE, &usb_type))
+		usb_type.intval = POWER_SUPPLY_USB_TYPE_C;
+
+	limit = min(ua.intval, uv.intval > SM5705_HV_MIN_UV ?
+			       SM5705_FAST_INPUT_LIMIT_UA :
+			       SM5705_TYPEC_INPUT_LIMIT_UA);
+	*type = usb_type.intval;
+	*fast = (uv.intval / 1000) * (limit / 1000) / 1000 >=
+		SM5705_FAST_SOURCE_MW;
+
+	return limit;
+}
+
 static void sm5705_chg_cable_work(struct work_struct *work)
 {
 	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
 					      cable_work);
-	int type, limit = 0;
+	int type, limit = 0, typec_type, typec_limit;
+	bool fast = false, typec_fast = false;
 
 	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
 		type = POWER_SUPPLY_USB_TYPE_DCP;
 		limit = SM5705_FAST_INPUT_LIMIT_UA;
+		fast = true;
 	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
 		type = POWER_SUPPLY_USB_TYPE_DCP;
 		limit = SM5705_DCP_INPUT_LIMIT_UA;
@@ -421,12 +476,31 @@ static void sm5705_chg_cable_work(struct work_struct *work)
 		type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 	}
 
+	/* a USB-C source may allow more than its BC1.2 type says */
+	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast);
+	if (typec_limit > limit) {
+		type = typec_type;
+		limit = typec_limit;
+		fast = typec_fast;
+	}
+
 	/* nothing attached: keep the limit for the next cable */
 	if (limit && sm5705_chg_set_input_limit(chg, limit))
 		dev_err(chg->dev, "failed to set input limit %d uA\n", limit);
 
 	dev_dbg(chg->dev, "usb type %d, input limit %d uA\n", type, limit);
 	chg->usb_type = type;
+
+	mutex_lock(&chg->lock);
+	if (fast != chg->fast) {
+		chg->fast = fast;
+		sm5705_chg_apply_zone(chg);
+		dev_info(chg->dev, "%s source, charging at up to %d mA\n",
+			 fast ? "15 W" : "standard",
+			 (fast ? SM5705_FAST_CHARGE_UA : chg->cfg_current) / 1000);
+	}
+	mutex_unlock(&chg->lock);
+
 	power_supply_changed(chg->psy);
 }
 
@@ -452,6 +526,9 @@ static const char * const sm5705_zone_names[] = {
 static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
 {
 	int voltage = chg->cfg_voltage, current_ua = chg->cfg_current;
+
+	if (chg->fast)
+		current_ua = SM5705_FAST_CHARGE_UA;
 	unsigned int mode, cntl;
 	bool charge = true;
 
@@ -643,6 +720,11 @@ static int sm5705_chg_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read device id\n");
 
+	/* external_power_changed() can run as soon as the supply exists */
+	ret = devm_work_autocancel(dev, &chg->cable_work, sm5705_chg_cable_work);
+	if (ret)
+		return ret;
+
 	cfg.drv_data = chg;
 	cfg.fwnode = dev_fwnode(dev);
 	chg->psy = devm_power_supply_register(dev, &sm5705_chg_desc, &cfg);
@@ -665,6 +747,15 @@ static int sm5705_chg_probe(struct i2c_client *client)
 			chg->temp_min = chg->bat->temp_alert_min * 10;
 		if (chg->bat->temp_alert_max < INT_MAX)
 			chg->temp_max = chg->bat->temp_alert_max * 10;
+	}
+
+	/* the hardware may still hold the fast setting of an earlier run */
+	if (!chg->bat || chg->bat->constant_charge_current_max_ua <= 0) {
+		ret = sm5705_chg_set_charge_current(chg,
+						    SM5705_DEFAULT_CHARGE_UA);
+		if (ret)
+			return dev_err_probe(dev, ret,
+					     "failed to set charge current\n");
 	}
 
 	ret = sm5705_chg_get_charge_voltage(chg, &chg->cfg_voltage);
@@ -704,11 +795,6 @@ static int sm5705_chg_probe(struct i2c_client *client)
 	}
 
 	if (chg->edev) {
-		ret = devm_work_autocancel(dev, &chg->cable_work,
-					   sm5705_chg_cable_work);
-		if (ret)
-			return ret;
-
 		chg->extcon_nb.notifier_call = sm5705_chg_extcon_notifier;
 		ret = devm_extcon_register_notifier_all(dev, chg->edev,
 							&chg->extcon_nb);
