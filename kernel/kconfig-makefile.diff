@@ -15,3 +15,19 @@
 +++ b/drivers/gpu/drm/panel/Makefile
 @@ (next to the other panel-samsung-* lines) @@
 +obj-$(CONFIG_DRM_PANEL_SAMSUNG_AMS968HH01) += panel-samsung-ams968hh01.o
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ (after FUEL_GAUGE_MM8013) @@
++config FUEL_GAUGE_SM5705
++	tristate "Silicon Mitus SM5705 fuel gauge driver"
++	depends on I2C
++	help
++	  Say Y here to enable the fuel gauge of the Silicon Mitus SM5705
++	  charger and fuel gauge IC, found in some Samsung devices. It reports
++	  the state of charge, voltage, current and temperature that the
++	  gauge measures.
++
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ (after FUEL_GAUGE_MM8013) @@
++obj-$(CONFIG_FUEL_GAUGE_SM5705)	+= sm5705_fuel_gauge.o
