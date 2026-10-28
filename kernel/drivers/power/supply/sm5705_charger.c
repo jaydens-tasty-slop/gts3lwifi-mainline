@@ -29,6 +29,7 @@
 #define SM5705_REG_STATUS1		0x08
 #define SM5705_REG_STATUS2		0x09
 #define SM5705_REG_STATUS3		0x0a
+#define SM5705_REG_CNTL			0x0c
 #define SM5705_REG_VBUSCNTL		0x0d
 #define SM5705_REG_CHGCNTL2		0x10
 #define SM5705_REG_CHGCNTL4		0x12
@@ -49,6 +50,10 @@
 #define SM5705_PRETMROFF		BIT(4)
 #define SM5705_FASTTMROFF		BIT(5)
 
+#define SM5705_CNTL_MODE_MASK		GENMASK(2, 0)
+#define SM5705_CNTL_MODE_CHG_OFF	4
+#define SM5705_CNTL_MODE_CHG_ON		5
+
 #define SM5705_VBUSLIMIT_MASK		GENMASK(6, 0)
 #define SM5705_FASTCHG_MASK		GENMASK(5, 0)
 #define SM5705_BATREG_MASK		GENMASK(5, 0)
@@ -59,6 +64,32 @@
 #define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
 #define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
 #define SM5705_FAST_INPUT_LIMIT_UA	1650000	/* Samsung's 9 V AFC setting */
+
+/*
+ * Battery temperature guard, in tenths of a degree, after Samsung's
+ * firmware: no charging outside the battery's alert range (0-50 C unless
+ * the battery node says otherwise), 4.10 V and 1.35 A when warm, 0.9 A
+ * when cool. Each zone is left only past its recovery point.
+ */
+#define SM5705_TEMP_ALERT_MIN		0
+#define SM5705_TEMP_ALERT_MAX		500
+#define SM5705_TEMP_ALERT_HYST		50
+#define SM5705_TEMP_WARM		410
+#define SM5705_TEMP_WARM_HYST		20
+#define SM5705_TEMP_COOL		150
+#define SM5705_TEMP_COOL_HYST		50
+#define SM5705_WARM_VOLTAGE_UV		4100000
+#define SM5705_WARM_CURRENT_UA		1350000
+#define SM5705_COOL_CURRENT_UA		900000
+#define SM5705_TEMP_POLL		(30 * HZ)
+
+enum sm5705_temp_zone {
+	SM5705_ZONE_NORMAL,
+	SM5705_ZONE_COOL,
+	SM5705_ZONE_WARM,
+	SM5705_ZONE_COLD,
+	SM5705_ZONE_HOT,
+};
 
 /* BATREG: 0 is 3.8 V, 1 is 4.0 V, then 4.01 V in 10 mV steps */
 #define SM5705_BATREG_MIN_UV		4010000
@@ -73,6 +104,13 @@ struct sm5705_chg {
 	struct notifier_block extcon_nb;
 	struct work_struct cable_work;
 	int usb_type;
+
+	/* battery temperature guard */
+	struct mutex lock;
+	struct delayed_work temp_work;
+	enum sm5705_temp_zone zone;
+	int temp_min, temp_max;		/* tenths of a degree */
+	int cfg_voltage, cfg_current;	/* limits outside the guard */
 };
 
 /* VBUS input current limit: 100 mA + 25 mA steps */
@@ -230,6 +268,9 @@ static int sm5705_chg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_STATUS:
 		if (!(st[0] & SM5705_VBUSPOK))
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
+		else if (chg->zone == SM5705_ZONE_HOT ||
+			 chg->zone == SM5705_ZONE_COLD)
+			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		else if (st[1] & (SM5705_TOPOFF | SM5705_DONE))
 			val->intval = POWER_SUPPLY_STATUS_FULL;
 		else if (st[1] & SM5705_CHGON)
@@ -244,6 +285,14 @@ static int sm5705_chg_get_property(struct power_supply *psy,
 			val->intval = POWER_SUPPLY_HEALTH_OVERHEAT;
 		else if (st[2] & (SM5705_PRETMROFF | SM5705_FASTTMROFF))
 			val->intval = POWER_SUPPLY_HEALTH_SAFETY_TIMER_EXPIRE;
+		else if (chg->zone == SM5705_ZONE_HOT)
+			val->intval = POWER_SUPPLY_HEALTH_OVERHEAT;
+		else if (chg->zone == SM5705_ZONE_COLD)
+			val->intval = POWER_SUPPLY_HEALTH_COLD;
+		else if (chg->zone == SM5705_ZONE_WARM)
+			val->intval = POWER_SUPPLY_HEALTH_WARM;
+		else if (chg->zone == SM5705_ZONE_COOL)
+			val->intval = POWER_SUPPLY_HEALTH_COOL;
 		else
 			val->intval = POWER_SUPPLY_HEALTH_GOOD;
 		break;
@@ -254,24 +303,46 @@ static int sm5705_chg_get_property(struct power_supply *psy,
 	return 0;
 }
 
+static void sm5705_chg_apply_zone(struct sm5705_chg *chg);
+
 static int sm5705_chg_set_property(struct power_supply *psy,
 				   enum power_supply_property psp,
 				   const union power_supply_propval *val)
 {
 	struct sm5705_chg *chg = power_supply_get_drvdata(psy);
+	int ret;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		return sm5705_chg_set_input_limit(chg, val->intval);
-	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
-		return sm5705_chg_set_charge_current(chg, val->intval);
-	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
-		return sm5705_chg_set_charge_voltage(chg, val->intval);
 	case POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT:
 		return sm5705_chg_set_term_current(chg, val->intval);
 	default:
-		return -EINVAL;
+		break;
 	}
+
+	/* charge voltage and current: the guard may hold them lower */
+	mutex_lock(&chg->lock);
+	switch (psp) {
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+		ret = sm5705_chg_set_charge_current(chg, val->intval);
+		if (!ret)
+			chg->cfg_current = val->intval;
+		break;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+		ret = sm5705_chg_set_charge_voltage(chg, val->intval);
+		if (!ret)
+			chg->cfg_voltage = val->intval;
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+	if (!ret)
+		sm5705_chg_apply_zone(chg);
+	mutex_unlock(&chg->lock);
+
+	return ret;
 }
 
 static int sm5705_chg_property_is_writeable(struct power_supply *psy,
@@ -369,6 +440,134 @@ static int sm5705_chg_extcon_notifier(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+static const char * const sm5705_zone_names[] = {
+	[SM5705_ZONE_NORMAL] = "normal",
+	[SM5705_ZONE_COOL] = "cool, 0.9 A",
+	[SM5705_ZONE_WARM] = "warm, 4.10 V and 1.35 A",
+	[SM5705_ZONE_COLD] = "too cold, not charging",
+	[SM5705_ZONE_HOT] = "too hot, not charging",
+};
+
+/* Write the limits for the current zone; called with chg->lock held */
+static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+{
+	int voltage = chg->cfg_voltage, current_ua = chg->cfg_current;
+	unsigned int mode, cntl;
+	bool charge = true;
+
+	switch (chg->zone) {
+	case SM5705_ZONE_HOT:
+	case SM5705_ZONE_COLD:
+		charge = false;
+		break;
+	case SM5705_ZONE_WARM:
+		voltage = min(voltage, SM5705_WARM_VOLTAGE_UV);
+		current_ua = min(current_ua, SM5705_WARM_CURRENT_UA);
+		break;
+	case SM5705_ZONE_COOL:
+		current_ua = min(current_ua, SM5705_COOL_CURRENT_UA);
+		break;
+	default:
+		break;
+	}
+
+	if (voltage > 0)
+		sm5705_chg_set_charge_voltage(chg, voltage);
+	if (current_ua > 0)
+		sm5705_chg_set_charge_current(chg, current_ua);
+
+	/* only switch between charging on and off, leave other modes alone */
+	if (regmap_read(chg->regmap, SM5705_REG_CNTL, &cntl))
+		return;
+	mode = cntl & SM5705_CNTL_MODE_MASK;
+	if (mode != SM5705_CNTL_MODE_CHG_ON && mode != SM5705_CNTL_MODE_CHG_OFF)
+		return;
+	regmap_update_bits(chg->regmap, SM5705_REG_CNTL, SM5705_CNTL_MODE_MASK,
+			   charge ? SM5705_CNTL_MODE_CHG_ON :
+				    SM5705_CNTL_MODE_CHG_OFF);
+}
+
+static enum sm5705_temp_zone sm5705_chg_temp_zone(struct sm5705_chg *chg,
+						  int temp)
+{
+	enum sm5705_temp_zone zone = chg->zone;
+
+	if (temp >= chg->temp_max ||
+	    (zone == SM5705_ZONE_HOT &&
+	     temp >= chg->temp_max - SM5705_TEMP_ALERT_HYST))
+		return SM5705_ZONE_HOT;
+	if (temp < chg->temp_min ||
+	    (zone == SM5705_ZONE_COLD &&
+	     temp <= chg->temp_min + SM5705_TEMP_ALERT_HYST))
+		return SM5705_ZONE_COLD;
+	if (temp >= SM5705_TEMP_WARM ||
+	    ((zone == SM5705_ZONE_WARM || zone == SM5705_ZONE_HOT) &&
+	     temp >= SM5705_TEMP_WARM - SM5705_TEMP_WARM_HYST))
+		return SM5705_ZONE_WARM;
+	if (temp < SM5705_TEMP_COOL ||
+	    ((zone == SM5705_ZONE_COOL || zone == SM5705_ZONE_COLD) &&
+	     temp <= SM5705_TEMP_COOL + SM5705_TEMP_COOL_HYST))
+		return SM5705_ZONE_COOL;
+
+	return SM5705_ZONE_NORMAL;
+}
+
+struct sm5705_bat_temp {
+	struct sm5705_chg *chg;
+	int temp;
+};
+
+/* Battery temperature from the battery this charger supplies */
+static int sm5705_chg_read_bat_temp(struct power_supply *psy, void *data)
+{
+	struct sm5705_bat_temp *bt = data;
+	union power_supply_propval val;
+	size_t i;
+
+	if (psy->desc->type != POWER_SUPPLY_TYPE_BATTERY)
+		return 0;
+
+	for (i = 0; i < psy->num_supplies; i++) {
+		if (strcmp(psy->supplied_from[i], bt->chg->psy->desc->name))
+			continue;
+		if (power_supply_get_property(psy, POWER_SUPPLY_PROP_TEMP, &val))
+			return 0;
+		bt->temp = val.intval;
+		return 1;
+	}
+
+	return 0;
+}
+
+static void sm5705_chg_temp_work(struct work_struct *work)
+{
+	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
+					      temp_work.work);
+	struct sm5705_bat_temp bt = { .chg = chg };
+	enum sm5705_temp_zone zone;
+	bool found;
+
+	found = power_supply_for_each_psy(&bt, sm5705_chg_read_bat_temp) > 0;
+	if (found) {
+		mutex_lock(&chg->lock);
+		zone = sm5705_chg_temp_zone(chg, bt.temp);
+		if (zone != chg->zone) {
+			dev_info(chg->dev, "battery at %d.%d C: %s\n",
+				 bt.temp / 10, abs(bt.temp % 10),
+				 sm5705_zone_names[zone]);
+			chg->zone = zone;
+			sm5705_chg_apply_zone(chg);
+			mutex_unlock(&chg->lock);
+			power_supply_changed(chg->psy);
+		} else {
+			mutex_unlock(&chg->lock);
+		}
+	}
+
+	/* the battery may register after the charger */
+	schedule_delayed_work(&chg->temp_work, found ? SM5705_TEMP_POLL : 5 * HZ);
+}
+
 /* Battery limits from the monitored-battery node, as stock sets them */
 static int sm5705_chg_apply_battery_info(struct sm5705_chg *chg)
 {
@@ -421,6 +620,12 @@ static int sm5705_chg_probe(struct i2c_client *client)
 		return -ENOMEM;
 	chg->dev = dev;
 	chg->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+	chg->temp_min = SM5705_TEMP_ALERT_MIN;
+	chg->temp_max = SM5705_TEMP_ALERT_MAX;
+
+	ret = devm_mutex_init(dev, &chg->lock);
+	if (ret)
+		return ret;
 
 	if (of_property_present(dev->of_node, "extcon")) {
 		chg->edev = extcon_get_edev_by_phandle(dev, 0);
@@ -455,7 +660,29 @@ static int sm5705_chg_probe(struct i2c_client *client)
 		if (ret)
 			return dev_err_probe(dev, ret,
 					     "failed to apply battery limits\n");
+		/* alert-celsius in the battery node, in degrees */
+		if (chg->bat->temp_alert_min > INT_MIN)
+			chg->temp_min = chg->bat->temp_alert_min * 10;
+		if (chg->bat->temp_alert_max < INT_MAX)
+			chg->temp_max = chg->bat->temp_alert_max * 10;
 	}
+
+	ret = sm5705_chg_get_charge_voltage(chg, &chg->cfg_voltage);
+	if (!ret)
+		ret = sm5705_chg_get_charge_current(chg, &chg->cfg_current);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to read charge limits\n");
+
+	/* start from the normal zone, whatever an earlier run left */
+	mutex_lock(&chg->lock);
+	sm5705_chg_apply_zone(chg);
+	mutex_unlock(&chg->lock);
+
+	ret = devm_delayed_work_autocancel(dev, &chg->temp_work,
+					   sm5705_chg_temp_work);
+	if (ret)
+		return ret;
+	schedule_delayed_work(&chg->temp_work, 0);
 
 	if (client->irq) {
 		/* clear what the bootloader left, then unmask our events */

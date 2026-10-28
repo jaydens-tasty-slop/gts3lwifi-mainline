@@ -140,8 +140,9 @@
 
 	/*
 	 * EB-BT825ABE, 6000 mAh, 3.85 V. Stock charges to 4.30 V
-	 * (battery,chg_float_voltage), tops off at 300 mA and powers off
-	 * around 3.4 V (battery0,tem_poff).
+	 * (battery,chg_float_voltage), tops off at 300 mA, powers off
+	 * around 3.4 V (battery0,tem_poff) and stops charging outside
+	 * 0-50 C (battery,temp_{low,high}_threshold_normal).
 	 */
 	battery: battery {
 		compatible = "simple-battery";
@@ -152,6 +153,7 @@
 		voltage-max-design-microvolt = <4300000>;
 		constant-charge-voltage-max-microvolt = <4300000>;
 		charge-term-current-microamp = <300000>;
+		alert-celsius = <0 50>;
 	};
 
 	/* WCD9335 MCLK, 9.6 MHz: RPM div_clk1 out on PM8994 GPIO 15 */

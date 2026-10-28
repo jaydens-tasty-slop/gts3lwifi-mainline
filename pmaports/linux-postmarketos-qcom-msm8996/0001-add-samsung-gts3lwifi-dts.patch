@@ -1,6 +1,6 @@
-From e2ce1fb5248e86bfebe7c8a19c4eabef6419d407 Mon Sep 17 00:00:00 2001
+From a487612394217d970caf5c515762db99fb22711b Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 09:05:38 +0000
+Date: Wed, 28 Oct 2026 12:31:31 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
 Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
@@ -15,8 +15,8 @@ Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |   1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 971 ++++++++++++++++++
- 2 files changed, 972 insertions(+)
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 973 ++++++++++++++++++
+ 2 files changed, 974 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -33,10 +33,10 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..4ac1534
+index 0000000..8dd96db
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,971 @@
+@@ -0,0 +1,973 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -179,8 +179,9 @@ index 0000000..4ac1534
 +
 +	/*
 +	 * EB-BT825ABE, 6000 mAh, 3.85 V. Stock charges to 4.30 V
-+	 * (battery,chg_float_voltage), tops off at 300 mA and powers off
-+	 * around 3.4 V (battery0,tem_poff).
++	 * (battery,chg_float_voltage), tops off at 300 mA, powers off
++	 * around 3.4 V (battery0,tem_poff) and stops charging outside
++	 * 0-50 C (battery,temp_{low,high}_threshold_normal).
 +	 */
 +	battery: battery {
 +		compatible = "simple-battery";
@@ -191,6 +192,7 @@ index 0000000..4ac1534
 +		voltage-max-design-microvolt = <4300000>;
 +		constant-charge-voltage-max-microvolt = <4300000>;
 +		charge-term-current-microamp = <300000>;
++		alert-celsius = <0 50>;
 +	};
 +
 +	/* WCD9335 MCLK, 9.6 MHz: RPM div_clk1 out on PM8994 GPIO 15 */

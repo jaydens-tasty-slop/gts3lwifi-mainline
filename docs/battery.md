@@ -131,6 +131,32 @@ the battery. The charger driver applies `constant-charge-voltage-max-microvolt`,
 maximums. The fuel gauge names the charger in `power-supplies` and takes
 its status from it.
 
+## Battery temperature guard
+
+Kernel patch 0021. The SM5705 charger only protects its own die
+(THEMREG/THEMSHDN); the battery's temperature comes from the fuel gauge.
+The charger driver reads the temperature of the battery it supplies every
+30 seconds and applies Samsung's limits for this battery
+(`battery,temp_*_normal` and `battery,swelling_*` in the stock DT):
+
+| Battery temperature | Charging | Back to the next zone |
+|---|---|---|
+| at or above 50 C | off (charger mode CHG_OFF, the tablet stays on USB power) | below 45 C |
+| 41-50 C | 4.10 V, at most 1.35 A | below 39 C |
+| 15-41 C | normal: 4.30 V, 2 A | |
+| 0-15 C | at most 0.9 A | above 20 C |
+| below 0 C | off | above 5 C |
+
+The off limits come from `alert-celsius = <0 50>` in the battery node.
+While charging is off the charger and the battery report "Not charging",
+and the charger's health reads Overheat / Cold / Warm / Cool. Limits written
+to sysfs stay the upper bound.
+
+Tested with a module whose upper limit was moved to 30 C: with the battery
+at 37 C it switched charging off within the first check (CNTL 0x05 ->
+0x04, health Overheat, status Not charging); the real module switched it
+back on at load.
+
 ## Fast charging: AFC and QC 2.0 at 9 V (opt-in)
 
 Kernel patches 0019-0020. The MUIC driver negotiates 9 V with Samsung AFC
@@ -140,8 +166,7 @@ VBUS once the charger accepts (`VBUS_READ`), and take a `VBUS_STATUS`
 within one step of the request as success; five failures leave it at 5 V.
 A 9 V charger shows up as `FAST-CHARGER` in the extcon state and the charger
 driver sets a 1.65 A input limit (Samsung's 9 V setting). The charge
-current stays at 2 A: stock uses 2.7 A on 9 V chargers, but also limits it
-by temperature, which nothing does here yet.
+current stays at 2 A: stock uses 2.7 A on 9 V chargers.
 
 **Off by default.** Samsung's firmware only starts AFC after the S2MM005
 Type-C controller has seen the 56 kOhm Rp of a legacy USB-A to C cable
