@@ -76,6 +76,20 @@ The bootloader had left 1500 mA for the PC port. `input_current_limit` is
 writable, until the next cable event. AFC (9 V) is not negotiated, so
 Samsung fast chargers deliver 5 V.
 
+Cable changes, logged every 2 s (PC port, then a wall charger, then the PC
+again):
+
+```
+12:50:34 USB=0 SDP=0 DCP=0 type=Unknown lim=500000  online=0 chg=Discharging muic-irq:1
+12:50:56 USB=0 SDP=0 DCP=1 type=DCP     lim=1800000 online=1 chg=Full        muic-irq:3
+12:51:37 USB=0 SDP=0 DCP=0 type=Unknown lim=1800000 online=0 chg=Discharging muic-irq:4
+12:51:58 USB=1 SDP=1 DCP=0 type=SDP     lim=500000  online=1 chg=Charging    muic-irq:6
+```
+
+Every change raised the MUIC interrupt (attach/detach) and the charger
+interrupt, and the input limit followed the type. With nothing plugged in
+the limit stays at the last value, which the next cable replaces.
+
 Pulling the USB cable and plugging it back in (logged every 2 s):
 
 ```
@@ -92,8 +106,6 @@ replug. USB networking came back by itself.
 
 Not done yet:
 
-- a check of the MUIC's interrupt with a cable change and with a wall
-  charger (so far only the PC port at boot);
 - the flash LED, which shares the charger's I2C device;
 - the fuel gauge's alert interrupt and battery model init.
 
@@ -214,7 +226,6 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
-- MUIC test with a cable change and a wall charger.
 - CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
   are no CPU idle states. Worth trying for idle power, carefully, since
   Samsung's TrustZone already mishandles PSCI SYSTEM_RESET.
