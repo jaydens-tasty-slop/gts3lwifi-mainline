@@ -9,9 +9,11 @@
  *
  * Working: eMMC, USB peripheral, reboot, GPU (headless, boot with
  * msm.separate_gpu_kms=1), Wi-Fi and Bluetooth (QCA6174), Venus, audio
- * (ADSP + WCD9335: headphones and microphones), SM5705 fuel gauge, charger
- * and MUIC, CPU/cluster/system idle. The panel, touch, speakers, sensors and
- * S-Pen are not here yet; the panel and touch have test DTs.
+ * (ADSP + WCD9335: headphones and microphones; four RT5508 speaker
+ * amplifiers), SM5705 fuel gauge, charger, MUIC and flash LED (torch),
+ * S2MM005 USB Type-C/PD (sink), CPU/cluster/system idle. The panel, touch,
+ * cameras, sensors and S-Pen are not here yet; the panel and touch have
+ * test DTs.
  *
  * GPU zap shader, Venus and ADSP firmware are Samsung-signed and come from
  * the device (apnhlos and modem partitions), under

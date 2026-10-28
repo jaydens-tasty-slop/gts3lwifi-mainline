@@ -1,6 +1,6 @@
-From 52c59111c73ee452cc762a55c939cff8ae63e23d Mon Sep 17 00:00:00 2001
+From dbee0eb9f5e0753fa76b3ccf1fd2b17b127f8398 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 16:58:37 +0000
+Date: Wed, 28 Oct 2026 17:10:58 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
 Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
@@ -17,8 +17,8 @@ Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1195 +++++++++++++++++
- 2 files changed, 1196 insertions(+)
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1197 +++++++++++++++++
+ 2 files changed, 1198 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -35,10 +35,10 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..82b28fe
+index 0000000..85ce1ae
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,1195 @@
+@@ -0,0 +1,1197 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -50,9 +50,11 @@ index 0000000..82b28fe
 + *
 + * Working: eMMC, USB peripheral, reboot, GPU (headless, boot with
 + * msm.separate_gpu_kms=1), Wi-Fi and Bluetooth (QCA6174), Venus, audio
-+ * (ADSP + WCD9335: headphones and microphones), SM5705 fuel gauge, charger
-+ * and MUIC, CPU/cluster/system idle. The panel, touch, speakers, sensors and
-+ * S-Pen are not here yet; the panel and touch have test DTs.
++ * (ADSP + WCD9335: headphones and microphones; four RT5508 speaker
++ * amplifiers), SM5705 fuel gauge, charger, MUIC and flash LED (torch),
++ * S2MM005 USB Type-C/PD (sink), CPU/cluster/system idle. The panel, touch,
++ * cameras, sensors and S-Pen are not here yet; the panel and touch have
++ * test DTs.
 + *
 + * GPU zap shader, Venus and ADSP firmware are Samsung-signed and come from
 + * the device (apnhlos and modem partitions), under

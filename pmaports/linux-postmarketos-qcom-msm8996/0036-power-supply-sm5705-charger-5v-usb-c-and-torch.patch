@@ -1,0 +1,162 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 22:52:14 +0530
+Subject: [PATCH] power: supply: sm5705_charger: 5 V for USB-C sources and the
+ torch
+
+Like Samsung's firmware, keep VBUS at 5 V through the MUIC when the
+Type-C controller reports a USB-C source (a PD contract or more than
+default USB current, so not a legacy USB-A to C cable), and while the
+torch is on. A USB-C PD charger thus never sees AFC pings, and the torch
+works on a 9 V AFC charger: it brings the charger back to 5 V first,
+instead of refusing, and lets it return to 9 V when switched off.
+
+Tested on a Samsung Galaxy Tab S3: Samsung 25 W PD charger (5 V held
+before the MUIC finished its detection, no AFC attempt), Xiaomi 18 W
+AFC charger with the torch (9 V -> 5 V, LED on, back to 9 V).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/sm5705_charger.c | 54 +++++++++++++++++++++++++--
+ 1 file changed, 51 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index c54dc2479..fd59af05c 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -17,6 +17,7 @@
+ 
+ #include <linux/devm-helpers.h>
+ #include <linux/extcon.h>
++#include <linux/extcon/sm5705-muic.h>
+ #include <linux/i2c.h>
+ #include <linux/interrupt.h>
+ #include <linux/leds.h>
+@@ -130,6 +131,9 @@ struct sm5705_chg {
+ 	int usb_type;
+ 	bool fast;			/* a 15 W source is attached */
+ 	bool hv;			/* VBUS above 5 V (9 V AFC) */
++	bool usb_c;			/* a USB-C source (not a legacy cable) */
++	struct device_node *muic_np;	/* for holding VBUS at 5 V */
++	bool hold_5v;
+ 
+ 	struct led_classdev torch;
+ 	bool torch_on;
+@@ -438,12 +442,29 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+ 	return IRQ_HANDLED;
+ }
+ 
++/* Ask the MUIC to keep VBUS at 5 V, or to allow 9 V; with chg->lock held */
++static int sm5705_chg_hold_5v(struct sm5705_chg *chg, bool hold)
++{
++	int ret;
++
++	if (!chg->muic_np || hold == chg->hold_5v)
++		return 0;
++
++	chg->hold_5v = hold;
++	ret = sm5705_muic_hold_5v(chg->muic_np, hold);
++	if (ret)
++		dev_warn(chg->dev, "MUIC did not %s: %d\n",
++			 hold ? "return to 5 V" : "allow 9 V", ret);
++
++	return ret;
++}
++
+ /*
+  * What a USB-C source allows, from the Type-C controller in "power-supplies":
+  * its Type-C current or PD contract, capped to what Samsung's firmware uses.
+  */
+ static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
+-				  bool *fast, bool *hv)
++				  bool *fast, bool *hv, bool *usb_c)
+ {
+ 	union power_supply_propval online, uv, ua, usb_type;
+ 	int limit;
+@@ -467,6 +488,9 @@ static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
+ 	*fast = (uv.intval / 1000) * (limit / 1000) / 1000 >=
+ 		SM5705_FAST_SOURCE_MW;
+ 	*hv = uv.intval > SM5705_HV_MIN_UV;
++	/* more than default USB power: a USB-C source, not an A-to-C cable */
++	*usb_c = usb_type.intval == POWER_SUPPLY_USB_TYPE_PD ||
++		 ua.intval > SM5705_SDP_INPUT_LIMIT_UA;
+ 
+ 	return limit;
+ }
+@@ -477,6 +501,7 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 					      cable_work);
+ 	int type, limit = 0, typec_type, typec_limit;
+ 	bool fast = false, typec_fast = false, hv = false, typec_hv = false;
++	bool usb_c = false;
+ 
+ 	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+@@ -498,7 +523,7 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 
+ 	/* a USB-C source may allow more than its BC1.2 type says */
+ 	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast,
+-					     &typec_hv);
++					     &typec_hv, &usb_c);
+ 	if (typec_limit > limit) {
+ 		type = typec_type;
+ 		limit = typec_limit;
+@@ -514,6 +539,13 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 	chg->usb_type = type;
+ 
+ 	mutex_lock(&chg->lock);
++	/*
++	 * Like Samsung's firmware: AFC and QC 2.0 only on legacy cables, and
++	 * not while the flash LED is on.
++	 */
++	chg->usb_c = usb_c;
++	sm5705_chg_hold_5v(chg, usb_c || chg->torch_on);
++
+ 	chg->hv = hv;
+ 	if (hv && chg->torch_on) {
+ 		/* Samsung's firmware never runs the flash LED from 9 V */
+@@ -739,10 +771,14 @@ static int sm5705_torch_set(struct led_classdev *led,
+ 					 SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
+ 		chg->torch_on = false;
+ 		sm5705_chg_apply_zone(chg);
++		/* 9 V again, unless a USB-C source keeps it at 5 V */
++		sm5705_chg_hold_5v(chg, chg->usb_c);
+ 		return ret;
+ 	}
+ 
+-	/* Samsung's firmware first brings an AFC charger back to 5 V */
++	/* like Samsung's firmware, first bring a 9 V charger back to 5 V */
++	if (!sm5705_chg_hold_5v(chg, true))
++		chg->hv = false;
+ 	if (chg->hv)
+ 		return -EBUSY;
+ 
+@@ -799,6 +835,11 @@ static void sm5705_chg_shutdown(struct i2c_client *client)
+ 			   SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
+ }
+ 
++static void sm5705_chg_put_node(void *np)
++{
++	of_node_put(np);
++}
++
+ static const struct regmap_config sm5705_chg_regmap_config = {
+ 	.reg_bits = 8,
+ 	.val_bits = 8,
+@@ -834,6 +875,13 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 		if (IS_ERR(chg->edev))
+ 			return dev_err_probe(dev, PTR_ERR(chg->edev),
+ 					     "failed to get extcon device\n");
++
++		/* the SM5705 MUIC also holds VBUS at 5 V for us */
++		chg->muic_np = of_parse_phandle(dev->of_node, "extcon", 0);
++		ret = devm_add_action_or_reset(dev, sm5705_chg_put_node,
++					       chg->muic_np);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	chg->regmap = devm_regmap_init_i2c(client, &sm5705_chg_regmap_config);
+-- 
+2.53.0
+

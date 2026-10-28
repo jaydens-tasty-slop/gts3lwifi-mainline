@@ -172,15 +172,26 @@ vendor driver: request 9 V (`AFC_TXD` 0x46 = 9 V / 1.65 A, `ENAFC`), measure
 VBUS once the charger accepts (`VBUS_READ`), and take a `VBUS_STATUS`
 within one step of the request as success; five failures leave it at 5 V.
 A 9 V charger shows up as `FAST-CHARGER` in the extcon state and the charger
-driver sets a 1.65 A input limit (Samsung's 9 V setting). The charge
-current stays at 2 A: stock uses 2.7 A on 9 V chargers.
+driver sets a 1.65 A input limit (Samsung's 9 V setting) and charges at
+2.7 A, like stock (patch 0028).
 
-**Off by default.** Samsung's firmware only starts AFC after the S2MM005
-Type-C controller has seen the 56 kOhm Rp of a legacy USB-A to C cable
-("to prevent damage by RP0 cable"), and mainline has no S2MM005 driver
-yet. Turn it on only for USB-A chargers with an A-to-C cable:
+**Off by default.** Turn it on with:
 
     echo "options extcon_sm5705 afc=1" > /etc/modprobe.d/afc.conf
+
+Samsung's firmware only starts AFC after the S2MM005 Type-C controller has
+seen the 56 kOhm Rp of a legacy USB-A to C cable ("to prevent damage by RP0
+cable"). Here the charger driver keeps VBUS at 5 V through the MUIC
+(`sm5705_muic_hold_5v()`, patches 0035-0036) while the S2MM005 reports a
+USB-C source: a PD contract or more than default USB current. With
+Samsung's 25 W PD charger the 5 V hold comes before the MUIC has finished
+its detection, so AFC is never tried. A cable that shows no Type-C attach
+at all still gets AFC (unlike stock, which needs the 56 kOhm).
+
+The Xiaomi's USB-A to C cable has a non-standard pull-up: at 5 V the
+S2MM005 reads it as a 3 A USB-C source, at 9 V as nothing. Depending on
+which comes first after plugging in, the charger ends at 9 V / 1.65 A or
+5 V / 3 A; both are 15 W and charge at 2.7 A.
 
 Tested with a Xiaomi 18 W charger (QC 3.0, also answers AFC) and a USB-A to
 C cable:
@@ -269,8 +280,9 @@ charger stays in charging mode (CNTL 0x05), on battery it switches to the
 flash boost (0x06, 4.5 V from FLEDCNTL6) while the torch is on, and back
 when USB power appears or the torch goes off.
 
-Samsung's firmware first brings a 9 V AFC charger back to 5 V; this driver
-refuses the torch on 9 V (`EBUSY`) and switches it off when 9 V appears.
+Like Samsung's firmware, switching the torch on brings a 9 V AFC charger
+back to 5 V first (the MUIC's D+ reset, VBUS confirmed at 5 V in about
+0.15 s), and switching it off lets the charger return to 9 V (patch 0036).
 
 Tested: 20, 90 and 180 mA on USB power and on battery (battery current up
 by about 235 mA at 180 mA), and USB plugged in while lit (mode 0x06 ->
@@ -372,9 +384,7 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
-- Torch on a 9 V AFC charger: ask the MUIC for 5 V first, like stock.
-- 9 V over PD (see above), and gating AFC on USB-C cables: the MUIC
-  still tries AFC with a C-to-C PD charger, which fails harmlessly.
+- 9 V over PD (see above).
 - CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
   are no CPU idle states. Worth trying for idle power, carefully, since
   Samsung's TrustZone already mishandles PSCI SYSTEM_RESET.

@@ -12,8 +12,9 @@
  * (Adaptive Fast Charging) wall chargers, or with Quick Charge 2.0 ones
  * when AFC fails, and reports them as EXTCON_CHG_USB_FAST. That is off by
  * default: Samsung's firmware only does this once the Type-C controller
- * has seen the 56 kOhm pull-up of a legacy USB-A to C cable, which this
- * driver cannot check.
+ * has seen the 56 kOhm pull-up of a legacy USB-A to C cable. The charger
+ * driver, which sees the Type-C controller, can hold VBUS at 5 V through
+ * sm5705_muic_hold_5v(): for a USB-C source, and while the flash LED is on.
  *
  * Accessory (ID resistor) detection and the manual switch are not
  * supported. Register layout and the AFC sequence follow the Samsung
@@ -22,6 +23,7 @@
 
 #include <linux/delay.h>
 #include <linux/extcon-provider.h>
+#include <linux/extcon/sm5705-muic.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -48,6 +50,7 @@
 /* AFC_CNTL */
 #define SM5705_MUIC_AFC_CNTL_ENAFC	BIT(0)
 #define SM5705_MUIC_AFC_CNTL_VBUS_READ	BIT(3)
+#define SM5705_MUIC_AFC_CNTL_DIS_AFC	BIT(5)	/* D+ reset: back to 5 V */
 #define SM5705_MUIC_AFC_CNTL_ENQC20	BIT(6)	/* QC 2.0 at 9 V */
 
 /* AFC_TXD: requested voltage in bits 7:4, current in 3:0; 0x46 is 9 V, 1.65 A */
@@ -91,9 +94,13 @@ struct sm5705_muic {
 	struct mutex lock;
 	bool afc_9v;
 	bool qc20;
+	bool afc_ta;		/* an AFC or QC 2.0 charger answered */
+	bool hold_5v;		/* the charger driver needs 5 V */
 	unsigned int afc_retries;
 	unsigned int vbus_retries;
 };
+
+static struct i2c_driver sm5705_muic_driver;
 
 static int sm5705_muic_detect(struct sm5705_muic *muic)
 {
@@ -130,8 +137,10 @@ static int sm5705_muic_detect(struct sm5705_muic *muic)
 		}
 	}
 
-	if (!(vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID))
+	if (!(vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID)) {
 		muic->afc_9v = false;
+		muic->afc_ta = false;
+	}
 
 	dev_dbg(muic->dev, "vbus %#04x chg type %#04x afc %d\n", vbus, type,
 		muic->afc_9v);
@@ -264,6 +273,11 @@ static void sm5705_muic_afc(struct sm5705_muic *muic, u8 int3)
 	}
 
 	if (int3 & SM5705_MUIC_INT3_AFC_TA_ATTACHED)
+		muic->afc_ta = true;
+	if (muic->hold_5v)
+		return;
+
+	if (int3 & SM5705_MUIC_INT3_AFC_TA_ATTACHED)
 		sm5705_muic_afc_start(muic);
 	if (int3 & SM5705_MUIC_INT3_AFC_ACCEPTED)
 		sm5705_muic_afc_accepted(muic);
@@ -272,6 +286,90 @@ static void sm5705_muic_afc(struct sm5705_muic *muic, u8 int3)
 	if (int3 & SM5705_MUIC_INT3_AFC_ERROR)
 		sm5705_muic_afc_error(muic);
 }
+
+/* Back to 5 V: stop AFC or QC 2.0 and reset D+, as Samsung's firmware does */
+static int sm5705_muic_afc_drop(struct sm5705_muic *muic)
+{
+	unsigned int cntl, st;
+	int i;
+
+	if (regmap_read(muic->regmap, SM5705_MUIC_REG_AFC_CNTL, &cntl))
+		return -EIO;
+	if (!muic->afc_9v && !(cntl & (SM5705_MUIC_AFC_CNTL_ENAFC |
+				       SM5705_MUIC_AFC_CNTL_ENQC20)))
+		return 0;
+
+	regmap_clear_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			  SM5705_MUIC_AFC_CNTL_ENAFC);
+	msleep(50);
+	regmap_clear_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			  SM5705_MUIC_AFC_CNTL_ENQC20);
+	regmap_set_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			SM5705_MUIC_AFC_CNTL_DIS_AFC);
+	msleep(60);
+	regmap_clear_bits(muic->regmap, SM5705_MUIC_REG_AFC_CNTL,
+			  SM5705_MUIC_AFC_CNTL_DIS_AFC);
+	muic->afc_9v = false;
+	muic->qc20 = false;
+
+	/* the VBUS update interrupt that follows is ignored while held */
+	sm5705_muic_afc_read_vbus(muic);
+	for (i = 0; i < 20; i++) {
+		msleep(20);
+		if (!regmap_read(muic->regmap, SM5705_MUIC_REG_VBUS_STATUS, &st) &&
+		    !SM5705_MUIC_VBUS_VOLTAGE(st))
+			return 0;
+	}
+
+	return -ETIMEDOUT;
+}
+
+/**
+ * sm5705_muic_hold_5v() - keep VBUS at 5 V, or allow AFC and QC 2.0 again
+ * @np: the MUIC's device node
+ * @hold: true to stop 9 V and keep it off, false to negotiate it again
+ *
+ * Holding brings a 9 V charger back to 5 V before returning.
+ *
+ * Return: 0, or -ETIMEDOUT if VBUS did not come back to 5 V.
+ */
+int sm5705_muic_hold_5v(struct device_node *np, bool hold)
+{
+	struct sm5705_muic *muic;
+	struct i2c_client *client;
+	unsigned int vbus;
+	int ret = 0;
+
+	client = of_find_i2c_device_by_node(np);
+	if (!client)
+		return -ENODEV;
+
+	muic = i2c_get_clientdata(client);
+	if (client->dev.driver != &sm5705_muic_driver.driver || !muic) {
+		put_device(&client->dev);
+		return -ENODEV;
+	}
+
+	mutex_lock(&muic->lock);
+	if (hold != muic->hold_5v) {
+		muic->hold_5v = hold;
+		if (afc && hold) {
+			ret = sm5705_muic_afc_drop(muic);
+		} else if (afc && muic->afc_ta &&
+			   !regmap_read(muic->regmap, SM5705_MUIC_REG_RSVD_ID1,
+					&vbus) &&
+			   (vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID)) {
+			sm5705_muic_afc_start(muic);
+		}
+		sm5705_muic_detect(muic);
+		dev_dbg(muic->dev, "%s\n", hold ? "holding 5 V" : "9 V allowed");
+	}
+	mutex_unlock(&muic->lock);
+
+	put_device(&client->dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(sm5705_muic_hold_5v);
 
 static irqreturn_t sm5705_muic_irq(int irq, void *data)
 {
@@ -320,6 +418,7 @@ static int sm5705_muic_probe(struct i2c_client *client)
 	if (!muic)
 		return -ENOMEM;
 	muic->dev = dev;
+	i2c_set_clientdata(client, muic);
 
 	ret = devm_mutex_init(dev, &muic->lock);
 	if (ret)
