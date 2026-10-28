@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 12:13:44 +0530
+Date: Wed, 28 Oct 2026 12:26:43 +0530
 Subject: [PATCH] dt-bindings: power: supply: add Silicon Mitus SM5705 fuel
  gauge
 
@@ -10,16 +10,16 @@ the Galaxy Tab S3. The fuel gauge answers on its own I2C address.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- .../siliconmitus,sm5705-fuel-gauge.yaml       | 50 +++++++++++++++++++
- 1 file changed, 50 insertions(+)
+ .../siliconmitus,sm5705-fuel-gauge.yaml       | 52 +++++++++++++++++++
+ 1 file changed, 52 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-fuel-gauge.yaml
 
 diff --git a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-fuel-gauge.yaml b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-fuel-gauge.yaml
 new file mode 100644
-index 000000000..448c10975
+index 000000000..9b6464e05
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-fuel-gauge.yaml
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,52 @@
 +# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
 +%YAML 1.2
 +---
@@ -51,6 +51,8 @@ index 000000000..448c10975
 +    description: Low state of charge alert
 +
 +  monitored-battery: true
++
++  power-supplies: true
 +
 +required:
 +  - compatible

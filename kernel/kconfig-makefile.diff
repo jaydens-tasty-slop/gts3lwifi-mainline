@@ -18,6 +18,16 @@
 --- a/drivers/power/supply/Kconfig
 +++ b/drivers/power/supply/Kconfig
 @@ (after FUEL_GAUGE_MM8013) @@
++config CHARGER_SM5705
++	tristate "Silicon Mitus SM5705 charger driver"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Say Y here to enable the charger of the Silicon Mitus SM5705
++	  charger and fuel gauge IC, found in some Samsung devices. It
++	  reports the input and charging state and applies the charge
++	  voltage and currents of the monitored battery.
++
 +config FUEL_GAUGE_SM5705
 +	tristate "Silicon Mitus SM5705 fuel gauge driver"
 +	depends on I2C
@@ -31,3 +41,4 @@
 +++ b/drivers/power/supply/Makefile
 @@ (after FUEL_GAUGE_MM8013) @@
 +obj-$(CONFIG_FUEL_GAUGE_SM5705)	+= sm5705_fuel_gauge.o
++obj-$(CONFIG_CHARGER_SM5705)	+= sm5705_charger.o

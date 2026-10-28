@@ -101,10 +101,18 @@ static int sm5705_fg_temp(struct sm5705_fg *fg, int *val)
 	return 0;
 }
 
-/* There is no charger driver yet: guess the status from the gauge */
+/* Ask the charger if there is one, else guess from the gauge */
 static int sm5705_fg_status(struct sm5705_fg *fg, int *val)
 {
+	union power_supply_propval sup;
 	int ret, curr, cap;
+
+	if (!power_supply_get_property_from_supplier(fg->psy,
+						     POWER_SUPPLY_PROP_STATUS,
+						     &sup)) {
+		*val = sup.intval;
+		return 0;
+	}
 
 	ret = sm5705_fg_current(fg, &curr);
 	if (ret)
@@ -167,9 +175,10 @@ static const struct power_supply_desc sm5705_fg_desc = {
 	.properties = sm5705_fg_props,
 	.num_properties = ARRAY_SIZE(sm5705_fg_props),
 	.get_property = sm5705_fg_get_property,
+	.external_power_changed = power_supply_changed,
 };
 
-/* Nothing interrupts us on changes yet: poll and notify user space */
+/* The alert interrupt is not used: poll and notify user space */
 static void sm5705_fg_work(struct work_struct *work)
 {
 	struct sm5705_fg *fg = container_of(work, struct sm5705_fg, work.work);

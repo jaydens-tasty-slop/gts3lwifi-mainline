@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/siliconmitus,sm5705-charger.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Silicon Mitus SM5705 charger
+
+maintainers:
+  - psigod <psigod@example.com>
+
+description:
+  The charger part of the SM5705 charger and fuel gauge IC, a switch mode
+  charger for one Li-ion cell from USB or wireless input. The same I2C
+  device also controls the flash LED.
+
+allOf:
+  - $ref: power-supply.yaml#
+
+properties:
+  compatible:
+    const: siliconmitus,sm5705-charger
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  monitored-battery: true
+
+required:
+  - compatible
+  - reg
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      charger@49 {
+        compatible = "siliconmitus,sm5705-charger";
+        reg = <0x49>;
+        interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
+        monitored-battery = <&battery>;
+      };
+    };

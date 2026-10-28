@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 12:13:44 +0530
+Date: Wed, 28 Oct 2026 12:26:44 +0530
 Subject: [PATCH] power: supply: add Silicon Mitus SM5705 fuel gauge driver
 
 Add a read-only driver for the fuel gauge of the SM5705 charger and fuel
@@ -13,9 +13,9 @@ vendor firmware loaded, so its readings stay valid after booting Linux.
 Loading the model is not implemented; the driver warns when the gauge
 says it lost it. Design data comes from the monitored-battery node.
 
-There is no charger driver yet, so the status is guessed from the current
-and the state of charge, and the driver polls every 30 seconds to notify
-user space of changes.
+The status comes from the supplying charger. Without one it is guessed
+from the current and the state of charge. The alert interrupt is not
+used; the driver polls every 30 seconds to notify user space of changes.
 
 Tested on a Samsung Galaxy Tab S3 (SM-T820): positive current while
 charging, readings match Samsung's formulas, UPower shows the battery.
@@ -25,8 +25,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  drivers/power/supply/Kconfig             |   9 +
  drivers/power/supply/Makefile            |   1 +
- drivers/power/supply/sm5705_fuel_gauge.c | 253 +++++++++++++++++++++++
- 3 files changed, 263 insertions(+)
+ drivers/power/supply/sm5705_fuel_gauge.c | 262 +++++++++++++++++++++++
+ 3 files changed, 272 insertions(+)
  create mode 100644 drivers/power/supply/sm5705_fuel_gauge.c
 
 diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
@@ -58,10 +58,10 @@ index a8478b2b1..82024d043 100644
 +obj-$(CONFIG_FUEL_GAUGE_SM5705)	+= sm5705_fuel_gauge.o
 diff --git a/drivers/power/supply/sm5705_fuel_gauge.c b/drivers/power/supply/sm5705_fuel_gauge.c
 new file mode 100644
-index 000000000..901d7755d
+index 000000000..4bb7ee59e
 --- /dev/null
 +++ b/drivers/power/supply/sm5705_fuel_gauge.c
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,262 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Silicon Mitus SM5705 fuel gauge
@@ -165,10 +165,18 @@ index 000000000..901d7755d
 +	return 0;
 +}
 +
-+/* There is no charger driver yet: guess the status from the gauge */
++/* Ask the charger if there is one, else guess from the gauge */
 +static int sm5705_fg_status(struct sm5705_fg *fg, int *val)
 +{
++	union power_supply_propval sup;
 +	int ret, curr, cap;
++
++	if (!power_supply_get_property_from_supplier(fg->psy,
++						     POWER_SUPPLY_PROP_STATUS,
++						     &sup)) {
++		*val = sup.intval;
++		return 0;
++	}
 +
 +	ret = sm5705_fg_current(fg, &curr);
 +	if (ret)
@@ -231,9 +239,10 @@ index 000000000..901d7755d
 +	.properties = sm5705_fg_props,
 +	.num_properties = ARRAY_SIZE(sm5705_fg_props),
 +	.get_property = sm5705_fg_get_property,
++	.external_power_changed = power_supply_changed,
 +};
 +
-+/* Nothing interrupts us on changes yet: poll and notify user space */
++/* The alert interrupt is not used: poll and notify user space */
 +static void sm5705_fg_work(struct work_struct *work)
 +{
 +	struct sm5705_fg *fg = container_of(work, struct sm5705_fg, work.work);
