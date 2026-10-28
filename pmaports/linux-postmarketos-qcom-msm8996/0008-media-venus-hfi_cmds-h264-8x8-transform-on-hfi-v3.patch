@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 10:09:26 +0530
+Subject: [PATCH 1/2] media: venus: hfi_cmds: accept the H.264 8x8 transform
+ property on HFI v3
+
+venc_set_properties() sets HFI_PROPERTY_PARAM_VENC_H264_TRANSFORM_8X8 for
+every H.264 session, but only the 4xx packetization knows the property.
+On HFI v3 (msm8996) it falls through to the 1x code, which returns
+-EINVAL, so encoder queue setup fails and VIDIOC_REQBUFS returns EINVAL:
+H.264 encoding does not work at all.
+
+The v3 firmware supports the property (the downstream msm_vidc driver
+for msm8996 sends HFI_PROPERTY_PARAM_VENC_H264_8X8_TRANSFORM, same ID,
+as a plain enable), so pack it the same way as on v4.
+
+Tested on a Samsung Galaxy Tab S3 (APQ8096, VIDEO.VE.4.4-00060).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/qcom/venus/hfi_cmds.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/media/platform/qcom/venus/hfi_cmds.c b/drivers/media/platform/qcom/venus/hfi_cmds.c
+index 3ae063094..9684ecb5f 100644
+--- a/drivers/media/platform/qcom/venus/hfi_cmds.c
++++ b/drivers/media/platform/qcom/venus/hfi_cmds.c
+@@ -1177,6 +1177,13 @@ pkt_session_set_property_3xx(struct hfi_session_set_property_pkt *pkt,
+ 	case HFI_PROPERTY_PARAM_VDEC_CONTINUE_DATA_TRANSFER:
+ 		/* for 3xx fw version session_continue is used */
+ 		break;
++	case HFI_PROPERTY_PARAM_VENC_H264_TRANSFORM_8X8: {
++		struct hfi_h264_8x8_transform *in = pdata, *tm = prop_data;
++
++		tm->enable_type = in->enable_type;
++		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*tm);
++		break;
++	}
+ 	default:
+ 		ret = pkt_session_set_property_1x(pkt, cookie, ptype, pdata);
+ 		break;

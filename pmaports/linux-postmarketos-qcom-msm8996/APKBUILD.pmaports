@@ -39,6 +39,8 @@ source="
 	0005-drm-panel-ams968hh01-mdnie-bypass.patch
 	0006-drm-msm-dsi-rgb-swap-param.patch
 	0007-drm-msm-debugfs-dsi-tpg.patch
+	0008-media-venus-hfi_cmds-h264-8x8-transform-on-hfi-v3.patch
+	0009-media-venus-eos-on-real-buffer-hfi-v3.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -69,7 +71,6 @@ package() {
 }
 sha512sums="
 dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
-0a3215477c3a6cea29278b20aac27b9f1fdd55ddc1290f0d41dc075248768846f468e687d430f41b16f3fff22f5b12b0c6633ff15d8f72bfda766af3d7ed80c8  config-postmarketos-qcom-msm8996.aarch64
 feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
 71cef6df692ccaeb8575bce830b32bbf4c11debdda209b7ac3f7a19dee9395f88d0981f46b72534d1d9a2f3cd742e721167afaff91ed7b0ce92c5b481ce05787  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 81ef96ef5e975c6c7b1249ea37b02f8a69154a399cd1426f234a0e44a8f5e4e9357da99dcd64629da0c7922678c0bb3e42dc8b05e53a72449dc8328c7c3655cb  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
@@ -77,4 +78,7 @@ feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7
 ac1c25203f364cc2cff75d1aec875d80c7a3d3326452226ed2c398a2589d2c430ce6569485323e3bd9f7d4e666df5208d9eaabafdb5c491c50241772ee83c1a4  0006-drm-msm-dsi-rgb-swap-param.patch
 8ef106a9eec607d77bb4bcaea3a0c63c36bb0c87998cdcf620003922b0745de960c50f9a48dd39a88fa84defbc231c6ce05b1aa1df6a2eab5ca5944a7802e02c  0007-drm-msm-debugfs-dsi-tpg.patch
 eed0221de32466659846ca8d909f70fc7b72758bf1f09c8ebc495cba304d5fe94b6b62685bd70b468819dc635824192158171381ab9de8b324d4aab350bc15d4  0001-add-samsung-gts3lwifi-dts.patch
+5ae32acc4c8ea980bef03d837f2ab0b77241bcfc74239bebdffbd24e76922991866993cd4fe61bfaa094b55325c5c0af50d99485718b251b6774778c96ec9828  config-postmarketos-qcom-msm8996.aarch64
+dbc052ee86fdc581fbb3e08557b92a457d5c8a3f30a1b93fb30af80fb903d5f2330d9a59e9e9f4bf3e56544b1601c5b9e186b2050e488b6e8f8c1fbf810f50b0  0008-media-venus-hfi_cmds-h264-8x8-transform-on-hfi-v3.patch
+52c63bcfcd2e21d34a45e25b4caa2ebd7cd9b2617c7d2bb366c3846d0de2f8ddc1be81540345379c8a1d8a62926f76a0d653a2e9fe104e3ffd5c6ed87db0276d  0009-media-venus-eos-on-real-buffer-hfi-v3.patch
 "

@@ -30,7 +30,9 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, dts/test/test-gpu.dts) |
 | Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, dts/test/test-wifi.dts) |
 | Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, dts/test/test-bt.dts) |
-| Video codec, audio | not started (need Samsung-signed firmware) |
+| Video codec (Venus) | decoding works and is bit-exact (H.264, VP8, VP9) with Samsung's firmware; H.264 encoding works via v4l2-ctl. Kernel patches 0008-0009 fix EOS and H.264 encoding on HFI v3. HEVC decode and GStreamer encoding still fail (docs/venus.md, dts/test/test-venus.dts) |
+| Thermal (TSENS) | works once enabled: the msm8996 kernel config had it off, so nothing throttled (docs/thermal.md) |
+| Audio | not started (ADSP firmware on the dsp partition; speakers behind 4 Richtek RT5508 amps, no mainline driver) |
 | Battery / charger (SM5705), Type-C controller (S2MM005) | no mainline drivers |
 
 Solved: Samsung's TrustZone owns the fingerprint SPI pins (TLMM 25-28) and the
@@ -46,7 +48,7 @@ the tablet about 9 s into boot. The board DTS lists them in
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain
 - `kernel/` - out-of-tree kernel additions (panel driver, binding, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth and reboot notes
+- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot, video and thermal notes
 
 ## lk2nd
 

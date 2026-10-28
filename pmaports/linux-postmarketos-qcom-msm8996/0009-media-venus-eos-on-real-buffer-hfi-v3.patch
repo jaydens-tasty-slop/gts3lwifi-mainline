@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 10:09:26 +0530
+Subject: [PATCH 2/2] media: venus: signal EOS on a real buffer with HFI v3
+ firmware
+
+The decoder and encoder implement V4L2_{DEC,ENC}_CMD_STOP by queueing an
+empty input buffer with the EOS flag at the dummy address 0xdeadb000.
+Venus firmware VIDEO.VE.4.4-00060 (msm8996, as shipped by Samsung) checks
+every input buffer against its content protection map and fails the
+session instead:
+
+  VFW_E: IsBufferProtected: CP_UNKNOWN, buffer straddles CP & non-CP regions
+  VFW_E: vDec_EmptyBuffer: Invalidate buffer in ETB
+  session error: event id:1001 (deadb000)
+
+so every decode loses its last frames and the encoder takes the firmware
+down. A NULL address passes the check, but then the decoder returns the
+EOS on a NULL capture buffer ahead of frames that still wait for a
+buffer, which ends the stream early.
+
+Like the downstream driver, allocate a small real buffer on HFI v3 and
+signal EOS on it. Also make vdec_buf_done() complete the drain when the
+firmware reports the LAST flag on a buffer the driver does not hold,
+instead of dropping it, which left userspace waiting forever.
+
+H.264, VP8 and VP9 decodes are now bit-identical to software decoding
+(ffmpeg/libavcodec) to the last frame, and V4L2_ENC_CMD_STOP completes
+cleanly. Tested on a Samsung Galaxy Tab S3 (APQ8096).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/qcom/venus/core.c | 16 ++++++++
+ drivers/media/platform/qcom/venus/core.h |  4 ++
+ drivers/media/platform/qcom/venus/vdec.c | 49 +++++++++++++++++++++++-
+ drivers/media/platform/qcom/venus/venc.c |  9 ++++-
+ 4 files changed, 75 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/venus/core.c b/drivers/media/platform/qcom/venus/core.c
+index 24d2b2fd0..e8a057ca3 100644
+--- a/drivers/media/platform/qcom/venus/core.c
++++ b/drivers/media/platform/qcom/venus/core.c
+@@ -424,6 +424,22 @@ static int venus_probe(struct platform_device *pdev)
+ 
+ 	dma_set_max_seg_size(dev, UINT_MAX);
+ 
++	/*
++	 * HFI v3 firmware (seen with VIDEO.VE.4.4-00060 on msm8996) checks
++	 * EOS buffers against its content protection map and fails the
++	 * session on the 0xdeadb000 dummy ("buffer straddles CP & non-CP
++	 * regions"). Like the downstream driver, signal EOS on a real, empty
++	 * buffer; see vdec_decoder_cmd() and venc_encoder_cmd().
++	 */
++	if (IS_V3(core)) {
++		core->eos_buf = dmam_alloc_coherent(dev, VENUS_EOS_BUF_SIZE,
++						    &core->eos_dma, GFP_KERNEL);
++		if (!core->eos_buf) {
++			ret = -ENOMEM;
++			goto err_core_put;
++		}
++	}
++
+ 	INIT_LIST_HEAD(&core->instances);
+ 	mutex_init(&core->lock);
+ 	INIT_DELAYED_WORK(&core->work, venus_sys_error_handler);
+diff --git a/drivers/media/platform/qcom/venus/core.h b/drivers/media/platform/qcom/venus/core.h
+index 7506f5d0f..e5964cf67 100644
+--- a/drivers/media/platform/qcom/venus/core.h
++++ b/drivers/media/platform/qcom/venus/core.h
+@@ -207,6 +207,8 @@ struct venus_core {
+ 	const struct venus_resources *res;
+ 	struct device *dev;
+ 	struct device *dev_dec;
++	void *eos_buf;
++	dma_addr_t eos_dma;
+ 	struct device *dev_enc;
+ 	unsigned int use_tz;
+ 	struct video_firmware {
+@@ -523,6 +525,8 @@ struct venus_inst {
+ };
+ 
+ #define IS_V1(core)	((core)->res->hfi_version == HFI_VERSION_1XX)
++#define VENUS_EOS_BUF_SIZE	SZ_4K
++
+ #define IS_V3(core)	((core)->res->hfi_version == HFI_VERSION_3XX)
+ #define IS_V4(core)	((core)->res->hfi_version == HFI_VERSION_4XX)
+ #define IS_V6(core)	((core)->res->hfi_version == HFI_VERSION_6XX)
+diff --git a/drivers/media/platform/qcom/venus/vdec.c b/drivers/media/platform/qcom/venus/vdec.c
+index 4a6641fdf..afa23705d 100644
+--- a/drivers/media/platform/qcom/venus/vdec.c
++++ b/drivers/media/platform/qcom/venus/vdec.c
+@@ -565,10 +565,17 @@ vdec_decoder_cmd(struct file *file, void *fh, struct v4l2_decoder_cmd *cmd)
+ 
+ 		fdata.buffer_type = HFI_BUFFER_INPUT;
+ 		fdata.flags |= HFI_BUFFERFLAG_EOS;
+-		if (IS_V6(inst->core) && is_fw_rev_or_older(inst->core, 1, 0, 87))
++		if (inst->core->eos_buf) {
++			/* the tag matches no vb2 buffer */
++			fdata.device_addr = inst->core->eos_dma;
++			fdata.alloc_len = VENUS_EOS_BUF_SIZE;
++			fdata.clnt_data = VIDEO_MAX_FRAME;
++		} else if (IS_V6(inst->core) &&
++			   is_fw_rev_or_older(inst->core, 1, 0, 87)) {
+ 			fdata.device_addr = 0;
+-		else
++		} else {
+ 			fdata.device_addr = 0xdeadb000;
++		}
+ 
+ 		ret = hfi_session_process_buf(inst, &fdata);
+ 
+@@ -1399,6 +1406,41 @@ static const struct vb2_ops vdec_vb2_ops = {
+ 	.buf_queue = vdec_vb2_buf_queue,
+ };
+ 
++/*
++ * The firmware flagged the end of the stream on a capture buffer the driver
++ * does not hold. Complete a queued capture buffer as an empty LAST buffer
++ * instead, with the timestamp the firmware gave the EOS, or, with none queued,
++ * let the next DQBUF return -EPIPE, so that userspace still sees the end of
++ * the drain.
++ */
++static void vdec_signal_last(struct venus_inst *inst, u64 timestamp_us)
++{
++	static const struct v4l2_event ev = { .type = V4L2_EVENT_EOS };
++	struct vb2_v4l2_buffer *vbuf;
++
++	v4l2_event_queue_fh(&inst->fh, &ev);
++
++	if (inst->codec_state == VENUS_DEC_STATE_DRAIN) {
++		inst->drain_active = false;
++		inst->codec_state = VENUS_DEC_STATE_STOPPED;
++	}
++
++	vbuf = v4l2_m2m_dst_buf_remove(inst->m2m_ctx);
++	if (vbuf) {
++		vbuf->flags = V4L2_BUF_FLAG_LAST;
++		vbuf->field = V4L2_FIELD_NONE;
++		vbuf->sequence = inst->sequence_cap++;
++		vbuf->vb2_buf.timestamp = timestamp_us * NSEC_PER_USEC;
++		vb2_set_plane_payload(&vbuf->vb2_buf, 0, 0);
++		v4l2_m2m_buf_done(vbuf, VB2_BUF_STATE_DONE);
++	} else {
++		struct vb2_queue *dst_vq = v4l2_m2m_get_dst_vq(inst->m2m_ctx);
++
++		dst_vq->last_buffer_dequeued = true;
++		wake_up(&dst_vq->done_wq);
++	}
++}
++
+ static void vdec_buf_done(struct venus_inst *inst, unsigned int buf_type,
+ 			  u32 tag, u32 bytesused, u32 data_offset, u32 flags,
+ 			  u32 hfi_flags, u64 timestamp_us)
+@@ -1418,6 +1460,9 @@ static void vdec_buf_done(struct venus_inst *inst, unsigned int buf_type,
+ 	vbuf = venus_helper_find_buf(inst, type, tag);
+ 	if (!vbuf) {
+ 		venus_helper_change_dpb_owner(inst, vbuf, type, buf_type, tag);
++		if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
++		    (flags & V4L2_BUF_FLAG_LAST))
++			vdec_signal_last(inst, timestamp_us);
+ 		return;
+ 	}
+ 
+diff --git a/drivers/media/platform/qcom/venus/venc.c b/drivers/media/platform/qcom/venus/venc.c
+index b478b982a..7e9068641 100644
+--- a/drivers/media/platform/qcom/venus/venc.c
++++ b/drivers/media/platform/qcom/venus/venc.c
+@@ -545,7 +545,14 @@ venc_encoder_cmd(struct file *file, void *fh, struct v4l2_encoder_cmd *cmd)
+ 
+ 		fdata.buffer_type = HFI_BUFFER_INPUT;
+ 		fdata.flags |= HFI_BUFFERFLAG_EOS;
+-		fdata.device_addr = 0xdeadb000;
++		if (inst->core->eos_buf) {
++			/* the tag matches no vb2 buffer */
++			fdata.device_addr = inst->core->eos_dma;
++			fdata.alloc_len = VENUS_EOS_BUF_SIZE;
++			fdata.clnt_data = VIDEO_MAX_FRAME;
++		} else {
++			fdata.device_addr = 0xdeadb000;
++		}
+ 
+ 		ret = hfi_session_process_buf(inst, &fdata);
+ 
