@@ -6,7 +6,8 @@
  *   0x25 SM5705 MUIC, interrupt PM8994 GPIO 4
  *   0x49 SM5705 charger + flash LED, interrupt TLMM 38 (pull-up)
  * Charging enable is PM8994 GPIO 13, active low; the bootloader leaves it
- * low.
+ * low. The MUIC runs BC1.2 detection; the charger sets its input current
+ * limit from the result.
  *
  * Without a driver the charger keeps the settings it boots with: BATREG 0x27
  * (4.38 V) and top-off 200 mA. Stock sets 4.30 V and 300 mA at boot; the
@@ -26,6 +27,14 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
+		muic: extcon@25 {
+			compatible = "siliconmitus,sm5705-muic";
+			reg = <0x25>;
+			interrupts-extended = <&pm8994_gpios 4 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&muic_int_default>;
+		};
+
 		charger: charger@49 {
 			compatible = "siliconmitus,sm5705-charger";
 			reg = <0x49>;
@@ -33,6 +42,7 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&charger_int_default>;
 			monitored-battery = <&battery>;
+			extcon = <&muic>;
 		};
 	};
 };
@@ -44,6 +54,17 @@
 &blsp2_i2c2 {
 	fuel-gauge@71 {
 		power-supplies = <&charger>;
+	};
+};
+
+&pm8994_gpios {
+	/* push-pull 1.8 V output of the MUIC, idle high */
+	muic_int_default: muic-int-default-state {
+		pins = "gpio4";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-pull-down;
+		power-source = <PM8994_GPIO_S4>;
 	};
 };
 

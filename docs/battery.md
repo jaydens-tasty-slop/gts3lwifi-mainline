@@ -1,16 +1,18 @@
-# Battery and charger: SM5705
+# Battery, charger and USB charger detection: SM5705
 
-## Status (2026-10-28): fuel gauge and charger work
+## Status (2026-10-28): fuel gauge, charger and MUIC work
 
 With `dts/test/test-charger.dts` (which includes `test-battery.dts`) and
-kernel patches 0012-0015 there are two power supplies:
+kernel patches 0012-0017 there are two power supplies and an extcon device:
 
 - `sm5705-battery`, the fuel gauge (`CONFIG_FUEL_GAUGE_SM5705=m`): state of
   charge, voltage, open-circuit voltage, current, temperature, and the
   battery's design data;
 - `sm5705-charger`, the charger (`CONFIG_CHARGER_SM5705=m`, on an
-  `i2c-gpio` bus, so also `CONFIG_I2C_GPIO=m`): USB power present, charging
-  state, health, and the charge limits.
+  `i2c-gpio` bus, so also `CONFIG_I2C_GPIO=m`): USB power present, USB
+  charger type, charging state, health, and the charge limits;
+- the MUIC (`CONFIG_EXTCON_SM5705=m`, extcon `1-0025`): the BC1.2 charger
+  type. The charger sets its input current limit from it.
 
 ```
 POWER_SUPPLY_NAME=sm5705-charger
@@ -18,9 +20,10 @@ POWER_SUPPLY_TYPE=USB
 POWER_SUPPLY_STATUS=Full
 POWER_SUPPLY_HEALTH=Good
 POWER_SUPPLY_ONLINE=1
+POWER_SUPPLY_USB_TYPE=SDP
 POWER_SUPPLY_CONSTANT_CHARGE_CURRENT=2000000
 POWER_SUPPLY_CONSTANT_CHARGE_VOLTAGE=4300000
-POWER_SUPPLY_INPUT_CURRENT_LIMIT=1500000
+POWER_SUPPLY_INPUT_CURRENT_LIMIT=500000
 POWER_SUPPLY_CHARGE_TERM_CURRENT=300000
 
 POWER_SUPPLY_NAME=sm5705-battery
@@ -37,6 +40,8 @@ POWER_SUPPLY_ENERGY_FULL_DESIGN=23100000
 POWER_SUPPLY_CAPACITY=100
 POWER_SUPPLY_TEMP=375
 POWER_SUPPLY_CHARGE_TERM_CURRENT=300000
+
+/sys/class/extcon/extcon0 (1-0025): USB=1 SDP=1 DCP=0 CDP=0
 ```
 
 UPower shows the battery (percentage, state, icon) and the charger as line
@@ -48,6 +53,28 @@ whenever the tablet was plugged in. The charger driver applies the limits
 from the battery node at probe. After that the battery first runs down to
 4.30 V on USB power (the current above, -625 mA, is that), then the charger
 holds it there.
+
+While charging is on, the charger holds the battery node at BATREG with the
+battery switch fully on (STATUS2 0x38: CHGON, Q4FULLON, TOPOFF), so a
+battery resting above 4.30 V carries the system load until it is down to
+4.30 V. Switching the charger off for a moment (CNTL 0x05 -> 0x04) shows it:
+the battery current went from -335 mA to -11 mA, USB carried the whole load,
+and the battery rested at 4.333 V. The gauge's OCV estimate (4.293 V) lags
+behind. The idle load is about 1.45 W, well within a 500 mA USB port.
+
+**The input current limit follows the charger type** (charger driver,
+from the MUIC):
+
+| Type | Input limit | Why |
+|---|---|---|
+| SDP (PC port, or data contact timeout) | 500 mA | USB 2.0; stock uses 460 mA |
+| CDP | 1500 mA | BC1.2; stock uses 1000 mA |
+| DCP (wall charger, also Samsung AFC, QC 2.0, U200) | 1800 mA | stock's setting for Samsung wall chargers |
+| nothing detected | unchanged | |
+
+The bootloader had left 1500 mA for the PC port. `input_current_limit` is
+writable, until the next cable event. AFC (9 V) is not negotiated, so
+Samsung fast chargers deliver 5 V.
 
 Pulling the USB cable and plugging it back in (logged every 2 s):
 
@@ -65,7 +92,8 @@ replug. USB networking came back by itself.
 
 Not done yet:
 
-- the cable type: the SM5705 MUIC at 0x25 detects it, no driver yet;
+- a check of the MUIC's interrupt with a cable change and with a wall
+  charger (so far only the PC port at boot);
 - the flash LED, which shares the charger's I2C device;
 - the fuel gauge's alert interrupt and battery model init.
 
@@ -77,7 +105,7 @@ Not done yet:
 | Fuel gauge bus | TLMM 6 (SDA) / 7 (SCL). Stock drives them as an `i2c-gpio` bus, but they are the BLSP2 QUP2 I2C pins, so the test DT uses the hardware controller `&blsp2_i2c2` (0x75b6000) at 100 kHz |
 | Fuel gauge alert | PM8994 GPIO 1 (stock `fuelgauge,fuel_int`), not used: the driver polls every 30 s |
 | Charger | SM5705 charger and flash LED, I2C 0x49, device ID 0xf9, interrupt TLMM 38 (active low, pull-up) |
-| MUIC | SM5705 MUIC (cable detection), I2C 0x25, interrupt PM8994 GPIO 4 |
+| MUIC | SM5705 MUIC (cable detection), I2C 0x25, device ID 0x09, interrupt PM8994 GPIO 4: push-pull 1.8 V, active low, so the pin needs `power-source = <PM8994_GPIO_S4>` (with the default VPH reference it reads low) |
 | Charger bus | TLMM 33 (SDA) / 32 (SCL). These are HDMI DDC pins, not a BLSP pair, so like stock it is an `i2c-gpio` bus |
 | Charge enable | PM8994 GPIO 13, active low. The bootloader leaves it low (charging on); Linux does not touch it |
 | Battery | EB-BT825ABE, 6000 mAh, 3.85 V, 23.1 Wh |
@@ -150,6 +178,29 @@ charging. The input current limit is not changed: on the PC's USB port the
 charger's AICL holds the input current below what the port can give
 (STATUS2 bit 0 set).
 
+## MUIC registers
+
+The layout differs from the SM5502/SM5504/SM5703 that mainline's
+`extcon-sm5502` handles: a third interrupt register at 0x05 moves the masks,
+the ADC and the device type registers, so the SM5705 has its own small
+driver (`extcon-sm5705`). From Samsung's `muic_regmap_sm5705.c`:
+
+| Reg | Name | Content | Boot value |
+|---|---|---|---|
+| 0x01 | DEVICE_ID | | 0x09 |
+| 0x02 | CONTROL | 4 switch open, 3 raw data, 2 manual switch, 1 wait, 0 interrupt mask | 0x1e |
+| 0x03-0x05 | INT1-3 | 1: attach/detach; 2: VBUS on, RID charger, MHL, ADC change, VBUS off; 3: AFC | |
+| 0x06-0x08 | INTMASK1-3 | 1 = masked | 0xff 0xff 0xff |
+| 0x09 | ADC | ID resistor, 0x1f = open | 0x1f |
+| 0x0a-0x0c | DEVICE_TYPE1-3 | 1: 7 OTG, 6 dedicated charger, 5 USB charger, 2 USB; 3: 7 AFC TA, 2 DCD timeout SDP, 1 QC 2.0 | 0x04 0x00 0x00 |
+| 0x13 | MANUAL_SW1 | D-/D+ switch | 0x27 (USB) |
+| 0x15 | RSVD_ID1 | bit 0 VBUS valid | 0x81 |
+| 0x17 | CHG_TYPE | 0x01 DCP, 0x02 CDP, 0x04 SDP, 0x08 DCD timeout, 0x10 U200, 0x11 AFC, 0x13 QC 2.0 | 0x04 |
+
+The driver unmasks attach/detach and VBUS on/off/ADC change (masks
+0xfc 0x7a 0xff), reads CHG_TYPE while VBUS is valid, and reports USB plus
+SDP/CDP, or DCP. The USB switch stays in automatic mode.
+
 ## Battery model
 
 Samsung's driver loads a battery model at boot (`battery_params`: OCV
@@ -163,8 +214,9 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
-- SM5705 MUIC: cable type (USB port, charger, ...) and a matching input
-  current limit for wall chargers. Mainline's `extcon-sm5502` handles the
-  SM5502/SM5504/SM5703 MUICs and may cover it.
+- MUIC test with a cable change and a wall charger.
+- CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
+  are no CPU idle states. Worth trying for idle power, carefully, since
+  Samsung's TrustZone already mishandles PSCI SYSTEM_RESET.
 - Fuel gauge alert interrupt (PM8994 GPIO 1) instead of only polling.
 - Port the gauge model init (`battery_params`) in case the gauge resets.

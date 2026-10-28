@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 12:26:44 +0530
+Date: Wed, 28 Oct 2026 12:40:55 +0530
 Subject: [PATCH] dt-bindings: power: supply: add Silicon Mitus SM5705 charger
 
 The SM5705 charger answers on its own I2C address, separate from the
@@ -9,16 +9,16 @@ fuel gauge. The same device also controls the flash LED.
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- .../supply/siliconmitus,sm5705-charger.yaml   | 52 +++++++++++++++++++
- 1 file changed, 52 insertions(+)
+ .../supply/siliconmitus,sm5705-charger.yaml   | 59 +++++++++++++++++++
+ 1 file changed, 59 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
 
 diff --git a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
 new file mode 100644
-index 000000000..3a3093feb
+index 000000000..87b8e4d7b
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,59 @@
 +# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
 +%YAML 1.2
 +---
@@ -50,6 +50,12 @@ index 000000000..3a3093feb
 +
 +  monitored-battery: true
 +
++  extcon:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description:
++      The SM5705 MUIC, which reports the USB charger type. The input
++      current limit follows it.
++
 +required:
 +  - compatible
 +  - reg
@@ -69,6 +75,7 @@ index 000000000..3a3093feb
 +        reg = <0x49>;
 +        interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
 +        monitored-battery = <&battery>;
++        extcon = <&muic>;
 +      };
 +    };
 -- 

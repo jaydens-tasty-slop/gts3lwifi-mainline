@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..65d32301e1 100644
+index 601fa9f44e..6dfab1b29a 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -11,7 +11,7 @@ index 601fa9f44e..65d32301e1 100644
  pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
  arch="aarch64"
  _carch="arm64"
-@@ -32,6 +32,21 @@ _tag=v${pkgver//_/-}-msm8996
+@@ -32,6 +32,23 @@ _tag=v${pkgver//_/-}-msm8996
  source="
  	linux-$_tag.tar.gz::$url/-/archive/$_tag/linux-$_tag.tar.gz
  	config-$_flavor.$arch
@@ -30,10 +30,12 @@ index 601fa9f44e..65d32301e1 100644
 +	0013-power-supply-sm5705-fuel-gauge-driver.patch
 +	0014-dt-bindings-power-supply-sm5705-charger.patch
 +	0015-power-supply-sm5705-charger-driver.patch
++	0016-dt-bindings-extcon-sm5705-muic.patch
++	0017-extcon-sm5705-muic-driver.patch
  "
  builddir="$srcdir/linux-$_tag"
  
-@@ -62,5 +77,20 @@ package() {
+@@ -62,5 +79,22 @@ package() {
  }
  sha512sums="
  dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
@@ -45,13 +47,15 @@ index 601fa9f44e..65d32301e1 100644
 +ac1c25203f364cc2cff75d1aec875d80c7a3d3326452226ed2c398a2589d2c430ce6569485323e3bd9f7d4e666df5208d9eaabafdb5c491c50241772ee83c1a4  0006-drm-msm-dsi-rgb-swap-param.patch
 +8ef106a9eec607d77bb4bcaea3a0c63c36bb0c87998cdcf620003922b0745de960c50f9a48dd39a88fa84defbc231c6ce05b1aa1df6a2eab5ca5944a7802e02c  0007-drm-msm-debugfs-dsi-tpg.patch
 +eed0221de32466659846ca8d909f70fc7b72758bf1f09c8ebc495cba304d5fe94b6b62685bd70b468819dc635824192158171381ab9de8b324d4aab350bc15d4  0001-add-samsung-gts3lwifi-dts.patch
-+59036524d768ddf56b6e0dd8b7ff847b5313f408802326724055d969a581181c0e5377426632d3b7c221d4b94d9e9a711afa1384aca34e537fa58e51ddeaecb3  config-postmarketos-qcom-msm8996.aarch64
++5ec005b007476dafba3f29136eee184b97c8e81db5484e9a91b52b1b847edb03f7cc8646d54992d73723e18d34c32a26db20fd10c1772b71daa72f809a397f75  config-postmarketos-qcom-msm8996.aarch64
 +dbc052ee86fdc581fbb3e08557b92a457d5c8a3f30a1b93fb30af80fb903d5f2330d9a59e9e9f4bf3e56544b1601c5b9e186b2050e488b6e8f8c1fbf810f50b0  0008-media-venus-hfi_cmds-h264-8x8-transform-on-hfi-v3.patch
 +52c63bcfcd2e21d34a45e25b4caa2ebd7cd9b2617c7d2bb366c3846d0de2f8ddc1be81540345379c8a1d8a62926f76a0d653a2e9fe104e3ffd5c6ed87db0276d  0009-media-venus-eos-on-real-buffer-hfi-v3.patch
 +2928e34a1b177273053858e3a58abbb986bba4c76095cc0862ae4aa8ae40993c466b0f3bf2c2487a01fd42eb76fbe1dd9c40037d82278521f1d29e9768cd74ec  0010-asoc-qcom-apq8096-be-format-s16le.patch
 +ef02bd500870b8dcc39c0f5d2b7bf334f04ff1053aeca183612aa7930c549102c583e3bd0490cb4962d95f11e688013590f5a0050e6060d92e9511dbc17d7a3b  0011-asoc-qcom-q6asm-dai-close-stopped-stream-on-prepare.patch
 +43bbb620380cd368c3f89faeda9659c97f6aefce8fd3e6a6355cc8b34d3734b2a3573d37deb4c6dfb94380af80f95764b6bc5a7d4eb7e952fcf3cd96301c4735  0012-dt-bindings-power-supply-sm5705-fuel-gauge.patch
 +0e70c6ef1e361b9f284af8945e9d9844092119fc4c2c4e76e9139be68269f4adaf1e3a34912ba0ab095fbf3375cc929258d71ceec02c32b7facc1dce2ab52424  0013-power-supply-sm5705-fuel-gauge-driver.patch
-+51c28d0b44d5c85c9510197878f2baa9151689f333ddfe0b0ab64a3d1dc12d9251104d749f2d0d5fd2382c46cb8467ec54873a8f6248ec5484efa6de838df25d  0014-dt-bindings-power-supply-sm5705-charger.patch
-+2c64131af2a0b4fd4bea50d78010bdff20eb8f0d0bc9512be856cc598eca1a3539a1a49a76fe3ab32db1f16ab5a24dc521d31ab8f61e9b62674e66c10f7f18b3  0015-power-supply-sm5705-charger-driver.patch
++8d21fbb68cc62c88bbf7d37198b08d0c3aa29dd76687269cad320c75b9aad9d9d97f63e178916f5e6a814cbfd542f0f23fbcb94bf661e9ed593697f568c03a16  0014-dt-bindings-power-supply-sm5705-charger.patch
++7058b6ad3d2723c1abce238ea18ead03a9ccdd55045d56b9dce16b6e229d8356462468597a902cde2c6751695f146563272f69b424c4ad4bf62e4c08a0c7c806  0015-power-supply-sm5705-charger-driver.patch
++494bb7df17bb3a04cea99dfaeb45b019f5852e2171395b499b636af4e027f8ac57a2c7a50ea300185e27166c4e8bf51bb57d835ea7b8ce117b13507e2a6f2ce4  0016-dt-bindings-extcon-sm5705-muic.patch
++40c9327e2f539966d0f14d597cbdb09386fc5940fc5425fc7c135f663e5cb6630ddf95969013ba82ec05e59b76089acf729346423a3da07d1681950a19fc167a  0017-extcon-sm5705-muic-driver.patch
  "

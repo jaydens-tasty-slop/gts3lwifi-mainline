@@ -34,7 +34,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Thermal (TSENS) | works once enabled: the msm8996 kernel config had it off, so nothing throttled (docs/thermal.md) |
 | Audio | headphones and the main/sub mics work, through ALSA and PipeWire (ADSP + WCD9335 on SLIMbus; patches 0010-0011, UCM profile and WirePlumber config in the device package). Speakers not yet: 4 Richtek RT5508 amps, no mainline driver (docs/audio.md, dts/test/test-audio.dts) |
 | Battery (SM5705 fuel gauge) | works: percentage, voltage, current and temperature in sysfs and UPower. New driver, patches 0012-0013 (docs/battery.md, dts/test/test-battery.dts) |
-| Charger (SM5705) | works: USB power and charging state in sysfs and UPower, charge voltage set to Samsung's 4.30 V (without a driver the charger used 4.38 V). New driver, patches 0014-0015 (docs/battery.md, dts/test/test-charger.dts). Cable type (MUIC) and flash LED not yet |
+| Charger (SM5705) | works: USB power, charger type and charging state in sysfs and UPower, charge voltage set to Samsung's 4.30 V (without a driver the charger used 4.38 V), input current limit from the detected charger type (MUIC, BC1.2: PC port 500 mA, wall charger 1.8 A). New drivers, patches 0014-0017 (docs/battery.md, dts/test/test-charger.dts). Fast charging (AFC 9 V) and the flash LED not yet |
 | Type-C controller (S2MM005) | no driver |
 
 Solved: Samsung's TrustZone owns the fingerprint SPI pins (TLMM 25-28) and the
@@ -49,7 +49,7 @@ the tablet about 9 s into boot. The board DTS lists them in
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain
-- `kernel/` - out-of-tree kernel additions (panel, fuel gauge and charger drivers, bindings, Kconfig snippet)
+- `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
 - `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot, video, thermal, audio, battery and charger notes
 
 ## lk2nd

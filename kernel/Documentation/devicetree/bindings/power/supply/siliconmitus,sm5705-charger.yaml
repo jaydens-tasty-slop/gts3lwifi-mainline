@@ -29,6 +29,12 @@ properties:
 
   monitored-battery: true
 
+  extcon:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      The SM5705 MUIC, which reports the USB charger type. The input
+      current limit follows it.
+
 required:
   - compatible
   - reg
@@ -48,5 +54,6 @@ examples:
         reg = <0x49>;
         interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
         monitored-battery = <&battery>;
+        extcon = <&muic>;
       };
     };

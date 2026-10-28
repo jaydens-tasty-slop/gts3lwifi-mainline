@@ -1,22 +1,26 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 12:26:54 +0530
+Date: Wed, 28 Oct 2026 12:40:55 +0530
 Subject: [PATCH] power: supply: add Silicon Mitus SM5705 charger driver
 
 Add a driver for the charger of the SM5705 charger and fuel gauge IC.
-It reports whether USB power is present, the charging state and health,
-and lets user space set the input current limit, charge current, charge
-voltage and termination current.
+It reports whether USB power is present, the USB charger type, the
+charging state and health, and lets user space set the input current
+limit, charge current, charge voltage and termination current.
 
 At probe it applies the charge voltage, charge current and termination
 current of the monitored battery. Without that the charger keeps what it
 booted with; on the Galaxy Tab S3 that is a 4.38 V charge voltage, while
 Samsung's firmware charges the battery to 4.30 V only.
 
-The interrupt reports input and charging state changes. The input
-current limit is left alone: the charger's AICL lowers the input current
-when the source sags. The register layout follows Samsung's vendor
-driver.
+With an extcon device, the SM5705 MUIC, the input current limit follows
+the detected charger type: 500 mA for a standard USB port, 1.5 A for a
+charging downstream port and 1.8 A, Samsung's setting, for a dedicated
+charger. Without one the limit stays as the bootloader set it. The
+charger's AICL lowers the input current when the source sags.
+
+The interrupt reports input and charging state changes. The register
+layout follows Samsung's vendor driver.
 
 Tested on a Samsung Galaxy Tab S3 (SM-T820).
 
@@ -25,8 +29,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  drivers/power/supply/Kconfig          |  10 +
  drivers/power/supply/Makefile         |   1 +
- drivers/power/supply/sm5705_charger.c | 428 ++++++++++++++++++++++++++
- 3 files changed, 439 insertions(+)
+ drivers/power/supply/sm5705_charger.c | 510 ++++++++++++++++++++++++++
+ 3 files changed, 521 insertions(+)
  create mode 100644 drivers/power/supply/sm5705_charger.c
 
 diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
@@ -61,25 +65,28 @@ index 82024d043..136b74963 100644
 +obj-$(CONFIG_CHARGER_SM5705)	+= sm5705_charger.o
 diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
 new file mode 100644
-index 000000000..a4853353b
+index 000000000..732ae296b
 --- /dev/null
 +++ b/drivers/power/supply/sm5705_charger.c
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,510 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Silicon Mitus SM5705 charger
 + *
 + * Reports whether USB power is present and what the charger does, and
 + * applies the charge voltage, charge current and termination current of
-+ * the monitored battery. The input current limit stays as the bootloader
-+ * set it; the charger's AICL lowers the input current when the source
-+ * sags, so no cable detection is needed to charge safely.
++ * the monitored battery. With an extcon device (the SM5705 MUIC) it sets
++ * the input current limit for the detected USB charger type. Without one
++ * the limit stays as the bootloader set it. Either way the charger's AICL
++ * lowers the input current when the source sags.
 + *
 + * The same I2C device also holds the flash LED controller, which is not
 + * handled here. Register layout from the Samsung vendor driver
 + * (sm5705_charger.c).
 + */
 +
++#include <linux/devm-helpers.h>
++#include <linux/extcon.h>
 +#include <linux/i2c.h>
 +#include <linux/interrupt.h>
 +#include <linux/module.h>
@@ -117,6 +124,11 @@ index 000000000..a4853353b
 +#define SM5705_BATREG_MASK		GENMASK(5, 0)
 +#define SM5705_TOPOFF_MASK		GENMASK(3, 0)
 +
++/* Input current limits per USB charger type */
++#define SM5705_SDP_INPUT_LIMIT_UA	500000	/* USB 2.0 */
++#define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
++#define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
++
 +/* BATREG: 0 is 3.8 V, 1 is 4.0 V, then 4.01 V in 10 mV steps */
 +#define SM5705_BATREG_MIN_UV		4010000
 +#define SM5705_BATREG_MAX_UV		4620000
@@ -126,6 +138,10 @@ index 000000000..a4853353b
 +	struct regmap *regmap;
 +	struct power_supply *psy;
 +	struct power_supply_battery_info *bat;
++	struct extcon_dev *edev;
++	struct notifier_block extcon_nb;
++	struct work_struct cable_work;
++	int usb_type;
 +};
 +
 +/* VBUS input current limit: 100 mA + 25 mA steps */
@@ -265,6 +281,9 @@ index 000000000..a4853353b
 +		return sm5705_chg_get_charge_voltage(chg, &val->intval);
 +	case POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT:
 +		return sm5705_chg_get_term_current(chg, &val->intval);
++	case POWER_SUPPLY_PROP_USB_TYPE:
++		val->intval = chg->usb_type;
++		return 0;
 +	default:
 +		break;
 +	}
@@ -340,6 +359,7 @@ index 000000000..a4853353b
 +
 +static const enum power_supply_property sm5705_chg_props[] = {
 +	POWER_SUPPLY_PROP_ONLINE,
++	POWER_SUPPLY_PROP_USB_TYPE,
 +	POWER_SUPPLY_PROP_STATUS,
 +	POWER_SUPPLY_PROP_HEALTH,
 +	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
@@ -351,6 +371,10 @@ index 000000000..a4853353b
 +static const struct power_supply_desc sm5705_chg_desc = {
 +	.name = "sm5705-charger",
 +	.type = POWER_SUPPLY_TYPE_USB,
++	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
++		     BIT(POWER_SUPPLY_USB_TYPE_SDP) |
++		     BIT(POWER_SUPPLY_USB_TYPE_DCP) |
++		     BIT(POWER_SUPPLY_USB_TYPE_CDP),
 +	.properties = sm5705_chg_props,
 +	.num_properties = ARRAY_SIZE(sm5705_chg_props),
 +	.get_property = sm5705_chg_get_property,
@@ -371,6 +395,44 @@ index 000000000..a4853353b
 +	power_supply_changed(chg->psy);
 +
 +	return IRQ_HANDLED;
++}
++
++static void sm5705_chg_cable_work(struct work_struct *work)
++{
++	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
++					      cable_work);
++	int type, limit = 0;
++
++	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
++		type = POWER_SUPPLY_USB_TYPE_DCP;
++		limit = SM5705_DCP_INPUT_LIMIT_UA;
++	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_CDP) > 0) {
++		type = POWER_SUPPLY_USB_TYPE_CDP;
++		limit = SM5705_CDP_INPUT_LIMIT_UA;
++	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_SDP) > 0) {
++		type = POWER_SUPPLY_USB_TYPE_SDP;
++		limit = SM5705_SDP_INPUT_LIMIT_UA;
++	} else {
++		type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
++	}
++
++	/* nothing attached: keep the limit for the next cable */
++	if (limit && sm5705_chg_set_input_limit(chg, limit))
++		dev_err(chg->dev, "failed to set input limit %d uA\n", limit);
++
++	dev_dbg(chg->dev, "usb type %d, input limit %d uA\n", type, limit);
++	chg->usb_type = type;
++	power_supply_changed(chg->psy);
++}
++
++static int sm5705_chg_extcon_notifier(struct notifier_block *nb,
++				      unsigned long event, void *ptr)
++{
++	struct sm5705_chg *chg = container_of(nb, struct sm5705_chg,
++					      extcon_nb);
++
++	schedule_work(&chg->cable_work);
++	return NOTIFY_OK;
 +}
 +
 +/* Battery limits from the monitored-battery node, as stock sets them */
@@ -424,6 +486,14 @@ index 000000000..a4853353b
 +	if (!chg)
 +		return -ENOMEM;
 +	chg->dev = dev;
++	chg->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
++
++	if (of_property_present(dev->of_node, "extcon")) {
++		chg->edev = extcon_get_edev_by_phandle(dev, 0);
++		if (IS_ERR(chg->edev))
++			return dev_err_probe(dev, PTR_ERR(chg->edev),
++					     "failed to get extcon device\n");
++	}
 +
 +	chg->regmap = devm_regmap_init_i2c(client, &sm5705_chg_regmap_config);
 +	if (IS_ERR(chg->regmap))
@@ -470,6 +540,22 @@ index 000000000..a4853353b
 +		if (ret)
 +			return dev_err_probe(dev, ret,
 +					     "failed to request interrupt\n");
++	}
++
++	if (chg->edev) {
++		ret = devm_work_autocancel(dev, &chg->cable_work,
++					   sm5705_chg_cable_work);
++		if (ret)
++			return ret;
++
++		chg->extcon_nb.notifier_call = sm5705_chg_extcon_notifier;
++		ret = devm_extcon_register_notifier_all(dev, chg->edev,
++							&chg->extcon_nb);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "failed to register extcon notifier\n");
++
++		schedule_work(&chg->cable_work);
 +	}
 +
 +	dev_info(dev, "SM5705 charger, id %#04x\n", id);

@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/extcon/siliconmitus,sm5705-muic.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Silicon Mitus SM5705 MUIC
+
+maintainers:
+  - psigod <psigod@example.com>
+
+description:
+  The MUIC (micro USB interface controller) of the SM5705 charger and fuel
+  gauge IC. It answers on its own I2C address, detects the USB charger
+  type (BC1.2) and switches the USB data lines. Its registers differ from
+  the SM5502 family.
+
+properties:
+  compatible:
+    const: siliconmitus,sm5705-muic
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      extcon@25 {
+        compatible = "siliconmitus,sm5705-muic";
+        reg = <0x25>;
+        interrupts-extended = <&pm8994_gpios 4 IRQ_TYPE_LEVEL_LOW>;
+      };
+    };

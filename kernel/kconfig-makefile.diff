@@ -42,3 +42,19 @@
 @@ (after FUEL_GAUGE_MM8013) @@
 +obj-$(CONFIG_FUEL_GAUGE_SM5705)	+= sm5705_fuel_gauge.o
 +obj-$(CONFIG_CHARGER_SM5705)	+= sm5705_charger.o
+--- a/drivers/extcon/Kconfig
++++ b/drivers/extcon/Kconfig
+@@ (before EXTCON_USB_GPIO) @@
++config EXTCON_SM5705
++	tristate "Silicon Mitus SM5705 MUIC support"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Say Y here to enable the MUIC of the Silicon Mitus SM5705 charger
++	  and fuel gauge IC, found in some Samsung devices. It reports the
++	  USB charger type detected by BC1.2.
++
+--- a/drivers/extcon/Makefile
++++ b/drivers/extcon/Makefile
+@@ (after EXTCON_SM5502) @@
++obj-$(CONFIG_EXTCON_SM5705)	+= extcon-sm5705.o

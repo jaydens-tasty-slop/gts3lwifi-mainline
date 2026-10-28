@@ -4,15 +4,18 @@
  *
  * Reports whether USB power is present and what the charger does, and
  * applies the charge voltage, charge current and termination current of
- * the monitored battery. The input current limit stays as the bootloader
- * set it; the charger's AICL lowers the input current when the source
- * sags, so no cable detection is needed to charge safely.
+ * the monitored battery. With an extcon device (the SM5705 MUIC) it sets
+ * the input current limit for the detected USB charger type. Without one
+ * the limit stays as the bootloader set it. Either way the charger's AICL
+ * lowers the input current when the source sags.
  *
  * The same I2C device also holds the flash LED controller, which is not
  * handled here. Register layout from the Samsung vendor driver
  * (sm5705_charger.c).
  */
 
+#include <linux/devm-helpers.h>
+#include <linux/extcon.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -50,6 +53,11 @@
 #define SM5705_BATREG_MASK		GENMASK(5, 0)
 #define SM5705_TOPOFF_MASK		GENMASK(3, 0)
 
+/* Input current limits per USB charger type */
+#define SM5705_SDP_INPUT_LIMIT_UA	500000	/* USB 2.0 */
+#define SM5705_CDP_INPUT_LIMIT_UA	1500000	/* BC1.2 */
+#define SM5705_DCP_INPUT_LIMIT_UA	1800000	/* Samsung's wall charger setting */
+
 /* BATREG: 0 is 3.8 V, 1 is 4.0 V, then 4.01 V in 10 mV steps */
 #define SM5705_BATREG_MIN_UV		4010000
 #define SM5705_BATREG_MAX_UV		4620000
@@ -59,6 +67,10 @@ struct sm5705_chg {
 	struct regmap *regmap;
 	struct power_supply *psy;
 	struct power_supply_battery_info *bat;
+	struct extcon_dev *edev;
+	struct notifier_block extcon_nb;
+	struct work_struct cable_work;
+	int usb_type;
 };
 
 /* VBUS input current limit: 100 mA + 25 mA steps */
@@ -198,6 +210,9 @@ static int sm5705_chg_get_property(struct power_supply *psy,
 		return sm5705_chg_get_charge_voltage(chg, &val->intval);
 	case POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT:
 		return sm5705_chg_get_term_current(chg, &val->intval);
+	case POWER_SUPPLY_PROP_USB_TYPE:
+		val->intval = chg->usb_type;
+		return 0;
 	default:
 		break;
 	}
@@ -273,6 +288,7 @@ static int sm5705_chg_property_is_writeable(struct power_supply *psy,
 
 static const enum power_supply_property sm5705_chg_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_USB_TYPE,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
@@ -284,6 +300,10 @@ static const enum power_supply_property sm5705_chg_props[] = {
 static const struct power_supply_desc sm5705_chg_desc = {
 	.name = "sm5705-charger",
 	.type = POWER_SUPPLY_TYPE_USB,
+	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
+		     BIT(POWER_SUPPLY_USB_TYPE_SDP) |
+		     BIT(POWER_SUPPLY_USB_TYPE_DCP) |
+		     BIT(POWER_SUPPLY_USB_TYPE_CDP),
 	.properties = sm5705_chg_props,
 	.num_properties = ARRAY_SIZE(sm5705_chg_props),
 	.get_property = sm5705_chg_get_property,
@@ -304,6 +324,44 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
 	power_supply_changed(chg->psy);
 
 	return IRQ_HANDLED;
+}
+
+static void sm5705_chg_cable_work(struct work_struct *work)
+{
+	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
+					      cable_work);
+	int type, limit = 0;
+
+	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
+		type = POWER_SUPPLY_USB_TYPE_DCP;
+		limit = SM5705_DCP_INPUT_LIMIT_UA;
+	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_CDP) > 0) {
+		type = POWER_SUPPLY_USB_TYPE_CDP;
+		limit = SM5705_CDP_INPUT_LIMIT_UA;
+	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_SDP) > 0) {
+		type = POWER_SUPPLY_USB_TYPE_SDP;
+		limit = SM5705_SDP_INPUT_LIMIT_UA;
+	} else {
+		type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+	}
+
+	/* nothing attached: keep the limit for the next cable */
+	if (limit && sm5705_chg_set_input_limit(chg, limit))
+		dev_err(chg->dev, "failed to set input limit %d uA\n", limit);
+
+	dev_dbg(chg->dev, "usb type %d, input limit %d uA\n", type, limit);
+	chg->usb_type = type;
+	power_supply_changed(chg->psy);
+}
+
+static int sm5705_chg_extcon_notifier(struct notifier_block *nb,
+				      unsigned long event, void *ptr)
+{
+	struct sm5705_chg *chg = container_of(nb, struct sm5705_chg,
+					      extcon_nb);
+
+	schedule_work(&chg->cable_work);
+	return NOTIFY_OK;
 }
 
 /* Battery limits from the monitored-battery node, as stock sets them */
@@ -357,6 +415,14 @@ static int sm5705_chg_probe(struct i2c_client *client)
 	if (!chg)
 		return -ENOMEM;
 	chg->dev = dev;
+	chg->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+
+	if (of_property_present(dev->of_node, "extcon")) {
+		chg->edev = extcon_get_edev_by_phandle(dev, 0);
+		if (IS_ERR(chg->edev))
+			return dev_err_probe(dev, PTR_ERR(chg->edev),
+					     "failed to get extcon device\n");
+	}
 
 	chg->regmap = devm_regmap_init_i2c(client, &sm5705_chg_regmap_config);
 	if (IS_ERR(chg->regmap))
@@ -403,6 +469,22 @@ static int sm5705_chg_probe(struct i2c_client *client)
 		if (ret)
 			return dev_err_probe(dev, ret,
 					     "failed to request interrupt\n");
+	}
+
+	if (chg->edev) {
+		ret = devm_work_autocancel(dev, &chg->cable_work,
+					   sm5705_chg_cable_work);
+		if (ret)
+			return ret;
+
+		chg->extcon_nb.notifier_call = sm5705_chg_extcon_notifier;
+		ret = devm_extcon_register_notifier_all(dev, chg->edev,
+							&chg->extcon_nb);
+		if (ret)
+			return dev_err_probe(dev, ret,
+					     "failed to register extcon notifier\n");
+
+		schedule_work(&chg->cable_work);
 	}
 
 	dev_info(dev, "SM5705 charger, id %#04x\n", id);
