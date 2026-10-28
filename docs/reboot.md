@@ -1,4 +1,4 @@
-# Reboot: PSCI hangs in Samsung's TrustZone, PS_HOLD works
+# Reboot and power-off: PSCI fails in Samsung's TrustZone, PS_HOLD works
 
 ## Status (2026-10-28): fixed in the board DTS
 
@@ -76,8 +76,23 @@ first):
   `mode-recovery` (0x01) in pm8994.dtsi already match Samsung's codes. Note
   that on Samsung "bootloader" means Download mode, not lk2nd's fastboot.
 
-Power-off still goes through PSCI `SYSTEM_OFF` (`syscon-poweroff` would run
-after it) and has not been tested.
+## Power-off
+
+PSCI `SYSTEM_OFF` returns without doing anything in Samsung's TrustZone:
+after `reboot: Power down` the kernel ran on for at least 12 minutes with
+the other CPUs stopped (RCU stall warnings in the RAM console), and only a
+long press of the power key turned the tablet off (POFF_REASON1 0x80,
+KPDPWR).
+
+The board DTS now has a `syscon-poweroff` node that drops PS_HOLD like the
+restart node (kernel config `POWER_RESET_SYSCON_POWEROFF=y`). Its handler
+runs after the PSCI one, which returns. pm8941-pwrkey has set the PMIC
+PS_HOLD reset type to shutdown (4) by then, so the PMIC switches off.
+
+Tested on battery: `systemctl poweroff`, then a short press of the power
+key starts the tablet again. The next boot reads POFF_REASON1 0x02
+(PS_HOLD) and PON_REASON1 0x80 (power key), the journal ends with
+`System Power Off`, and lk2nd finds no RAM console (memory lost power).
 
 ## Debugging without a display
 

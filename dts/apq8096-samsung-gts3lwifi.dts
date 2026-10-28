@@ -269,6 +269,20 @@
 		value = <0x0>;
 	};
 
+	/*
+	 * Power-off: PSCI SYSTEM_OFF returns without doing anything in
+	 * Samsung's TrustZone, and the kernel then runs on with the other CPUs
+	 * stopped. Drop PS_HOLD as for restart; pm8941-pwrkey has set the PMIC
+	 * PS_HOLD reset type to shutdown by then. Runs after the PSCI handler.
+	 */
+	poweroff {
+		compatible = "syscon-poweroff";
+		regmap = <&pshold>;
+		offset = <0x0>;
+		mask = <0x1>;
+		value = <0x0>;
+	};
+
 	/* QCA6174 sleep clock: PM8994 GPIO 18 function 2, see &pm8994_gpios */
 	rome_sleep_clk: rome-sleep-clk {
 		compatible = "fixed-clock";

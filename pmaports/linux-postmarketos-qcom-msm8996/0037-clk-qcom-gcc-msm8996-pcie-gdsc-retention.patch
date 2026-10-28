@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 23:40:22 +0530
+Subject: [PATCH] clk: qcom: gcc-msm8996: keep PCIe GDSCs in retention during
+ suspend
+
+The PCIe controller keeps its resources on during system suspend when a
+device is linked up, but genpd switches the controller's power domain off
+in the noirq phase. On resume the link is gone: the endpoint reads back
+as inaccessible ("Unable to change power state from D3hot to D0") and the
+next access hangs the bus.
+
+Seen with the QCA6174 Wi-Fi on PCIe0 of a Samsung Galaxy Tab S3 in
+s2idle: the tablet resets during resume.
+
+Use PWRSTS_RET_ON for the PCIe GDSCs, like the PCIe GDSCs of newer SoCs
+(sm8250 and others): a power-off then leaves them on and lets the
+hardware put them in retention.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/clk/qcom/gcc-msm8996.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/clk/qcom/gcc-msm8996.c b/drivers/clk/qcom/gcc-msm8996.c
+index aa3bd2777..dc8b6f3f3 100644
+--- a/drivers/clk/qcom/gcc-msm8996.c
++++ b/drivers/clk/qcom/gcc-msm8996.c
+@@ -3239,7 +3239,7 @@ static struct gdsc pcie0_gdsc = {
+ 	.pd = {
+ 		.name = "pcie0",
+ 	},
+-	.pwrsts = PWRSTS_OFF_ON,
++	.pwrsts = PWRSTS_RET_ON,
+ };
+ 
+ static struct gdsc pcie1_gdsc = {
+@@ -3247,7 +3247,7 @@ static struct gdsc pcie1_gdsc = {
+ 	.pd = {
+ 		.name = "pcie1",
+ 	},
+-	.pwrsts = PWRSTS_OFF_ON,
++	.pwrsts = PWRSTS_RET_ON,
+ };
+ 
+ static struct gdsc pcie2_gdsc = {
+@@ -3255,7 +3255,7 @@ static struct gdsc pcie2_gdsc = {
+ 	.pd = {
+ 		.name = "pcie2",
+ 	},
+-	.pwrsts = PWRSTS_OFF_ON,
++	.pwrsts = PWRSTS_RET_ON,
+ };
+ 
+ static struct gdsc ufs_gdsc = {
+-- 
+2.53.0
+

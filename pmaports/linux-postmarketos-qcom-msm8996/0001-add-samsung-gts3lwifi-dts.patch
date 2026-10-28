@@ -1,6 +1,6 @@
-From dbee0eb9f5e0753fa76b3ccf1fd2b17b127f8398 Mon Sep 17 00:00:00 2001
+From 54ef95de5a24e872943717f866373f9fb50aa70f Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 17:10:58 +0000
+Date: Wed, 28 Oct 2026 18:02:25 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
 Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
@@ -17,8 +17,8 @@ Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1197 +++++++++++++++++
- 2 files changed, 1198 insertions(+)
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1211 +++++++++++++++++
+ 2 files changed, 1212 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -35,10 +35,10 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..85ce1ae
+index 0000000..5d13214
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,1197 @@
+@@ -0,0 +1,1211 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -304,6 +304,20 @@ index 0000000..85ce1ae
 +	 */
 +	reboot {
 +		compatible = "syscon-reboot";
++		regmap = <&pshold>;
++		offset = <0x0>;
++		mask = <0x1>;
++		value = <0x0>;
++	};
++
++	/*
++	 * Power-off: PSCI SYSTEM_OFF returns without doing anything in
++	 * Samsung's TrustZone, and the kernel then runs on with the other CPUs
++	 * stopped. Drop PS_HOLD as for restart; pm8941-pwrkey has set the PMIC
++	 * PS_HOLD reset type to shutdown by then. Runs after the PSCI handler.
++	 */
++	poweroff {
++		compatible = "syscon-poweroff";
 +		regmap = <&pshold>;
 +		offset = <0x0>;
 +		mask = <0x1>;

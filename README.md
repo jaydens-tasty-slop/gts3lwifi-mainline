@@ -22,7 +22,8 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | PM8994 regulators via RPM | works (only the rails needed so far) |
 | postmarketOS initramfs + debug shell over USB | works |
 | Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
-| Reboot | works: PS_HOLD through syscon-reboot, because PSCI SYSTEM_RESET hangs in Samsung's TrustZone (docs/reboot.md). Power-off untested |
+| Reboot, power-off | work: PS_HOLD through syscon-reboot and syscon-poweroff, because PSCI SYSTEM_RESET hangs and SYSTEM_OFF does nothing in Samsung's TrustZone (docs/reboot.md) |
+| Suspend (s2idle) | works with the Wi-Fi driver unloaded; with Wi-Fi the PCIe link dies when its power domain switches off and the tablet resets. Fix (PCIe power domains in retention, patch 0037) written, not tested yet; the SoC does not reach its deepest sleep yet (docs/suspend.md) |
 | TLMM GPIOs | work, 4 TrustZone-owned pins reserved |
 | Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong; link-isolation images and the DSI test pattern place the fault between the DSI controller and the panel controller, most likely the panel init being sent as short DSI packets where the vendor uses long ones (fix in test, docs/display.md). No brightness control yet |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
@@ -53,7 +54,7 @@ but on the Wi-Fi model they are free and carry the top speakers' TDM bus.
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe
 - `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot, video, thermal, audio, battery, charger and CPU idle notes
+- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot and power-off, suspend, video, thermal, audio, battery, charger and CPU idle notes
 
 ## lk2nd
 
