@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * CPU idle test, stage 3b: the cluster StateID as a flat CPU state.
+ *
+ * test-cluster1.dts showed the firmware refuses PSCI SET_SUSPEND_MODE in
+ * both directions ("failed to set OSI mode: -1"), so the hierarchical
+ * layout cannot come up. Probe the firmware instead: offer L2 GDHS
+ * (0x01000034: affinity level 1, cluster mode 3, CPU mode 4, no power-down
+ * bit) as a second per-CPU state. An OSI firmware should answer DENIED
+ * while the other CPU of the cluster runs and accept it when that CPU is
+ * already down; NOT_SUPPORTED means it does not know the StateID.
+ */
+
+#include "test-charger.dts"
+
+&{/cpus/idle-states} {
+	cluster_gdhs_flat: cluster-gdhs {
+		compatible = "arm,idle-state";
+		idle-state-name = "l2-gdhs";
+		arm,psci-suspend-param = <0x01000034>;
+		entry-latency-us = <200>;
+		exit-latency-us = <300>;
+		min-residency-us = <1000>;
+	};
+};
+
+&cpu0 {
+	cpu-idle-states = <&cpu_sleep_0 &cluster_gdhs_flat>;
+};
+
+&cpu1 {
+	cpu-idle-states = <&cpu_sleep_0 &cluster_gdhs_flat>;
+};
+
+&cpu2 {
+	cpu-idle-states = <&cpu_sleep_0 &cluster_gdhs_flat>;
+};
+
+&cpu3 {
+	cpu-idle-states = <&cpu_sleep_0 &cluster_gdhs_flat>;
+};

@@ -49,6 +49,7 @@ source="
 	0015-power-supply-sm5705-charger-driver.patch
 	0016-dt-bindings-extcon-sm5705-muic.patch
 	0017-extcon-sm5705-muic-driver.patch
+	0018-cpuidle-psci-domain-accept-osi-only-firmware-msm8996.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -97,4 +98,5 @@ ef02bd500870b8dcc39c0f5d2b7bf334f04ff1053aeca183612aa7930c549102c583e3bd0490cb49
 7058b6ad3d2723c1abce238ea18ead03a9ccdd55045d56b9dce16b6e229d8356462468597a902cde2c6751695f146563272f69b424c4ad4bf62e4c08a0c7c806  0015-power-supply-sm5705-charger-driver.patch
 494bb7df17bb3a04cea99dfaeb45b019f5852e2171395b499b636af4e027f8ac57a2c7a50ea300185e27166c4e8bf51bb57d835ea7b8ce117b13507e2a6f2ce4  0016-dt-bindings-extcon-sm5705-muic.patch
 40c9327e2f539966d0f14d597cbdb09386fc5940fc5425fc7c135f663e5cb6630ddf95969013ba82ec05e59b76089acf729346423a3da07d1681950a19fc167a  0017-extcon-sm5705-muic-driver.patch
+de38a04d308c26f42201222ae0792ccdb45755b3c5d1f64e13c123454af2f836bfad2ce2f3db00fb144e692aaa17b01c951af5262aa385865a50906f53912f61  0018-cpuidle-psci-domain-accept-osi-only-firmware-msm8996.patch
 "

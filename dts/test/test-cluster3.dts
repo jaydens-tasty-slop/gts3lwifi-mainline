@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * CPU idle test, stage 3c: probe deeper composite StateIDs as flat states,
+ * only to read the firmware's answers (kretprobe on psci_cpu_suspend_enter):
+ *   0x01000034 L2 GDHS (accepted when last in cluster, test-cluster2.dts)
+ *   0x41000044 L2 power collapse (stock pwr/perf-l2-fpc, power-down bit)
+ *   0x02002334 system retention (stock system-ret: affinity level 2,
+ *              system mode 0x23 at bit 8, clusters in GDHS)
+ * Not for normal use: in the flat layout every CPU asks for these and gets
+ * DENIED most of the time.
+ */
+
+#include "test-charger.dts"
+
+&{/cpus/idle-states} {
+	probe_gdhs: probe-gdhs {
+		compatible = "arm,idle-state";
+		arm,psci-suspend-param = <0x01000034>;
+		entry-latency-us = <200>;
+		exit-latency-us = <300>;
+		min-residency-us = <1000>;
+	};
+
+	probe_l2pc: probe-l2pc {
+		compatible = "arm,idle-state";
+		arm,psci-suspend-param = <0x41000044>;
+		entry-latency-us = <400>;
+		exit-latency-us = <800>;
+		min-residency-us = <3000>;
+		local-timer-stop;
+	};
+
+	probe_sysret: probe-sysret {
+		compatible = "arm,idle-state";
+		arm,psci-suspend-param = <0x02002334>;
+		entry-latency-us = <600>;
+		exit-latency-us = <1200>;
+		min-residency-us = <5000>;
+		local-timer-stop;
+	};
+};
+
+&cpu0 {
+	cpu-idle-states = <&cpu_sleep_0 &probe_gdhs &probe_l2pc &probe_sysret>;
+};
+
+&cpu1 {
+	cpu-idle-states = <&cpu_sleep_0 &probe_gdhs &probe_l2pc &probe_sysret>;
+};
+
+&cpu2 {
+	cpu-idle-states = <&cpu_sleep_0 &probe_gdhs &probe_l2pc &probe_sysret>;
+};
+
+&cpu3 {
+	cpu-idle-states = <&cpu_sleep_0 &probe_gdhs &probe_l2pc &probe_sysret>;
+};

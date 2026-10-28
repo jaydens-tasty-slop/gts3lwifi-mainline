@@ -1,6 +1,17 @@
 # CPU idle (PSCI)
 
-## Status (2026-10-28): stage 1 works
+## Status (2026-10-28): CPU, cluster and system idle work
+
+| Stage | What | Idle current at 4.3 V |
+|---|---|---|
+| none | WFI only (the old config) | about 200 mA |
+| 1 | CPU state 0x4 (msm8996.dtsi) | 172-176 mA |
+| 3 | + L2 GDHS per cluster, + system retention (OSI hierarchy, kernel patch 0018) | 133-136 mA |
+
+Stage 3 takes idle power down by about a third, 0.28 W. Stage 2 (CPU power
+collapse) is refused by the firmware.
+
+## Stage 1: CPU state
 
 The postmarketOS msm8996 kernel config had `# CONFIG_ARM_PSCI_CPUIDLE is not
 set`, so the cores never left WFI: `/sys/devices/system/cpu/cpu0/cpuidle`
@@ -90,9 +101,70 @@ OS decides as the last CPU of a cluster goes down: OSI mode.
   a Qualcomm hypervisor call (SMC 0xc4000021) instead of PSCI. Do not use
   this DT: a refused state makes the governor fall back to shallower
   states after every attempt.
-- Stage 3, not tried: cluster states with the hierarchical PSCI layout (CPU
-  and cluster power domains, OSI mode), as on sdm845 and later. Stock's
-  cluster levels are L2 GDHS (cluster mode 3) and L2 power collapse (mode 4
-  with the power-down bit), at bit 4 of the StateID with the affinity level
-  at bit 24. Given the answer to 0x40000004, the power-down variant is
-  likely refused too; L2 GDHS (no power-down bit) is the one worth trying.
+
+## Stage 3: cluster and system idle (OSI)
+
+Stock composes its StateIDs itself, the OSI way: power-down bit 30,
+affinity level at bit 24, system mode at bit 8, cluster mode at bit 4
+(1 L2 WFI, 3 L2 GDHS, 4 L2 power collapse), CPU mode at bit 0. Mainline does
+the same with the hierarchical layout: each CPU gets a PSCI power domain,
+parented to a cluster domain, parented to a system domain, and the last
+CPU going down requests the parameter of the highest domain that powers
+off.
+
+**The firmware is OSI from boot but refuses the mode switch.** It
+advertises OSI and answers NOT_SUPPORTED to SET_SUSPEND_MODE for both
+modes (`failed to set PC mode: -1` at boot, `failed to set OSI mode: -1`
+from the domain driver). Mainline then removes the CPU power domains, and
+cpuidle-psci cannot attach the CPUs: **no idle states at all**
+(`dts/test/test-cluster1.dts` on an unpatched kernel).
+
+Probing first, with the composite StateIDs as plain per-CPU states and
+the kretprobe on the return codes (`dts/test/test-cluster2.dts`,
+`test-cluster3.dts`; not for normal use):
+
+| StateID | Meaning | Answer |
+|---|---|---|
+| 0x01000034 | affinity 1, L2 GDHS, CPU mode 4 | granted when the other CPU of the cluster is down, DENIED otherwise |
+| 0x02002334 | affinity 2, system retention (0x23), L2 GDHS, CPU mode 4 | granted now and then (all four CPUs down), DENIED otherwise |
+| 0x41000044 | L2 power collapse, power-down bit | always DENIED: it needs the CPUs in a power-down state, which is refused |
+
+DENIED (not NOT_SUPPORTED) for the cluster IDs shows the firmware does
+the OSI last-man check itself.
+
+Kernel patch 0018 (`cpuidle: psci-domain: accept OSI-only firmware on
+MSM8996`) takes NOT_SUPPORTED from the OSI switch to mean "already OSI" on
+`qcom,apq8096`/`qcom,msm8996` machines. Other msm8996 devices are not
+affected unless their DT uses the hierarchical layout. With it and
+`dts/test/test-cluster1.dts` (CPU 0x4 -> cluster GDHS 0x01000034 -> system
+retention 0x02002334):
+
+```
+CPUidle PSCI: firmware is in OSI mode already
+CPUidle PSCI: Initialized CPU PM domain topology using OSI mode
+```
+
+In the first 80 s after boot the clusters spent 54-58 s in GDHS (3000-5300
+entries each) and the system 50 s in retention (2053 entries); the
+firmware refused a few hundred requests that raced with a CPU waking up.
+
+`tests/idlestress.sh` (15 minutes of load bursts, 10 ms wakeups and a
+module build) ran clean on this setup too. Over 20 minutes of uptime the
+clusters spent 568 and 721 s in GDHS (137,000 and 191,000 entries) and
+the system 408 s in retention (57,000 entries). One temperature sample
+during a four-core burst read 72 °C; all others stayed at or below 58 °C,
+as in the stage 1 run.
+
+Power, same method as stage 1 (cpuidle state 1 disabled at runtime turns
+the whole hierarchy off, as the domain states are entered through it):
+
+| | floor | average of 30 s |
+|---|---|---|
+| hierarchy on | 133-136 mA | 141-147 mA |
+| WFI only | 198-200 mA | 205-207 mA |
+
+Latencies are conservative (GDHS 200/300/1000 us, system retention
+400/700/3000 us; stock lists 90 and 350 us), so there may be a little
+more to gain. L2 power collapse and the system's deeper modes (stock
+"system-fpc", which also notifies the RPM) need the CPU power-down state
+that the firmware refuses.

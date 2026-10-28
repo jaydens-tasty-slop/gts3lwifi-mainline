@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 14:15:01 +0530
+Subject: [PATCH] cpuidle: psci-domain: accept OSI-only firmware on MSM8996
+
+The PSCI firmware on MSM8996 devices (seen on the Samsung Galaxy Tab S3)
+runs in OS-initiated mode from boot but does not implement
+SET_SUSPEND_MODE: it answers NOT_SUPPORTED for both PC and OSI, while
+PSCI_FEATURES(CPU_SUSPEND) reports OSI support. Composite StateIDs behave
+as OSI requires: L2 GDHS (0x01000034) and system retention (0x02002334)
+are granted to the last running CPU of a cluster or of the system and
+DENIED otherwise.
+
+psci_cpuidle_domain_probe() treats the failed mode switch as fatal and
+removes the CPU PM domains, after which cpuidle-psci cannot attach the
+CPUs and no idle states are left at all. On msm8996/apq8096 machines,
+take NOT_SUPPORTED from the OSI switch to mean the firmware is in OSI mode
+already.
+
+With a CPU -> cluster -> system domain hierarchy this brings the Tab S3's
+idle power from about 200 mA (WFI only) or 174 mA (CPU state only) down
+to about 135 mA at 4.3 V.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/cpuidle/cpuidle-psci-domain.c | 28 ++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/cpuidle/cpuidle-psci-domain.c b/drivers/cpuidle/cpuidle-psci-domain.c
+index 37c41209e..99fb93930 100644
+--- a/drivers/cpuidle/cpuidle-psci-domain.c
++++ b/drivers/cpuidle/cpuidle-psci-domain.c
+@@ -12,6 +12,7 @@
+ #include <linux/cpu.h>
+ #include <linux/device.h>
+ #include <linux/kernel.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
+@@ -127,6 +128,31 @@ static const struct of_device_id psci_of_match[] = {
+ 	{}
+ };
+ 
++/*
++ * MSM8996 firmware runs in OS-initiated mode from boot and does not implement
++ * SET_SUSPEND_MODE: it answers NOT_SUPPORTED for both modes, while
++ * PSCI_FEATURES reports OSI support and composite cluster StateIDs get DENIED
++ * unless the caller is the last running CPU of the cluster.
++ */
++static const char *const psci_osi_only_machines[] = {
++	"qcom,apq8096",
++	"qcom,msm8996",
++	NULL
++};
++
++static int psci_cpuidle_domain_set_osi_mode(bool use_osi)
++{
++	int ret = psci_set_osi_mode(use_osi);
++
++	if (ret == -EOPNOTSUPP && use_osi &&
++	    of_machine_compatible_match(psci_osi_only_machines)) {
++		pr_info("firmware is in OSI mode already\n");
++		return 0;
++	}
++
++	return ret;
++}
++
+ static int psci_cpuidle_domain_probe(struct platform_device *pdev)
+ {
+ 	struct device_node *np = pdev->dev.of_node;
+@@ -161,7 +187,7 @@ static int psci_cpuidle_domain_probe(struct platform_device *pdev)
+ 		goto remove_pd;
+ 
+ 	/* let's try to enable OSI. */
+-	ret = psci_set_osi_mode(use_osi);
++	ret = psci_cpuidle_domain_set_osi_mode(use_osi);
+ 	if (ret)
+ 		goto remove_pd;
+ 
+-- 
+2.53.0
+
