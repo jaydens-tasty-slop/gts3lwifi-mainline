@@ -42,6 +42,20 @@ properties:
       limit also follows the current the USB-C source allows (Type-C
       current or PD contract), whichever of the two is higher.
 
+  led:
+    type: object
+    $ref: /schemas/leds/common.yaml#
+    unevaluatedProperties: false
+    description:
+      The LED on the first flash LED output, used as a torch.
+
+    properties:
+      led-max-microamp:
+        minimum: 10000
+        maximum: 320000
+        multipleOf: 10000
+        default: 180000
+
 required:
   - compatible
   - reg
@@ -51,6 +65,7 @@ unevaluatedProperties: false
 examples:
   - |
     #include <dt-bindings/interrupt-controller/irq.h>
+    #include <dt-bindings/leds/common.h>
 
     i2c {
       #address-cells = <1>;
@@ -63,5 +78,11 @@ examples:
         monitored-battery = <&battery>;
         extcon = <&muic>;
         power-supplies = <&typec>;
+
+        led {
+          function = LED_FUNCTION_TORCH;
+          color = <LED_COLOR_ID_WHITE>;
+          led-max-microamp = <180000>;
+        };
       };
     };

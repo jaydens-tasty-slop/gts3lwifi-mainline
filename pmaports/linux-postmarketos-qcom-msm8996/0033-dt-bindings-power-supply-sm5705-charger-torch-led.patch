@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 22:32:49 +0530
+Subject: [PATCH] dt-bindings: power: supply: sm5705-charger: add the torch LED
+
+The SM5705 also drives up to two flash LEDs. Describe the one on its
+first output as a child LED node, for use as a torch.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../supply/siliconmitus,sm5705-charger.yaml   | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+index d49fa487a..305fadf04 100644
+--- a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
++++ b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+@@ -42,6 +42,20 @@ properties:
+       limit also follows the current the USB-C source allows (Type-C
+       current or PD contract), whichever of the two is higher.
+ 
++  led:
++    type: object
++    $ref: /schemas/leds/common.yaml#
++    unevaluatedProperties: false
++    description:
++      The LED on the first flash LED output, used as a torch.
++
++    properties:
++      led-max-microamp:
++        minimum: 10000
++        maximum: 320000
++        multipleOf: 10000
++        default: 180000
++
+ required:
+   - compatible
+   - reg
+@@ -51,6 +65,7 @@ unevaluatedProperties: false
+ examples:
+   - |
+     #include <dt-bindings/interrupt-controller/irq.h>
++    #include <dt-bindings/leds/common.h>
+ 
+     i2c {
+       #address-cells = <1>;
+@@ -63,5 +78,11 @@ examples:
+         monitored-battery = <&battery>;
+         extcon = <&muic>;
+         power-supplies = <&typec>;
++
++        led {
++          function = LED_FUNCTION_TORCH;
++          color = <LED_COLOR_ID_WHITE>;
++          led-max-microamp = <180000>;
++        };
+       };
+     };
+-- 
+2.53.0
+

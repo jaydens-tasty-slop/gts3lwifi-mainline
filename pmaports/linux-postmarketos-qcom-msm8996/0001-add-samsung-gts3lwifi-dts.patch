@@ -1,6 +1,6 @@
-From fe17c2dd8b8127a94562bc9b988e380926526e3d Mon Sep 17 00:00:00 2001
+From 52c59111c73ee452cc762a55c939cff8ae63e23d Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Wed, 28 Oct 2026 15:28:39 +0000
+Date: Wed, 28 Oct 2026 16:58:37 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
 Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
@@ -10,15 +10,15 @@ regulators, eMMC, dwc3 USB in peripheral mode, PS_HOLD restart, the
 Adreno 530 GPU (headless), QCA6174 Wi-Fi on PCIe and Bluetooth on UART,
 Venus, audio (ADSP + WCD9335 on SLIMbus, four RT5508 speaker amplifiers
 on two TDM buses), the SM5705 fuel gauge, charger and MUIC, the S2MM005
-USB Type-C/PD controller, and CPU, cluster and system idle (hierarchical
-PSCI, OSI).
+USB Type-C/PD controller, the rear flash LED as a torch, and CPU, cluster
+and system idle (hierarchical PSCI, OSI).
 
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1183 +++++++++++++++++
- 2 files changed, 1184 insertions(+)
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1195 +++++++++++++++++
+ 2 files changed, 1196 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -35,10 +35,10 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..8499a5d
+index 0000000..82b28fe
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,1183 @@
+@@ -0,0 +1,1195 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -70,6 +70,7 @@ index 0000000..8499a5d
 +
 +#include <dt-bindings/gpio/gpio.h>
 +#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/leds/common.h>
 +#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 +#include <dt-bindings/sound/qcom,q6afe.h>
 +#include <dt-bindings/sound/qcom,q6asm.h>
@@ -275,6 +276,17 @@ index 0000000..8499a5d
 +			monitored-battery = <&battery>;
 +			extcon = <&muic>;
 +			power-supplies = <&typec>;
++
++			/*
++			 * Rear camera flash on FLED1, as a torch over I2C. Stock
++			 * drives it through TLMM 11 (torch) / 12 (flash) instead;
++			 * they stay low. 180 mA is stock's camera torch current.
++			 */
++			led {
++				function = LED_FUNCTION_TORCH;
++				color = <LED_COLOR_ID_WHITE>;
++				led-max-microamp = <180000>;
++			};
 +		};
 +	};
 +

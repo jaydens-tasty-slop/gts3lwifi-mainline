@@ -69,8 +69,8 @@ regulators, eMMC, dwc3 USB in peripheral mode, PS_HOLD restart, the
 Adreno 530 GPU (headless), QCA6174 Wi-Fi on PCIe and Bluetooth on UART,
 Venus, audio (ADSP + WCD9335 on SLIMbus, four RT5508 speaker amplifiers
 on two TDM buses), the SM5705 fuel gauge, charger and MUIC, the S2MM005
-USB Type-C/PD controller, and CPU, cluster and system idle (hierarchical
-PSCI, OSI).
+USB Type-C/PD controller, the rear flash LED as a torch, and CPU, cluster
+and system idle (hierarchical PSCI, OSI).
 
 Signed-off-by: $NAME <$EMAIL>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

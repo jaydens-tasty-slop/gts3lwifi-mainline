@@ -1,0 +1,312 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 22:32:49 +0530
+Subject: [PATCH] power: supply: sm5705_charger: drive the flash LED as a torch
+
+The SM5705 drives the rear camera flash of the Galaxy Tab S3 on its first
+flash LED output. Register it as an LED from the "led" child node, in
+"movie mode" over I2C: brightness n is n * 10 mA, up to led-max-microamp
+(320 mA at most).
+
+The LED needs the charger's cooperation, so it lives in this driver.
+Following Samsung's operation mode table, the torch runs from VBUS while
+charging and from the battery through the flash boost otherwise; the
+mode follows VBUS and the temperature guard while the torch is on.
+Samsung's firmware never runs the LED from 9 V: refuse it with an AFC
+charger at 9 V, and switch it off when one appears. Turn it off at probe
+and shutdown, since the chip keeps its state across a reboot.
+
+The flash strobe (up to 1.2 A, timed) is left out; mainline has no
+camera driver for this tablet.
+
+Tested on a Samsung Galaxy Tab S3: 20, 90 and 180 mA on USB power and
+on battery (flash boost), and USB plugged in while lit (back to the
+charging mode, the LED stays on).
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/sm5705_charger.c | 146 ++++++++++++++++++++++++--
+ 1 file changed, 138 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index 5e7715391..c54dc2479 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -19,9 +19,11 @@
+ #include <linux/extcon.h>
+ #include <linux/i2c.h>
+ #include <linux/interrupt.h>
++#include <linux/leds.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/power_supply.h>
++#include <linux/property.h>
+ #include <linux/regmap.h>
+ 
+ #define SM5705_REG_INT1			0x00
+@@ -34,6 +36,8 @@
+ #define SM5705_REG_CHGCNTL2		0x10
+ #define SM5705_REG_CHGCNTL4		0x12
+ #define SM5705_REG_CHGCNTL5		0x13
++#define SM5705_REG_FLED1CNTL1		0x17
++#define SM5705_REG_FLED1CNTL4		0x1a
+ #define SM5705_REG_DEVICE_ID		0x37
+ 
+ /* STATUS1 / INT1 */
+@@ -53,6 +57,16 @@
+ #define SM5705_CNTL_MODE_MASK		GENMASK(2, 0)
+ #define SM5705_CNTL_MODE_CHG_OFF	4
+ #define SM5705_CNTL_MODE_CHG_ON		5
++#define SM5705_CNTL_MODE_FLASH_BOOST	6
++
++/* FLED1: the camera flash, used as a torch ("movie mode") over I2C */
++#define SM5705_FLEDEN_MASK		GENMASK(1, 0)
++#define SM5705_FLEDEN_OFF		0
++#define SM5705_FLEDEN_MOVIE		1
++#define SM5705_TORCH_MASK		GENMASK(4, 0)
++#define SM5705_TORCH_STEP_UA		10000	/* 10 mA + 10 mA steps */
++#define SM5705_TORCH_MAX_UA		320000
++#define SM5705_TORCH_DEFAULT_UA		180000	/* stock's camera torch */
+ 
+ #define SM5705_VBUSLIMIT_MASK		GENMASK(6, 0)
+ #define SM5705_FASTCHG_MASK		GENMASK(5, 0)
+@@ -115,6 +129,10 @@ struct sm5705_chg {
+ 	struct work_struct cable_work;
+ 	int usb_type;
+ 	bool fast;			/* a 15 W source is attached */
++	bool hv;			/* VBUS above 5 V (9 V AFC) */
++
++	struct led_classdev torch;
++	bool torch_on;
+ 
+ 	/* battery temperature guard */
+ 	struct mutex lock;
+@@ -425,7 +443,7 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+  * its Type-C current or PD contract, capped to what Samsung's firmware uses.
+  */
+ static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
+-				  bool *fast)
++				  bool *fast, bool *hv)
+ {
+ 	union power_supply_propval online, uv, ua, usb_type;
+ 	int limit;
+@@ -448,6 +466,7 @@ static int sm5705_chg_typec_limit(struct sm5705_chg *chg, int *type,
+ 	*type = usb_type.intval;
+ 	*fast = (uv.intval / 1000) * (limit / 1000) / 1000 >=
+ 		SM5705_FAST_SOURCE_MW;
++	*hv = uv.intval > SM5705_HV_MIN_UV;
+ 
+ 	return limit;
+ }
+@@ -457,12 +476,13 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 	struct sm5705_chg *chg = container_of(work, struct sm5705_chg,
+ 					      cable_work);
+ 	int type, limit = 0, typec_type, typec_limit;
+-	bool fast = false, typec_fast = false;
++	bool fast = false, typec_fast = false, hv = false, typec_hv = false;
+ 
+ 	if (extcon_get_state(chg->edev, EXTCON_CHG_USB_FAST) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+ 		limit = SM5705_FAST_INPUT_LIMIT_UA;
+ 		fast = true;
++		hv = true;
+ 	} else if (extcon_get_state(chg->edev, EXTCON_CHG_USB_DCP) > 0) {
+ 		type = POWER_SUPPLY_USB_TYPE_DCP;
+ 		limit = SM5705_DCP_INPUT_LIMIT_UA;
+@@ -477,11 +497,13 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 	}
+ 
+ 	/* a USB-C source may allow more than its BC1.2 type says */
+-	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast);
++	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast,
++					     &typec_hv);
+ 	if (typec_limit > limit) {
+ 		type = typec_type;
+ 		limit = typec_limit;
+ 		fast = typec_fast;
++		hv = typec_hv;
+ 	}
+ 
+ 	/* nothing attached: keep the limit for the next cable */
+@@ -492,13 +514,23 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 	chg->usb_type = type;
+ 
+ 	mutex_lock(&chg->lock);
++	chg->hv = hv;
++	if (hv && chg->torch_on) {
++		/* Samsung's firmware never runs the flash LED from 9 V */
++		regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
++				   SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
++		chg->torch_on = false;
++		chg->torch.brightness = LED_OFF;
++		dev_warn(chg->dev, "9 V charger: torch off\n");
++	}
+ 	if (fast != chg->fast) {
+ 		chg->fast = fast;
+-		sm5705_chg_apply_zone(chg);
+ 		dev_info(chg->dev, "%s source, charging at up to %d mA\n",
+ 			 fast ? "15 W" : "standard",
+ 			 (fast ? SM5705_FAST_CHARGE_UA : chg->cfg_current) / 1000);
+ 	}
++	/* also picks the mode for the torch with or without VBUS */
++	sm5705_chg_apply_zone(chg);
+ 	mutex_unlock(&chg->lock);
+ 
+ 	power_supply_changed(chg->psy);
+@@ -522,6 +554,14 @@ static const char * const sm5705_zone_names[] = {
+ 	[SM5705_ZONE_HOT] = "too hot, not charging",
+ };
+ 
++static bool sm5705_chg_vbus_ok(struct sm5705_chg *chg)
++{
++	unsigned int st;
++
++	return !regmap_read(chg->regmap, SM5705_REG_STATUS1, &st) &&
++	       (st & SM5705_VBUSPOK);
++}
++
+ /* Write the limits for the current zone; called with chg->lock held */
+ static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ {
+@@ -553,15 +593,25 @@ static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ 	if (current_ua > 0)
+ 		sm5705_chg_set_charge_current(chg, current_ua);
+ 
+-	/* only switch between charging on and off, leave other modes alone */
++	/* switch between charging on, off and flash boost; leave other modes */
+ 	if (regmap_read(chg->regmap, SM5705_REG_CNTL, &cntl))
+ 		return;
+ 	mode = cntl & SM5705_CNTL_MODE_MASK;
+-	if (mode != SM5705_CNTL_MODE_CHG_ON && mode != SM5705_CNTL_MODE_CHG_OFF)
++	if (mode != SM5705_CNTL_MODE_CHG_ON && mode != SM5705_CNTL_MODE_CHG_OFF &&
++	    mode != SM5705_CNTL_MODE_FLASH_BOOST)
+ 		return;
++
++	/*
++	 * Like Samsung's operation mode table: the torch runs from VBUS while
++	 * charging, otherwise from the battery through the flash boost.
++	 */
++	if (chg->torch_on && (!charge || !sm5705_chg_vbus_ok(chg)))
++		mode = SM5705_CNTL_MODE_FLASH_BOOST;
++	else
++		mode = charge ? SM5705_CNTL_MODE_CHG_ON : SM5705_CNTL_MODE_CHG_OFF;
++
+ 	regmap_update_bits(chg->regmap, SM5705_REG_CNTL, SM5705_CNTL_MODE_MASK,
+-			   charge ? SM5705_CNTL_MODE_CHG_ON :
+-				    SM5705_CNTL_MODE_CHG_OFF);
++			   mode);
+ }
+ 
+ static enum sm5705_temp_zone sm5705_chg_temp_zone(struct sm5705_chg *chg,
+@@ -675,6 +725,80 @@ static int sm5705_chg_apply_battery_info(struct sm5705_chg *chg)
+ 	return 0;
+ }
+ 
++/* brightness n is n * 10 mA */
++static int sm5705_torch_set(struct led_classdev *led,
++			    enum led_brightness brightness)
++{
++	struct sm5705_chg *chg = container_of(led, struct sm5705_chg, torch);
++	int ret;
++
++	guard(mutex)(&chg->lock);
++
++	if (!brightness) {
++		ret = regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
++					 SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
++		chg->torch_on = false;
++		sm5705_chg_apply_zone(chg);
++		return ret;
++	}
++
++	/* Samsung's firmware first brings an AFC charger back to 5 V */
++	if (chg->hv)
++		return -EBUSY;
++
++	ret = regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL4,
++				 SM5705_TORCH_MASK, brightness - 1);
++	if (ret)
++		return ret;
++
++	ret = regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
++				 SM5705_FLEDEN_MASK, SM5705_FLEDEN_MOVIE);
++	if (ret)
++		return ret;
++
++	chg->torch_on = true;
++	sm5705_chg_apply_zone(chg);
++
++	return 0;
++}
++
++static int sm5705_torch_register(struct sm5705_chg *chg)
++{
++	struct led_init_data init = { };
++	struct fwnode_handle *node;
++	u32 max_ua = SM5705_TORCH_DEFAULT_UA;
++	int ret;
++
++	node = device_get_named_child_node(chg->dev, "led");
++	if (!node)
++		return 0;
++
++	fwnode_property_read_u32(node, "led-max-microamp", &max_ua);
++	max_ua = clamp(max_ua, SM5705_TORCH_STEP_UA, SM5705_TORCH_MAX_UA);
++
++	/* off, whatever an earlier run left */
++	ret = regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
++				 SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
++	if (ret)
++		goto out;
++
++	chg->torch.max_brightness = max_ua / SM5705_TORCH_STEP_UA;
++	chg->torch.brightness_set_blocking = sm5705_torch_set;
++	init.fwnode = node;
++	ret = devm_led_classdev_register_ext(chg->dev, &chg->torch, &init);
++out:
++	fwnode_handle_put(node);
++	return ret;
++}
++
++static void sm5705_chg_shutdown(struct i2c_client *client)
++{
++	struct sm5705_chg *chg = i2c_get_clientdata(client);
++
++	regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
++			   SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
++}
++
+ static const struct regmap_config sm5705_chg_regmap_config = {
+ 	.reg_bits = 8,
+ 	.val_bits = 8,
+@@ -696,6 +820,7 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 	if (!chg)
+ 		return -ENOMEM;
+ 	chg->dev = dev;
++	i2c_set_clientdata(client, chg);
+ 	chg->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+ 	chg->temp_min = SM5705_TEMP_ALERT_MIN;
+ 	chg->temp_max = SM5705_TEMP_ALERT_MAX;
+@@ -775,6 +900,10 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 		return ret;
+ 	schedule_delayed_work(&chg->temp_work, 0);
+ 
++	ret = sm5705_torch_register(chg);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to register torch\n");
++
+ 	if (client->irq) {
+ 		/* clear what the bootloader left, then unmask our events */
+ 		ret = regmap_bulk_read(chg->regmap, SM5705_REG_INT1, ints,
+@@ -821,6 +950,7 @@ static struct i2c_driver sm5705_chg_driver = {
+ 		.of_match_table = sm5705_chg_of_match,
+ 	},
+ 	.probe = sm5705_chg_probe,
++	.shutdown = sm5705_chg_shutdown,
+ };
+ module_i2c_driver(sm5705_chg_driver);
+ 
+-- 
+2.53.0
+

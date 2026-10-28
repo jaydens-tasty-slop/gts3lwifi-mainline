@@ -249,6 +249,34 @@ never asks for more than 5 V either: its PD list is built from
 | State word 0x20 | byte 0 PD state (21 = sink ready, 17 = waiting for capabilities, 20 = transition), bit 24 attached, 25 source, 26 DFP, 27-28 Rp level (1 default, 2 1.5 A, 3 3 A), 31 firmware reset |
 | Commands | `01` clear interrupt; `aa` maps the firmware version to 0x08/0x09; `0f 06` automatic low power mode; `03 03 n` select capability n; `03 02 s` go to PD state s |
 
+## Flash LED (torch)
+
+Kernel patches 0033-0034, main DTS. The rear camera flash (under the
+camera) is on the SM5705's first flash LED output. The charger driver
+registers it as `/sys/class/leds/white:torch`: brightness n is n x 10 mA,
+0-18 (180 mA, stock's camera torch current; the output goes to 320 mA).
+
+```
+echo 9 | sudo tee /sys/class/leds/white:torch/brightness   # 90 mA
+echo 0 | sudo tee /sys/class/leds/white:torch/brightness
+```
+
+It runs in "movie mode" over I2C (FLED1CNTL1 0x17 bits 1:0 = 1, current in
+FLED1CNTL4 0x1a: 10 mA + 10 mA steps). Stock uses the external enable
+pins instead (TLMM 11 torch, 12 flash), which stay low. The LED needs the
+charger's operation mode, as in Samsung's table: with USB power the
+charger stays in charging mode (CNTL 0x05), on battery it switches to the
+flash boost (0x06, 4.5 V from FLEDCNTL6) while the torch is on, and back
+when USB power appears or the torch goes off.
+
+Samsung's firmware first brings a 9 V AFC charger back to 5 V; this driver
+refuses the torch on 9 V (`EBUSY`) and switches it off when 9 V appears.
+
+Tested: 20, 90 and 180 mA on USB power and on battery (battery current up
+by about 235 mA at 180 mA), and USB plugged in while lit (mode 0x06 ->
+0x05, LED stays on). The 1.2 A camera flash strobe is not used; mainline
+has no camera driver for this tablet.
+
 ## Fuel gauge registers
 
 All registers are 16 bit, read with an SMBus word read (low byte first).
@@ -344,6 +372,7 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
+- Torch on a 9 V AFC charger: ask the MUIC for 5 V first, like stock.
 - 9 V over PD (see above), and gating AFC on USB-C cables: the MUIC
   still tries AFC with a C-to-C PD charger, which fails harmlessly.
 - CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
