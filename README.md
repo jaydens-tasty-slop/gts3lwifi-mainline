@@ -32,6 +32,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, dts/test/test-bt.dts) |
 | Video codec (Venus) | decoding works and is bit-exact (H.264, VP8, VP9) with Samsung's firmware; H.264 encoding works via v4l2-ctl. Kernel patches 0008-0009 fix EOS and H.264 encoding on HFI v3. HEVC decode and GStreamer encoding still fail (docs/venus.md, dts/test/test-venus.dts) |
 | Thermal (TSENS) | works once enabled: the msm8996 kernel config had it off, so nothing throttled (docs/thermal.md) |
+| CPU idle | works once enabled: the msm8996 kernel config had `ARM_PSCI_CPUIDLE` off, so the cores never left WFI. The one mainline state (PSCI 0x4) passes a 15-minute stress test and cuts idle power by about 13 %. Samsung's firmware refuses the deeper power-collapse state 0x40000004 (docs/cpuidle.md) |
 | Audio | headphones and the main/sub mics work, through ALSA and PipeWire (ADSP + WCD9335 on SLIMbus; patches 0010-0011, UCM profile and WirePlumber config in the device package). Speakers not yet: 4 Richtek RT5508 amps, no mainline driver (docs/audio.md, dts/test/test-audio.dts) |
 | Battery (SM5705 fuel gauge) | works: percentage, voltage, current and temperature in sysfs and UPower. New driver, patches 0012-0013 (docs/battery.md, dts/test/test-battery.dts) |
 | Charger (SM5705) | works: USB power, charger type and charging state in sysfs and UPower, charge voltage set to Samsung's 4.30 V (without a driver the charger used 4.38 V), input current limit from the detected charger type (MUIC, BC1.2: PC port 500 mA, wall charger 1.8 A). New drivers, patches 0014-0017 (docs/battery.md, dts/test/test-charger.dts). Fast charging (AFC 9 V) and the flash LED not yet |
@@ -50,7 +51,7 @@ the tablet about 9 s into boot. The board DTS lists them in
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain
 - `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot, video, thermal, audio, battery and charger notes
+- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot, video, thermal, audio, battery, charger and CPU idle notes
 
 ## lk2nd
 

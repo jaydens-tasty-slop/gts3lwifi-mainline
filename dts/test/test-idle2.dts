@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * CPU idle test, stage 2: a deeper CPU state.
+ * Needs a kernel with CONFIG_ARM_PSCI_CPUIDLE=y.
+ *
+ * msm8996.dtsi has one state, PSCI 0x00000004 (CPU mode 4 without the
+ * power-down bit, so Linux keeps its context). Stock's deepest CPU level
+ * (msm8996-pm.dtsi "fpc", qcom,reset-level PC) requests the same mode with
+ * the power-down bit: 0x40000004, entered through cpu_suspend() with the
+ * context saved. Like msm8998's power-collapse states, it stops the local
+ * timer; msm8996 has the memory-mapped timer for broadcast.
+ *
+ * Latencies are deliberately conservative; stock lists 80 us.
+ *
+ * RESULT: Samsung's TrustZone answers PSCI NOT_SUPPORTED to 0x40000004
+ * (docs/cpuidle.md). Kept for reference; do not use.
+ */
+
+#include "test-charger.dts"
+
+&{/cpus/idle-states} {
+	cpu_sleep_1: cpu-sleep-1 {
+		compatible = "arm,idle-state";
+		idle-state-name = "power-collapse";
+		arm,psci-suspend-param = <0x40000004>;
+		entry-latency-us = <250>;
+		exit-latency-us = <500>;
+		min-residency-us = <2000>;
+		local-timer-stop;
+	};
+};
+
+&cpu0 {
+	cpu-idle-states = <&cpu_sleep_0 &cpu_sleep_1>;
+};
+
+&cpu1 {
+	cpu-idle-states = <&cpu_sleep_0 &cpu_sleep_1>;
+};
+
+&cpu2 {
+	cpu-idle-states = <&cpu_sleep_0 &cpu_sleep_1>;
+};
+
+&cpu3 {
+	cpu-idle-states = <&cpu_sleep_0 &cpu_sleep_1>;
+};
