@@ -75,3 +75,35 @@ msm-id 246, board-id 8/x) and `LK2ND_DTB=msm8996-samsung-gts3llte`:
 `LK2ND_DTB=msm8996-samsung-gts3llte scripts/pack-lk2nd-samsung.sh <t825-boot.img> lk2nd-gts3llte.img`
 (donor used: LineageOS 21 gts3llte boot.img). Built 2026-10-22, not yet
 tested on hardware. Checksums in `lk2nd/lk2nd-gts3llte.sha256`.
+
+## Installed pmOS behind lk2nd (2026-10-28)
+
+The 4 MiB lk2nd image is in the boot partition (mmcblk0p28, 76 MiB) and the
+pmOS boot.img sits behind it at offset 4 MiB, so the tablet boots pmOS
+without a PC. Written with lk2nd's fastboot:
+
+    fastboot flash boot boot.img
+
+Read back from Linux afterwards: the first 2375696 bytes still equal
+`lk2nd-gts3lwifi.img`, and the 23834624 bytes at 4 MiB equal the flashed
+image.
+
+Use the boot.img that the device itself generated (`/boot/boot.img`, copy it
+off with scp). `pmbootstrap flasher flash_kernel` flashes the boot.img from
+pmbootstrap's rootfs chroot, which is only refreshed by `pmbootstrap
+install`; after a `pmbootstrap sideload` it is out of date.
+
+After a kernel or deviceinfo update on the device, mkinitfs regenerates
+/boot/boot.img but the copy behind lk2nd stays old. Flash the new one again
+(fastboot as above, or from the running system):
+
+    sudo dd if=/boot/boot.img of=/dev/mmcblk0p28 bs=1M seek=4 conv=fsync
+
+To get to lk2nd's fastboot for test images: hold Volume Down while lk2nd
+starts, or, without touching the tablet, clear the stored image and reboot;
+lk2nd then finds nothing to boot and stays in fastboot:
+
+    sudo dd if=/dev/zero of=/dev/mmcblk0p28 bs=1M seek=4 count=1 conv=fsync
+
+`reboot bootloader` is not a reliable way back: the reset goes through
+Samsung's S-Boot first, which may treat that reason as Download mode.
