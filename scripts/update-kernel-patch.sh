@@ -67,8 +67,9 @@ tablet with PM8994 + PM8004 and eMMC storage, booted via lk2nd:
 reserved memory matching the Samsung firmware layout, PM8994 RPM
 regulators, eMMC, dwc3 USB in peripheral mode, PS_HOLD restart, the
 Adreno 530 GPU (headless), QCA6174 Wi-Fi on PCIe and Bluetooth on UART,
-Venus, audio (ADSP + WCD9335 on SLIMbus), the SM5705 fuel gauge, charger
-and MUIC, and CPU, cluster and system idle (hierarchical PSCI, OSI).
+Venus, audio (ADSP + WCD9335 on SLIMbus, four RT5508 speaker amplifiers
+on two TDM buses), the SM5705 fuel gauge, charger and MUIC, and CPU,
+cluster and system idle (hierarchical PSCI, OSI).
 
 Signed-off-by: $NAME <$EMAIL>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

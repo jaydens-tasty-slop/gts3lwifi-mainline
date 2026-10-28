@@ -709,8 +709,25 @@
  * WCD9335 on SLIMbus like apq8096-db820c: reset TLMM 74, one interrupt line
  * on TLMM 79, MCLK from PM8994 GPIO 15, all supplies PM8994 S4. Headphones
  * play through SLIMBUS_6_RX, the microphones record through SLIMBUS_0_TX;
- * the routing is in the UCM profile. The four speaker amplifiers (Richtek
- * RT5508 on I2S) have no driver yet.
+ * the routing is in the UCM profile.
+ *
+ * Speakers: four Richtek RT5508 amplifiers on BLSP1 QUP3 I2C (TLMM 47/48,
+ * downstream i2c_3). The bottom pair (0x36/0x37, USB end) is on the primary
+ * TDM bus (TLMM 65 SCK, 66 WS, 68 SD1), the top pair (0x34/0x35) on the
+ * quaternary one (TLMM 58 SCK, 59 WS, 61 SD1). Both run 4 slots of 16 bit
+ * at 48 kHz (3.072 MHz) with a long, inverted frame sync from the SoC and
+ * one bit of data delay, like stock. One stream feeds both buses (q6routing
+ * routes MultiMedia1 to both ports).
+ *
+ * Measured on hardware with the amplifiers' report register (SPKRPTSEL 3,
+ * the samples they receive): this ADSP fills a frame only with all 4 slots
+ * active, and without a slot mapping (which it rejects for a port alone in
+ * its group; stock never sends one) it places stream channels 32 bits
+ * apart: channel 0 in slot 0, channel 1 in slot 2. So every amplifier plays
+ * the first slot of a pair: pair 0 (slot 0) for the left channel, pair 1
+ * (slot 2) for the right. In landscape with the home button on the right
+ * (the keyboard cover's orientation) the top speakers are on the left: they
+ * play the left channel, the bottom ones the right.
  */
 &adsp_mem {
 	reg = <0x0 0x8ea00000 0x0 0x2500000>;
@@ -792,6 +809,10 @@
 	 * RX_BIAS) pull in MCLK, so a capture without a playback stream
 	 * records digital silence. Hang the mic biases on MCLK as well.
 	 */
+	pinctrl-0 = <&pri_tdm_clk_default>, <&pri_tdm_data_default>,
+		    <&quat_tdm_clk_default>, <&quat_tdm_data_default>;
+	pinctrl-names = "default";
+
 	audio-routing = "RX_BIAS", "MCLK",
 			"MIC BIAS1", "MCLK",
 			"MIC BIAS2", "MCLK",
@@ -851,6 +872,99 @@
 		codec {
 			sound-dai = <&wcd9335 AIF1_CAP>;
 		};
+	};
+
+	spk-bottom-dai-link {
+		link-name = "Speaker Bottom Playback";
+		cpu {
+			sound-dai = <&q6afedai PRIMARY_TDM_RX_0>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&spk_bottom1>, <&spk_bottom2>;
+		};
+	};
+
+	spk-top-dai-link {
+		link-name = "Speaker Top Playback";
+		cpu {
+			sound-dai = <&q6afedai QUATERNARY_TDM_RX_0>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&spk_top1>, <&spk_top2>;
+		};
+	};
+};
+
+&q6afedai {
+	dai@24 {
+		reg = <PRIMARY_TDM_RX_0>;
+		qcom,tdm-sync-mode = <1>;
+		qcom,tdm-sync-src = <1>;
+		qcom,tdm-data-out = <0>;
+		qcom,tdm-invert-sync = <1>;
+		qcom,tdm-data-delay = <1>;
+		qcom,tdm-data-align = <0>;
+	};
+
+	dai@72 {
+		reg = <QUATERNARY_TDM_RX_0>;
+		qcom,tdm-sync-mode = <1>;
+		qcom,tdm-sync-src = <1>;
+		qcom,tdm-data-out = <0>;
+		qcom,tdm-invert-sync = <1>;
+		qcom,tdm-data-delay = <1>;
+		qcom,tdm-data-align = <0>;
+	};
+};
+
+&blsp1_i2c3 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	spk_top2: amplifier@34 {
+		compatible = "richtek,rt5508";
+		reg = <0x34>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Top 2";
+		richtek,channel-select = <0>;
+		richtek,tdm-dac-slot = <0>;
+	};
+
+	spk_top1: amplifier@35 {
+		compatible = "richtek,rt5508";
+		reg = <0x35>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Top 1";
+		richtek,channel-select = <0>;
+		richtek,tdm-dac-slot = <0>;
+	};
+
+	spk_bottom2: amplifier@36 {
+		compatible = "richtek,rt5508";
+		reg = <0x36>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Bottom 2";
+		richtek,channel-select = <0>;
+		richtek,tdm-dac-slot = <1>;
+	};
+
+	spk_bottom1: amplifier@37 {
+		compatible = "richtek,rt5508";
+		reg = <0x37>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Bottom 1";
+		richtek,channel-select = <0>;
+		richtek,tdm-dac-slot = <1>;
 	};
 };
 
@@ -929,9 +1043,11 @@
 	 * Pins owned by Samsung's TrustZone. If Linux reads them, the firmware
 	 * resets the tablet about 9 s into boot (confirmed on hardware).
 	 *   25-28: BLSP1 QUP6 SPI, fingerprint sensor (downstream spi_6 / etspi)
-	 *   58-61: BLSP2 QUP4 SPI, embedded secure element (downstream ese_spi)
+	 * 58-61 (BLSP2 QUP4 SPI, the eSE SPI in the downstream pinctrl) are
+	 * free on the Wi-Fi model: stock comments its eSE node out, and they
+	 * carry the quaternary TDM bus to the top speakers.
 	 */
-	gpio-reserved-ranges = <25 4>, <58 4>;
+	gpio-reserved-ranges = <25 4>;
 
 	sm5705_i2c_default: sm5705-i2c-default-state {
 		pins = "gpio32", "gpio33";
@@ -953,6 +1069,34 @@
 		function = "gpio";
 		drive-strength = <8>;
 		bias-disable;
+	};
+
+	quat_tdm_clk_default: quat-tdm-clk-default-state {
+		pins = "gpio58", "gpio59";
+		function = "qua_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	quat_tdm_data_default: quat-tdm-data-default-state {
+		pins = "gpio61";
+		function = "qua_mi2s";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
+	pri_tdm_clk_default: pri-tdm-clk-default-state {
+		pins = "gpio65", "gpio66";
+		function = "pri_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	pri_tdm_data_default: pri-tdm-data-default-state {
+		pins = "gpio67", "gpio68";
+		function = "pri_mi2s";
+		drive-strength = <8>;
+		bias-pull-down;
 	};
 
 	cdc_reset_active: cdc-reset-active-state {

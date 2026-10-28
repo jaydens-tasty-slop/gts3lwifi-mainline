@@ -1,0 +1,239 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 19:20:09 +0530
+Subject: [PATCH] ASoC: qcom: q6routing: let one stream feed several ports
+
+A session keeps a single port_id, so enabling a second "<port> Audio
+Mixer MultiMediaN" switch silently replaces the first route: one stream
+can only reach one back end. Boards that split their speakers over two
+interfaces (the Galaxy Tab S3 has two amplifier pairs on two TDM buses)
+need the same stream on both.
+
+Keep a bitmap of ports per session. On stream open, open one COPP per
+port, each with that port's parameters, and map the stream to all of them
+in a single matrix command; close them all on stream close. The mixer
+controls set and clear bits instead of overwriting the port.
+
+Tested on a Samsung Galaxy Tab S3 (APQ8096): one MultiMedia1 stream
+routed to PRIMARY_TDM_RX_0 and QUAT_TDM_RX_0 plays on all four speakers;
+single routes and the headphone path behave as before.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sound/soc/qcom/qdsp6/q6routing.c | 109 ++++++++++++++++---------------
+ 1 file changed, 56 insertions(+), 53 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6routing.c b/sound/soc/qcom/qdsp6/q6routing.c
+index aaa3af9f1..d90230305 100644
+--- a/sound/soc/qcom/qdsp6/q6routing.c
++++ b/sound/soc/qcom/qdsp6/q6routing.c
+@@ -325,7 +325,8 @@
+ 
+ struct session_data {
+ 	int state;
+-	int port_id;
++	/* output (or input) ports of a stream, see the audio mixer controls */
++	DECLARE_BITMAP(port_map, AFE_MAX_PORTS);
+ 	int path_type;
+ 	int app_type;
+ 	int acdb_id;
+@@ -333,9 +334,9 @@ struct session_data {
+ 	int bits_per_sample;
+ 	int channels;
+ 	int perf_mode;
+-	int numcopps;
+ 	int fedai_id;
+-	unsigned long copp_map;
++	/* one COPP per port, on the port it was opened for */
++	int num_copps;
+ 	struct q6copp *copps[MAX_COPPS_PER_PORT];
+ };
+ 
+@@ -348,6 +349,15 @@ struct msm_routing_data {
+ 
+ static struct msm_routing_data *routing_data;
+ 
++static void q6routing_close_copps(struct session_data *session)
++{
++	int i;
++
++	for (i = 0; i < session->num_copps; i++)
++		q6adm_close(routing_data->dev, session->copps[i]);
++	session->num_copps = 0;
++}
++
+ /**
+  * q6routing_stream_open() - Register a new stream for route setup
+  *
+@@ -361,11 +371,10 @@ static struct msm_routing_data *routing_data;
+ int q6routing_stream_open(int fedai_id, int perf_mode,
+ 			   int stream_id, int stream_type)
+ {
+-	int j, topology, num_copps = 0;
+-	struct route_payload payload;
+-	struct q6copp *copp;
+-	int copp_idx;
++	struct route_payload payload = {};
+ 	struct session_data *session, *pdata;
++	struct q6copp *copp;
++	int port, ret = 0;
+ 
+ 	if (!routing_data) {
+ 		pr_err("Routing driver not yet ready\n");
+@@ -373,53 +382,57 @@ int q6routing_stream_open(int fedai_id, int perf_mode,
+ 	}
+ 
+ 	session = &routing_data->sessions[stream_id - 1];
+-	if (session->port_id < 0) {
++	if (bitmap_empty(session->port_map, AFE_MAX_PORTS)) {
+ 		dev_err(routing_data->dev, "Routing not setup for MultiMedia%d Session\n",
+ 			session->fedai_id);
+ 		return -EINVAL;
+ 	}
+ 
+-	pdata = &routing_data->port_data[session->port_id];
+-
+ 	mutex_lock(&routing_data->lock);
+ 	session->fedai_id = fedai_id;
+ 
+-	session->path_type = pdata->path_type;
+-	session->sample_rate = pdata->sample_rate;
+-	session->channels = pdata->channels;
+-	session->bits_per_sample = pdata->bits_per_sample;
+-
+-	payload.num_copps = 0; /* only RX needs to use payload */
+-	topology = NULL_COPP_TOPOLOGY;
+-	copp = q6adm_open(routing_data->dev, session->port_id,
+-			      session->path_type, session->sample_rate,
+-			      session->channels, topology, perf_mode,
+-			      session->bits_per_sample, 0, 0);
++	/* a stream may be opened again without a close in between */
++	q6routing_close_copps(session);
+ 
+-	if (IS_ERR_OR_NULL(copp)) {
+-		mutex_unlock(&routing_data->lock);
+-		return -EINVAL;
+-	}
++	/* one COPP for each port the stream is routed to */
++	for_each_set_bit(port, session->port_map, AFE_MAX_PORTS) {
++		if (session->num_copps == MAX_COPPS_PER_PORT) {
++			ret = -ENOSPC;
++			break;
++		}
+ 
+-	copp_idx = q6adm_get_copp_id(copp);
+-	set_bit(copp_idx, &session->copp_map);
+-	session->copps[copp_idx] = copp;
++		pdata = &routing_data->port_data[port];
++		session->path_type = pdata->path_type;
++		session->sample_rate = pdata->sample_rate;
++		session->channels = pdata->channels;
++		session->bits_per_sample = pdata->bits_per_sample;
++
++		copp = q6adm_open(routing_data->dev, port, pdata->path_type,
++				  pdata->sample_rate, pdata->channels,
++				  NULL_COPP_TOPOLOGY, perf_mode,
++				  pdata->bits_per_sample, 0, 0);
++		if (IS_ERR_OR_NULL(copp)) {
++			ret = -EINVAL;
++			break;
++		}
+ 
+-	for_each_set_bit(j, &session->copp_map, MAX_COPPS_PER_PORT) {
+-		payload.port_id[num_copps] = session->port_id;
+-		payload.copp_idx[num_copps] = j;
+-		num_copps++;
++		session->copps[session->num_copps] = copp;
++		payload.port_id[session->num_copps] = port;
++		payload.copp_idx[session->num_copps] = q6adm_get_copp_id(copp);
++		session->num_copps++;
+ 	}
+ 
+-	if (num_copps) {
+-		payload.num_copps = num_copps;
++	if (ret) {
++		q6routing_close_copps(session);
++	} else {
++		payload.num_copps = session->num_copps;
+ 		payload.session_id = stream_id;
+ 		q6adm_matrix_map(routing_data->dev, session->path_type,
+ 				 payload, perf_mode);
+ 	}
+ 	mutex_unlock(&routing_data->lock);
+ 
+-	return 0;
++	return ret;
+ }
+ EXPORT_SYMBOL_GPL(q6routing_stream_open);
+ 
+@@ -447,21 +460,15 @@ static struct session_data *get_session_from_id(struct msm_routing_data *data,
+ void q6routing_stream_close(int fedai_id, int stream_type)
+ {
+ 	struct session_data *session;
+-	int idx;
+ 
+ 	session = get_session_from_id(routing_data, fedai_id);
+ 	if (!session)
+ 		return;
+ 
+-	for_each_set_bit(idx, &session->copp_map, MAX_COPPS_PER_PORT) {
+-		if (session->copps[idx]) {
+-			q6adm_close(routing_data->dev, session->copps[idx]);
+-			session->copps[idx] = NULL;
+-		}
+-	}
+-
++	mutex_lock(&routing_data->lock);
++	q6routing_close_copps(session);
+ 	session->fedai_id = -1;
+-	session->copp_map = 0;
++	mutex_unlock(&routing_data->lock);
+ }
+ EXPORT_SYMBOL_GPL(q6routing_stream_close);
+ 
+@@ -476,10 +483,7 @@ static int msm_routing_get_audio_mixer(struct snd_kcontrol *kcontrol,
+ 	struct msm_routing_data *priv = dev_get_drvdata(c->dev);
+ 	struct session_data *session = &priv->sessions[session_id];
+ 
+-	if (session->port_id == mc->reg)
+-		ucontrol->value.integer.value[0] = 1;
+-	else
+-		ucontrol->value.integer.value[0] = 0;
++	ucontrol->value.integer.value[0] = test_bit(mc->reg, session->port_map);
+ 
+ 	return 0;
+ }
+@@ -497,17 +501,16 @@ static int msm_routing_put_audio_mixer(struct snd_kcontrol *kcontrol,
+ 	int session_id = mc->shift;
+ 	struct session_data *session = &data->sessions[session_id];
+ 
++	/* a stream can feed (or be fed by) several ports at once */
+ 	if (ucontrol->value.integer.value[0]) {
+-		if (session->port_id == be_id)
++		if (test_and_set_bit(be_id, session->port_map))
+ 			return 0;
+ 
+-		session->port_id = be_id;
+ 		snd_soc_dapm_mixer_update_power(dapm, kcontrol, 1, update);
+ 	} else {
+-		if (session->port_id == -1 || session->port_id != be_id)
++		if (!test_and_clear_bit(be_id, session->port_map))
+ 			return 0;
+ 
+-		session->port_id = -1;
+ 		snd_soc_dapm_mixer_update_power(dapm, kcontrol, 0, update);
+ 	}
+ 
+@@ -1096,7 +1099,7 @@ static int msm_routing_probe(struct snd_soc_component *c)
+ 	int i;
+ 
+ 	for (i = 0; i < MAX_SESSIONS; i++) {
+-		routing_data->sessions[i].port_id = -1;
++		bitmap_zero(routing_data->sessions[i].port_map, AFE_MAX_PORTS);
+ 		routing_data->sessions[i].fedai_id = -1;
+ 	}
+ 
+-- 
+2.53.0
+

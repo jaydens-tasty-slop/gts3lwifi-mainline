@@ -58,3 +58,53 @@
 +++ b/drivers/extcon/Makefile
 @@ (after EXTCON_SM5502) @@
 +obj-$(CONFIG_EXTCON_SM5705)	+= extcon-sm5705.o
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index 061791e61..de49edc69 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -241,6 +241,7 @@ config SND_SOC_ALL_CODECS
+ 	imply SND_SOC_RT1318
+ 	imply SND_SOC_RT1318_SDW
+ 	imply SND_SOC_RT1320_SDW
++	imply SND_SOC_RT5508
+ 	imply SND_SOC_RT9120
+ 	imply SND_SOC_RT9123
+ 	imply SND_SOC_RTQ9124
+@@ -1918,6 +1919,17 @@ config SND_SOC_RT715_SDCA_SDW
+ 	select REGMAP_SOUNDWIRE
+ 	select REGMAP_SOUNDWIRE_MBQ
+ 
++config SND_SOC_RT5508
++	tristate "Richtek RT5508 speaker amplifier"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Enable support for the Richtek RT5508 mono Class-D smart speaker
++	  amplifier with integrated boost converter, controlled over I2C.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called snd-soc-rt5508.
++
+ config SND_SOC_RT9120
+ 	tristate "Richtek RT9120 Stereo Class-D Amplifier"
+ 	depends on I2C
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index d687d4f74..d23aadf6e 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -279,6 +279,7 @@ snd-soc-rt715-y := rt715.o rt715-sdw.o
+ snd-soc-rt715-sdca-y := rt715-sdca.o rt715-sdca-sdw.o
+ snd-soc-rt721-sdca-y := rt721-sdca.o rt721-sdca-sdw.o
+ snd-soc-rt722-sdca-y := rt722-sdca.o rt722-sdca-sdw.o
++snd-soc-rt5508-y := rt5508.o
+ snd-soc-rt9120-y := rt9120.o
+ snd-soc-rt9123-y := rt9123.o
+ snd-soc-rt9123p-y := rt9123p.o
+@@ -712,6 +713,7 @@ obj-$(CONFIG_SND_SOC_RT715)     += snd-soc-rt715.o
+ obj-$(CONFIG_SND_SOC_RT715_SDCA_SDW)     += snd-soc-rt715-sdca.o
+ obj-$(CONFIG_SND_SOC_RT721_SDCA_SDW)     += snd-soc-rt721-sdca.o
+ obj-$(CONFIG_SND_SOC_RT722_SDCA_SDW)     += snd-soc-rt722-sdca.o
++obj-$(CONFIG_SND_SOC_RT5508)	+= snd-soc-rt5508.o
+ obj-$(CONFIG_SND_SOC_RT9120)	+= snd-soc-rt9120.o
+ obj-$(CONFIG_SND_SOC_RT9123)	+= snd-soc-rt9123.o
+ obj-$(CONFIG_SND_SOC_RT9123P)	+= snd-soc-rt9123p.o

@@ -3,7 +3,7 @@ maintainer="psigod <psigod@example.com>"
 pkgname=device-samsung-gts3lwifi
 pkgdesc="Samsung Galaxy Tab S3 (Wi-Fi)"
 pkgver=1
-pkgrel=2
+pkgrel=3
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -61,5 +61,5 @@ f53aa7ee30d67e56932d1ff328fa8bc31a90dbbcb9d1cf9bc0856a315fc5f88404913df90893e09f
 e084e50c5fea8607b9dd9d9f7d36112883a6fa089b24b8bb760d6367f5a222d00930fb182cb7b970d8b1d31dc71dcf94ac65252b4028d729cc095d947b4b306b  90-gts3-bdaddr.rules
 2dd2b980cc320bc22f6e53a035c8a68390ef40bd13bca5e2c248d974b705ed5b3c68e59f3e398f89553a4551af67fc6f46748fb63354421163d77d207ff7147e  51-gts3lwifi-audio.conf
 1e4ce6c102487fb79b13ee3a62c7801bee9eb135992b93a5b1b8af4bba325eaa1527e0d2cc588a976c0956be652d4c579036237684ec5a4d209b37b5c5c188e7  ucm2-gts3lwifi.conf
-336d4837e4c5c82d337433098f2c99afdf2c7e4df74944178bf1041ae251abe0f1c234e3191b4e5f0831cef72e14069e8aba29047396964acb15f7b8a0465318  ucm2-gts3lwifi-HiFi.conf
+59bb42267ab9b472904c08a6600ca5296cc1f8c103a3fcce5398470686fee62a7dcf0c6fc44993424eb4ae5f71ac3853058b86611f337ac1e1e57a7b4a302369  ucm2-gts3lwifi-HiFi.conf
 "

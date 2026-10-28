@@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
 _flavor="postmarketos-qcom-msm8996"
 pkgname=linux-$_flavor
 pkgver=6.19.5
-pkgrel=4
+pkgrel=5
 pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
 arch="aarch64"
 _carch="arm64"
@@ -53,6 +53,12 @@ source="
 	0019-extcon-sm5705-afc-qc20.patch
 	0020-power-supply-sm5705-charger-fast-charger-limit.patch
 	0021-power-supply-sm5705-charger-temperature-guard.patch
+	0022-asoc-qcom-q6afe-tdm-frame-control.patch
+	0023-asoc-qcom-q6afe-tdm-slot-mapping-only-with-channel-map.patch
+	0024-asoc-dt-bindings-richtek-rt5508.patch
+	0025-asoc-codecs-rt5508-driver.patch
+	0026-asoc-qcom-q6routing-stream-to-several-ports.patch
+	0027-asoc-qcom-apq8096-tdm-back-ends.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -83,8 +89,8 @@ package() {
 }
 sha512sums="
 dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
-c7f0871cbabee9b212e6914106cb6c547b5592a380413ec4b99de95906eadaa68a047f4aec8d29403eeed3dca4bda62aa535ba2fce2a12bd6a083fa6479da97f  config-postmarketos-qcom-msm8996.aarch64
-c1e25ef9ac860b3b56cf9d1893ec0ed04f7bb492ee12233887aaf0f5067dd34fb00df6fc2d8fe1980c0a0518be7d17339c1bc9bac04b98a036192203c6d24667  0001-add-samsung-gts3lwifi-dts.patch
+5dd29ce3890c5a3e36c52aa13cdad1993fd28dbf627c6f848356c47357fad7f8495656f93000249e00baaff947ee1b23e060682e5eab505cc0a8d17da1623835  config-postmarketos-qcom-msm8996.aarch64
+2bb21145a5723884c8881374ffc61392b465be4eabec27895d97b1958f69b36b477d19c6db3a76c6b5d708aaa44e4655d48700985e877e9951af827761af63bc  0001-add-samsung-gts3lwifi-dts.patch
 feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
 71cef6df692ccaeb8575bce830b32bbf4c11debdda209b7ac3f7a19dee9395f88d0981f46b72534d1d9a2f3cd742e721167afaff91ed7b0ce92c5b481ce05787  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 81ef96ef5e975c6c7b1249ea37b02f8a69154a399cd1426f234a0e44a8f5e4e9357da99dcd64629da0c7922678c0bb3e42dc8b05e53a72449dc8328c7c3655cb  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
@@ -105,4 +111,10 @@ de38a04d308c26f42201222ae0792ccdb45755b3c5d1f64e13c123454af2f836bfad2ce2f3db00fb
 e843ebadc75545e6b32e0321f9d2d0171bb02ad297b1e6c1aff556fa2d4e4bac1221729e754a43e0e6c174d78b6882f346fdcbb9eda803cbf819c3b11274cfb5  0019-extcon-sm5705-afc-qc20.patch
 a204bd70aea0cd94930d49be7c1b3c1474ebc4ad7f14e095caa60bc04676fcdd6b4122920bf9bc999460c5c2ef2d37c60289033a45558f80bc7f0281e37cc30a  0020-power-supply-sm5705-charger-fast-charger-limit.patch
 da3d1a02a46171fcf868efb1b33d020ee8e4e7f82d30245793159bb77fcef0458cff16b82d2964891ce63cf7ec3c0c23479193798b4007b9bc3b64a6bdcd97d3  0021-power-supply-sm5705-charger-temperature-guard.patch
+67b8cfc1d2185364cbdecea53b466873e3d85be99a977ad5080fc0a4587122e0363c4fa9e690d13cd1c09f5e4475394573b91bd68a93492849b5964e8a7e82e2  0022-asoc-qcom-q6afe-tdm-frame-control.patch
+bc7f8db12a79d479bd5c7a584f7c451872d682c08ac88f6d77221125578ae6f1679eb23a7badfbf674d7a6a6a6ce8f9da6b22c5184a6e9667064fd6d5f1b1ffa  0023-asoc-qcom-q6afe-tdm-slot-mapping-only-with-channel-map.patch
+64a3f40ac71fc383a53046c964333aa9ef73529e99e094b11b56a548d7eaaf3b3ed6a03841694a4564f1abf67b5158d10185b2aa3a143dab61e075ed7f8e900e  0024-asoc-dt-bindings-richtek-rt5508.patch
+3bb455d1b09a8897cd9f0d4a03954f35c401d022e6d12456da03939777234d1725785fa28ed782fe3e9035de48f6bbf9344446afe516a0dc2fdaa51860a433f9  0025-asoc-codecs-rt5508-driver.patch
+71bb853ca2d0ab4b49d453ade2385a0bc5e14338039951b8072d5bde75b00446b5bb1773e57efe7f448d61760ad1ebac1f23ca64392a9edef7b11cc4d9bfc5a5  0026-asoc-qcom-q6routing-stream-to-several-ports.patch
+b52451aef1f28f3ae334def1bcb3cf2787cfb4a19b7f95b8b500bb2abe08c6c1f050bbf580f2b2cdf8b4bd4c869c3fd8add3e022432cff56fbbfb060ff4049a2  0027-asoc-qcom-apq8096-tdm-back-ends.patch
 "
