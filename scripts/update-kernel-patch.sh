@@ -98,6 +98,23 @@ if patch not in m.group(1):
 m = block("sha512sums")
 lines = [l for l in m.group(1).splitlines() if l and not l.endswith("  " + patch)]
 lines.append(f"{digest}  {patch}")
+
+# abuild 3.18 pairs checksums with sources by position, so keep the
+# checksums in source order.
+names = []
+for src in re.search(r'^source="\n(.*?)\n\s*"', s, re.S | re.M).group(1).split():
+    src = src.split("::")[0]
+    for var in ("_tag", "_flavor", "arch", "CARCH", "pkgver"):
+        v = re.search(rf'^{var}="?([^"\n]*)"?$', s, re.M)
+        if v:
+            src = src.replace("$" + var, v.group(1)).replace("${" + var + "}", v.group(1))
+    pv = re.search(r'^pkgver=(.*)$', s, re.M).group(1)
+    src = src.replace("${pkgver//_/-}", pv.replace("_", "-"))
+    names.append(src)
+by_name = {l.split("  ", 1)[1]: l for l in lines}
+if set(by_name) != set(names):
+    sys.exit(f"source and sha512sums lists differ: {set(by_name) ^ set(names)}")
+lines = [by_name[n] for n in names]
 s = s[:m.start(1)] + "\n".join(lines) + "\n" + s[m.end(1):]
 
 # Must stay newer than the binary repository's 6.19.5-r0, otherwise
