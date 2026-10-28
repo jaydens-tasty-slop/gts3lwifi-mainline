@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Wed, 28 Oct 2026 11:40:44 +0530
+Subject: [PATCH] ASoC: qcom: apq8096: pin the back end format to S16_LE
+
+apq8096_be_hw_params_fixup() fixes the back end rate and channel count
+but passes the front end sample format through. PipeWire opens the
+front ends with S24_LE, and the ADSP then refuses to start the SLIMbus
+AFE port:
+
+  qcom-q6afe aprsvc:service:4:4: AFE enable for port 0x4001 failed -22
+  q6afe-dai ...: fail to start AFE port 3
+
+Only S16_LE works on these SLIMbus ports, so set it in the fixup, like
+sdm845.c and sm8250.c do. The ASM front ends still accept other formats.
+
+Tested on a Samsung Galaxy Tab S3 (APQ8096, WCD9335): headphone playback
+and microphone capture through PipeWire.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sound/soc/qcom/apq8096.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/sound/soc/qcom/apq8096.c b/sound/soc/qcom/apq8096.c
+index 4f6594cc7..36038a66f 100644
+--- a/sound/soc/qcom/apq8096.c
++++ b/sound/soc/qcom/apq8096.c
+@@ -7,6 +7,7 @@
+ #include <sound/soc.h>
+ #include <sound/soc-dapm.h>
+ #include <sound/pcm.h>
++#include <sound/pcm_params.h>
+ #include "common.h"
+ 
+ #define SLIM_MAX_TX_PORTS 16
+@@ -20,9 +21,12 @@ static int apq8096_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+ 					SNDRV_PCM_HW_PARAM_RATE);
+ 	struct snd_interval *channels = hw_param_interval(params,
+ 					SNDRV_PCM_HW_PARAM_CHANNELS);
++	struct snd_mask *fmt = hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT);
+ 
+ 	rate->min = rate->max = 48000;
+ 	channels->min = channels->max = 2;
++	snd_mask_none(fmt);
++	snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S16_LE);
+ 
+ 	return 0;
+ }

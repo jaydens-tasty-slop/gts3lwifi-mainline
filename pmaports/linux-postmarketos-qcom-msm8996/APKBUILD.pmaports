@@ -41,6 +41,8 @@ source="
 	0007-drm-msm-debugfs-dsi-tpg.patch
 	0008-media-venus-hfi_cmds-h264-8x8-transform-on-hfi-v3.patch
 	0009-media-venus-eos-on-real-buffer-hfi-v3.patch
+	0010-asoc-qcom-apq8096-be-format-s16le.patch
+	0011-asoc-qcom-q6asm-dai-close-stopped-stream-on-prepare.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -81,4 +83,6 @@ eed0221de32466659846ca8d909f70fc7b72758bf1f09c8ebc495cba304d5fe94b6b62685bd70b46
 5ae32acc4c8ea980bef03d837f2ab0b77241bcfc74239bebdffbd24e76922991866993cd4fe61bfaa094b55325c5c0af50d99485718b251b6774778c96ec9828  config-postmarketos-qcom-msm8996.aarch64
 dbc052ee86fdc581fbb3e08557b92a457d5c8a3f30a1b93fb30af80fb903d5f2330d9a59e9e9f4bf3e56544b1601c5b9e186b2050e488b6e8f8c1fbf810f50b0  0008-media-venus-hfi_cmds-h264-8x8-transform-on-hfi-v3.patch
 52c63bcfcd2e21d34a45e25b4caa2ebd7cd9b2617c7d2bb366c3846d0de2f8ddc1be81540345379c8a1d8a62926f76a0d653a2e9fe104e3ffd5c6ed87db0276d  0009-media-venus-eos-on-real-buffer-hfi-v3.patch
+2928e34a1b177273053858e3a58abbb986bba4c76095cc0862ae4aa8ae40993c466b0f3bf2c2487a01fd42eb76fbe1dd9c40037d82278521f1d29e9768cd74ec  0010-asoc-qcom-apq8096-be-format-s16le.patch
+ef02bd500870b8dcc39c0f5d2b7bf334f04ff1053aeca183612aa7930c549102c583e3bd0490cb4962d95f11e688013590f5a0050e6060d92e9511dbc17d7a3b  0011-asoc-qcom-q6asm-dai-close-stopped-stream-on-prepare.patch
 "
