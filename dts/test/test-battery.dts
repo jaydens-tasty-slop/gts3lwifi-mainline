@@ -1,37 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Battery test: SM5705 fuel gauge (I2C 0x71).
- * Stock puts it on an i2c-gpio bus on TLMM 6 (SDA) / 7 (SCL), which are the
- * BLSP2 QUP2 (blsp_i2c8) I2C pins, so use the hardware controller instead.
- * Fuel gauge alert: PM8994 GPIO 1 (stock fuelgauge,fuel_int), unused: the
- * driver polls.
- *
- * Battery EB-BT825ABE: 6000 mAh, 3.85 V, 23.1 Wh. Stock charges to 4.30 V
- * (battery,chg_float_voltage) and powers off around 3.4 V
- * (battery0,tem_poff 3380 mV).
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-28. This file only
+ * keeps the include chain working; the original test is in the git history
+ * of github.com/wh1ter0z3/gts3lwifi-mainline (dts/test/test-battery.dts).
  */
 
 #include "test-audio.dts"
-
-/ {
-	battery: battery {
-		compatible = "simple-battery";
-		device-chemistry = "lithium-ion";
-		charge-full-design-microamp-hours = <6000000>;
-		energy-full-design-microwatt-hours = <23100000>;
-		voltage-min-design-microvolt = <3400000>;
-		voltage-max-design-microvolt = <4300000>;
-		constant-charge-voltage-max-microvolt = <4300000>;
-	};
-};
-
-&blsp2_i2c2 {
-	clock-frequency = <100000>;
-	status = "okay";
-
-	fuel-gauge@71 {
-		compatible = "siliconmitus,sm5705-fuel-gauge";
-		reg = <0x71>;
-		monitored-battery = <&battery>;
-	};
-};

@@ -62,14 +62,16 @@ git add -A
 git -c commit.gpgsign=false commit -q -F - <<MSG
 arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
 
-Minimal bring-up device tree for the Samsung Galaxy Tab S3 Wi-Fi
-(SM-T820), an APQ8096 tablet with PM8994 + PM8004 and eMMC storage:
+Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
+tablet with PM8994 + PM8004 and eMMC storage, booted via lk2nd:
 reserved memory matching the Samsung firmware layout, PM8994 RPM
-regulators, eMMC on SDHC1 and dwc3 USB in peripheral mode. Booted via
-lk2nd.
+regulators, eMMC, dwc3 USB in peripheral mode, PS_HOLD restart, the
+Adreno 530 GPU (headless), QCA6174 Wi-Fi on PCIe and Bluetooth on UART,
+Venus, audio (ADSP + WCD9335 on SLIMbus), the SM5705 fuel gauge, charger
+and MUIC, and CPU, cluster and system idle (hierarchical PSCI, OSI).
 
 Signed-off-by: $NAME <$EMAIL>
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 MSG
 git format-patch -1 --stdout --no-signature > "$work/$PATCH"
 git checkout -q HEAD~1

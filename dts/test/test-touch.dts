@@ -3,16 +3,7 @@
 
 /* Test: Synaptics S5807 (RMI4) touchscreen on BLSP2 I2C3, on top of the display test. */
 
-&rpm_requests {
-	regulators-0 {
-		/* touch controller analog supply (downstream tsp_avdd) */
-		vreg_l18a_3p3: l18 {
-			regulator-name = "vreg_l18a_3p3";
-			regulator-min-microvolt = <3300000>;
-			regulator-max-microvolt = <3300000>;
-		};
-	};
-};
+/* vreg_l18a_3p3 (touch analog supply, downstream tsp_avdd) is in the main DTS. */
 
 &blsp2_i2c3 {
 	status = "okay";

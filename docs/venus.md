@@ -2,7 +2,7 @@
 
 ## Status (2026-10-28)
 
-With `dts/test/test-venus.dts` and kernel patches 0008 and 0009:
+With `dts/test/test-venus.dts` (merged into the main DTS on 2026-10-28) and kernel patches 0008 and 0009:
 
 - **Decoding works and is bit-exact.** H.264 (High, with B-frames), VP8 and
   VP9 at 720p decode to the last frame, byte-identical to ffmpeg's software

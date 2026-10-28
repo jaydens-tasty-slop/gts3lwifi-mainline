@@ -7,19 +7,32 @@
  * Internal storage: eMMC on SDHC1 (cmdline: androidboot.bootdevice=7464900.sdhci).
  *   UFS silicon is present but unpopulated; ufshc/ufsphy stay disabled.
  *
- * Minimal bring-up skeleton: reserved memory, PM8994 RPM rails, eMMC rootfs,
- * dwc3 USB in peripheral mode. Panel, touch, sensors, charger, audio,
- * Wi-Fi/BT and S-Pen are intentionally absent.
+ * Working: eMMC, USB peripheral, reboot, GPU (headless, boot with
+ * msm.separate_gpu_kms=1), Wi-Fi and Bluetooth (QCA6174), Venus, audio
+ * (ADSP + WCD9335: headphones and microphones), SM5705 fuel gauge, charger
+ * and MUIC, CPU/cluster/system idle. The panel, touch, speakers, sensors and
+ * S-Pen are not here yet; the panel and touch have test DTs.
+ *
+ * GPU zap shader, Venus and ADSP firmware are Samsung-signed and come from
+ * the device (apnhlos and modem partitions), under
+ * qcom/apq8096/samsung/gts3lwifi/.
  *
  * Sources (all cross-checked against the live DTB with phandles resolved):
  *   downstream arch/arm64/boot/dts/samsung/msm8996-sec-gts3lwifi-r05.dts{,i}
  *   downstream arch/arm64/boot/dts/samsung/msm8996-pinctrl-sec-gts3lwifi-r05.dtsi
  *   downstream arch/arm64/boot/dts/samsung/msm8996-sec-common.dtsi
+ *   downstream arch/arm64/boot/dts/samsung/msm8996-sm5705.dtsi
+ *   downstream arch/arm64/boot/dts/qcom/msm8996-pm.dtsi (idle StateIDs)
  */
 
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
+#include <dt-bindings/sound/qcom,wcd9335.h>
 #include "msm8996.dtsi"
 #include "pm8994.dtsi"
 #include "pm8004.dtsi"
@@ -90,10 +103,12 @@
 
 		/*
 		 * Tail of the downstream peripheral_region@8f400000
-		 * (0x8f400000-0x92500000) not covered by msm8996.dtsi.
+		 * (0x8f400000-0x92500000) not covered by msm8996.dtsi. adsp_mem
+		 * is grown and slpi_mem moved into 0x91700000-0x92100000 below,
+		 * so only the last 4 MiB are left.
 		 */
-		memory@91700000 {
-			reg = <0x0 0x91700000 0x0 0xe00000>;
+		memory@92100000 {
+			reg = <0x0 0x92100000 0x0 0x400000>;
 			no-map;
 		};
 
@@ -121,6 +136,128 @@
 			reg = <0x0 0xfec00000 0x0 0x1400000>;
 			no-map;
 		};
+	};
+
+	/*
+	 * EB-BT825ABE, 6000 mAh, 3.85 V. Stock charges to 4.30 V
+	 * (battery,chg_float_voltage), tops off at 300 mA and powers off
+	 * around 3.4 V (battery0,tem_poff).
+	 */
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion";
+		charge-full-design-microamp-hours = <6000000>;
+		energy-full-design-microwatt-hours = <23100000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4300000>;
+		constant-charge-voltage-max-microvolt = <4300000>;
+		charge-term-current-microamp = <300000>;
+	};
+
+	/* WCD9335 MCLK, 9.6 MHz: RPM div_clk1 out on PM8994 GPIO 15 */
+	div1_mclk: divclk1 {
+		compatible = "gpio-gate-clock";
+		clocks = <&rpmcc RPM_SMD_DIV_CLK1>;
+		#clock-cells = <0>;
+		enable-gpios = <&pm8994_gpios 15 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&audio_mclk_default>;
+	};
+
+	/*
+	 * Cluster and system idle, used through the PSCI power domains
+	 * below. The firmware composes StateIDs the OSI way, like the
+	 * downstream lpm-levels: power-down bit 30, affinity level at bit
+	 * 24, system mode at bit 8, cluster mode at bit 4, CPU mode at bit 0.
+	 * It grants L2 GDHS and system retention to the last CPU going down,
+	 * with the CPUs in mode 4 without the power-down bit. It refuses the
+	 * CPU power-down state (0x40000004, NOT_SUPPORTED), and with it L2
+	 * power collapse (0x41000044, always DENIED). Latencies are on the
+	 * safe side; downstream lists 90 and 350 us.
+	 */
+	domain-idle-states {
+		cluster_gdhs: cluster-gdhs {
+			compatible = "domain-idle-state";
+			arm,psci-suspend-param = <0x01000034>;
+			entry-latency-us = <200>;
+			exit-latency-us = <300>;
+			min-residency-us = <1000>;
+		};
+
+		system_ret: system-ret {
+			compatible = "domain-idle-state";
+			arm,psci-suspend-param = <0x02002334>;
+			entry-latency-us = <400>;
+			exit-latency-us = <700>;
+			min-residency-us = <3000>;
+		};
+	};
+
+	/*
+	 * SM5705 charger and MUIC. Downstream bit-bangs this bus on TLMM 33
+	 * (SDA) / 32 (SCL), which are HDMI DDC pins, not a BLSP pair. The
+	 * fuel gauge of the same chip is on its own bus, see &blsp2_i2c2.
+	 */
+	i2c-sm5705 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&tlmm 33 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&tlmm 32 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sm5705_i2c_default>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		/* USB charger type (BC1.2) */
+		muic: extcon@25 {
+			compatible = "siliconmitus,sm5705-muic";
+			reg = <0x25>;
+			interrupts-extended = <&pm8994_gpios 4 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&muic_int_default>;
+		};
+
+		/*
+		 * Charger and flash LED. Charging enable is PM8994 GPIO 13,
+		 * active low; the bootloader leaves it low. Without a driver
+		 * the charger keeps a 4.38 V charge voltage; the driver applies
+		 * the battery's 4.30 V.
+		 */
+		charger: charger@49 {
+			compatible = "siliconmitus,sm5705-charger";
+			reg = <0x49>;
+			interrupts-extended = <&tlmm 38 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&charger_int_default>;
+			monitored-battery = <&battery>;
+			extcon = <&muic>;
+		};
+	};
+
+	/*
+	 * Restart. Samsung's TrustZone never returns from PSCI SYSTEM_RESET:
+	 * the CPU stays stuck in the call, and about a minute later a secure
+	 * watchdog leaves the tablet in a state that needs a forced restart.
+	 * The vendor kernel never uses PSCI for this; it drops PS_HOLD
+	 * (MPM2 PS_HOLD, 0x004ab000 bit 0, writable from Linux) and the PMIC
+	 * resets. syscon-reboot does the same and, at its default priority
+	 * (192), runs before the PSCI handler (129). pm8941-pwrkey programs
+	 * the PMIC PS_HOLD reset type (hard reset) on a normal reboot.
+	 */
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&pshold>;
+		offset = <0x0>;
+		mask = <0x1>;
+		value = <0x0>;
+	};
+
+	/* QCA6174 sleep clock: PM8994 GPIO 18 function 2, see &pm8994_gpios */
+	rome_sleep_clk: rome-sleep-clk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32768>;
+		clock-output-names = "rome_sleep_clk";
 	};
 
 	/* Battery / charger system rail, root of every PM8994 supply below */
@@ -163,21 +300,46 @@
 	};
 
 	/*
-	 * Restart. Samsung's TrustZone never returns from PSCI SYSTEM_RESET:
-	 * the CPU stays stuck in the call, and about a minute later a secure
-	 * watchdog leaves the tablet in a state that needs a forced restart.
-	 * The vendor kernel never uses PSCI for this; it drops PS_HOLD
-	 * (MPM2 PS_HOLD, 0x004ab000 bit 0, writable from Linux) and the PMIC
-	 * resets. syscon-reboot does the same and, at its default priority
-	 * (192), runs before the PSCI handler (129). pm8941-pwrkey programs
-	 * the PMIC PS_HOLD reset type (hard reset) on a normal reboot.
+	 * QCA6174 ("Rome") Wi-Fi/BT power, from the downstream qcom,cnss
+	 * node (cnss_wlan_en_vreg / rome_vreg), wired like the Xiaomi MSM8996
+	 * boards: PM8994 GPIO 9 enables the 3.3 V supply, GPIO 8 is WLAN_EN.
+	 *
+	 * BT_EN (PM8994 GPIO 19) must be low while the 3.3 V rail comes up.
+	 * The bootloader leaves it high; if the rail rises like that, Rome
+	 * turns on its PCIe receiver after PERST# but never transmits (the
+	 * root port sits in Polling.Compliance). So the 3.3 V regulator is
+	 * not always-on: it starts off at probe, stays off for
+	 * off-on-delay-us with BT_EN held low, and the PCIe driver switches
+	 * it on through the WLAN_EN regulator.
 	 */
-	reboot {
-		compatible = "syscon-reboot";
-		regmap = <&pshold>;
-		offset = <0x0>;
-		mask = <0x1>;
-		value = <0x0>;
+	vreg_rome_3p3: regulator-rome-3p3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_rome_3p3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		startup-delay-us = <4000>;
+		off-on-delay-us = <1000000>;
+		vin-supply = <&vph_pwr>;
+
+		gpio = <&pm8994_gpios 9 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&rome_enable_default>, <&bt_en_default>,
+			    <&rome_sleep_clk_default>;
+	};
+
+	vreg_wlan_en: regulator-wlan-en {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_wlan_en";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		startup-delay-us = <70000>;
+		vin-supply = <&vreg_rome_3p3>;
+
+		gpio = <&pm8994_gpios 8 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_en_default>;
 	};
 };
 
@@ -222,17 +384,24 @@
 		vdd_s12-supply = <&vph_pwr>;
 		vdd_l2_l26_l28-supply = <&vreg_s3a_1p3>;
 		vdd_l6_l12_l32-supply = <&vreg_s5a_2p15>;
+		vdd_l8_l16_l30-supply = <&vph_pwr>;
+		vdd_l9_l10_l18_l22-supply = <&vph_pwr>;
 		vdd_l13_l19_l23_l24-supply = <&vph_pwr>;
 		vdd_l20_l21-supply = <&vph_pwr>;
 		vdd_lvs1_2-supply = <&vreg_s4a_1p8>;
 
+		/* Also the QCA6174 1.3 V core, which ath10k does not manage */
 		vreg_s3a_1p3: s3 {
 			regulator-name = "vreg_s3a_1p3";
 			regulator-min-microvolt = <1300000>;
 			regulator-max-microvolt = <1300000>;
+			regulator-always-on;
 		};
 
-		/* eMMC I/O rail; downstream marks it qcom,vdd-io-always-on */
+		/*
+		 * eMMC I/O rail; downstream marks it qcom,vdd-io-always-on.
+		 * Also the WCD9335 and QCA6174 I/O supply.
+		 */
 		vreg_s4a_1p8: s4 {
 			regulator-name = "vreg_s4a_1p8";
 			regulator-min-microvolt = <1800000>;
@@ -252,6 +421,18 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-allow-set-load;
+		};
+
+		/*
+		 * 3.3 V on this board (downstream overrides msm8996's 2.7-2.9 V):
+		 * touch controller analog supply (tsp_avdd), also requested by
+		 * the downstream cnss node for the Wi-Fi antenna switch.
+		 */
+		vreg_l18a_3p3: l18 {
+			regulator-name = "vreg_l18a_3p3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
 		};
 
 		/* eMMC flash rail; downstream marks it qcom,vdd-always-on */
@@ -276,6 +457,14 @@
 			regulator-min-microvolt = <925000>;
 			regulator-max-microvolt = <925000>;
 			regulator-allow-set-load;
+		};
+
+		/* QCA6174 crystal 1.8 V, not managed by ath10k */
+		vreg_l30a_1p8: l30 {
+			regulator-name = "vreg_l30a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-always-on;
 		};
 	};
 };
@@ -357,6 +546,382 @@
 	status = "disabled";
 };
 
+/*
+ * CPU idle
+ * --------
+ * Hierarchical PSCI layout: CPU -> cluster (CPU0-1, CPU2-3) -> system,
+ * with the msm8996.dtsi CPU state (0x4) per CPU and the states in
+ * /domain-idle-states above. The firmware is in OSI mode from boot but
+ * answers NOT_SUPPORTED to PSCI SET_SUSPEND_MODE, which cpuidle-psci-domain
+ * accepts on msm8996/apq8096; without that the CPUs get no idle states.
+ */
+&{/psci} {
+	cpu_pd0: power-domain-cpu0 {
+		#power-domain-cells = <0>;
+		power-domains = <&cluster0_pd>;
+		domain-idle-states = <&cpu_sleep_0>;
+	};
+
+	cpu_pd1: power-domain-cpu1 {
+		#power-domain-cells = <0>;
+		power-domains = <&cluster0_pd>;
+		domain-idle-states = <&cpu_sleep_0>;
+	};
+
+	cpu_pd2: power-domain-cpu2 {
+		#power-domain-cells = <0>;
+		power-domains = <&cluster1_pd>;
+		domain-idle-states = <&cpu_sleep_0>;
+	};
+
+	cpu_pd3: power-domain-cpu3 {
+		#power-domain-cells = <0>;
+		power-domains = <&cluster1_pd>;
+		domain-idle-states = <&cpu_sleep_0>;
+	};
+
+	cluster0_pd: power-domain-cluster0 {
+		#power-domain-cells = <0>;
+		power-domains = <&system_pd>;
+		domain-idle-states = <&cluster_gdhs>;
+	};
+
+	cluster1_pd: power-domain-cluster1 {
+		#power-domain-cells = <0>;
+		power-domains = <&system_pd>;
+		domain-idle-states = <&cluster_gdhs>;
+	};
+
+	system_pd: power-domain-system {
+		#power-domain-cells = <0>;
+		domain-idle-states = <&system_ret>;
+	};
+};
+
+&cpu0 {
+	/delete-property/ cpu-idle-states;
+	power-domains = <&cpu_pd0>;
+	power-domain-names = "psci";
+};
+
+&cpu1 {
+	/delete-property/ cpu-idle-states;
+	power-domains = <&cpu_pd1>;
+	power-domain-names = "psci";
+};
+
+&cpu2 {
+	/delete-property/ cpu-idle-states;
+	power-domains = <&cpu_pd2>;
+	power-domain-names = "psci";
+};
+
+&cpu3 {
+	/delete-property/ cpu-idle-states;
+	power-domains = <&cpu_pd3>;
+	power-domain-names = "psci";
+};
+
+/*
+ * GPU
+ * ---
+ * Adreno 530, headless while the panel is off: boot with
+ * msm.separate_gpu_kms=1 so it gets its own DRM device without MDSS.
+ * VDD_GFX is PM8004 S2 (downstream 400-1015 mV under GFX CPR). Mainline
+ * has no GFX CPR, so pin it at the top corner like the Sony msm8996 boards.
+ */
+&pm8004_spmi_regulators {
+	vdd_s2-supply = <&vph_pwr>;
+
+	vdd_gfx: s2 {
+		regulator-name = "vdd_gfx";
+		regulator-min-microvolt = <1015000>;
+		regulator-max-microvolt = <1015000>;
+		regulator-always-on;
+	};
+};
+
+&mmcc {
+	vdd-gfx-supply = <&vdd_gfx>;
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/a530_zap.mdt";
+};
+
+/*
+ * Wi-Fi: QCA6174 on PCIe0 (ath10k), PERST# TLMM 35, WAKE# TLMM 37.
+ * The PCIe driver switches WLAN_EN, which pulls in the 3.3 V rail.
+ */
+&pcie0 {
+	vddpe-3v3-supply = <&vreg_wlan_en>;
+	vdda-supply = <&vreg_l28a_0p925>;
+
+	perst-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
+	wake-gpios = <&tlmm 37 GPIO_ACTIVE_HIGH>;
+
+	status = "okay";
+};
+
+&pcie_phy {
+	vdda-phy-supply = <&vreg_l28a_0p925>;
+	vdda-pll-supply = <&vreg_l12a_1p8>;
+
+	status = "okay";
+};
+
+/* Bluetooth: QCA6174 on BLSP1 UART2 (TLMM 41-44), BT_EN PM8994 GPIO 19 */
+&blsp1_uart2 {
+	label = "BT-UART";
+	uart-has-rtscts;
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,qca6174-bt";
+		enable-gpios = <&pm8994_gpios 19 GPIO_ACTIVE_HIGH>;
+		clocks = <&rome_sleep_clk>;
+	};
+};
+
+/*
+ * Video: Venus with Samsung's signed firmware (PAS id 9). Its relocatable
+ * segments fit msm8996.dtsi's venus_mem.
+ */
+&venus {
+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/venus.mdt";
+	status = "okay";
+};
+
+/*
+ * Audio
+ * -----
+ * ADSP with Samsung's signed firmware from the modem partition. Its
+ * segments span 0x2100000 bytes, more than msm8996.dtsi's adsp_mem, so
+ * adsp_mem grows to the start of gpu_mem and slpi_mem (unused) moves into
+ * the tail of the downstream peripheral_region.
+ *
+ * WCD9335 on SLIMbus like apq8096-db820c: reset TLMM 74, one interrupt line
+ * on TLMM 79, MCLK from PM8994 GPIO 15, all supplies PM8994 S4. Headphones
+ * play through SLIMBUS_6_RX, the microphones record through SLIMBUS_0_TX;
+ * the routing is in the UCM profile. The four speaker amplifiers (Richtek
+ * RT5508 on I2S) have no driver yet.
+ */
+&adsp_mem {
+	reg = <0x0 0x8ea00000 0x0 0x2500000>;
+};
+
+&slpi_mem {
+	reg = <0x0 0x91700000 0x0 0xa00000>;
+};
+
+&adsp_pil {
+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/adsp.mdt";
+	status = "okay";
+};
+
+&slim_msm {
+	status = "okay";
+
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		tasha_ifd: tas-ifd@0,0 {
+			compatible = "slim217,1a0";
+			reg = <0 0>;
+		};
+
+		wcd9335: codec@1,0 {
+			compatible = "slim217,1a0";
+			reg = <1 0>;
+
+			clock-names = "mclk", "slimbus";
+			clocks = <&div1_mclk>,
+				 <&rpmcc RPM_SMD_BB_CLK1>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <79 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "intr1";
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			pinctrl-0 = <&cdc_reset_active &wcd_intr_default>;
+			pinctrl-names = "default";
+
+			reset-gpios = <&tlmm 74 GPIO_ACTIVE_LOW>;
+			slim-ifc-dev = <&tasha_ifd>;
+
+			#sound-dai-cells = <1>;
+
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+		};
+	};
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+	};
+
+	dai@2 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA3>;
+	};
+};
+
+&sound {
+	compatible = "qcom,apq8096-sndcard";
+	model = "Galaxy Tab S3";
+	/*
+	 * Downstream mic routing: AMIC1 <- MIC BIAS4 (third mic), AMIC2 <-
+	 * MIC BIAS2 (headset mic), AMIC3 <- MIC BIAS1 (main mic), AMIC4 <-
+	 * MIC BIAS3 (sub mic). In the wcd9335 driver only the RX DACs (via
+	 * RX_BIAS) pull in MCLK, so a capture without a playback stream
+	 * records digital silence. Hang the mic biases on MCLK as well.
+	 */
+	audio-routing = "RX_BIAS", "MCLK",
+			"MIC BIAS1", "MCLK",
+			"MIC BIAS2", "MCLK",
+			"MIC BIAS3", "MCLK",
+			"MIC BIAS4", "MCLK",
+			"AMIC1", "MIC BIAS4",
+			"AMIC2", "MIC BIAS2",
+			"AMIC3", "MIC BIAS1",
+			"AMIC4", "MIC BIAS3";
+
+	mm1-dai-link {
+		link-name = "MultiMedia1";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		};
+	};
+
+	mm3-dai-link {
+		link-name = "MultiMedia3";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
+		};
+	};
+
+	slim-dai-link {
+		link-name = "SLIM Playback";
+		cpu {
+			sound-dai = <&q6afedai SLIMBUS_6_RX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&wcd9335 AIF4_PB>;
+		};
+	};
+
+	slimcap-dai-link {
+		link-name = "SLIM Capture";
+		cpu {
+			sound-dai = <&q6afedai SLIMBUS_0_TX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&wcd9335 AIF1_CAP>;
+		};
+	};
+};
+
+/*
+ * SM5705 fuel gauge on TLMM 6 (SDA) / 7 (SCL). Downstream bit-bangs
+ * these too, but they are the BLSP2 QUP2 I2C pins, so use the controller.
+ * Its alert line (PM8994 GPIO 1) is not used; the driver polls.
+ */
+&blsp2_i2c2 {
+	clock-frequency = <100000>;
+	status = "okay";
+
+	fuel-gauge@71 {
+		compatible = "siliconmitus,sm5705-fuel-gauge";
+		reg = <0x71>;
+		monitored-battery = <&battery>;
+		power-supplies = <&charger>;
+	};
+};
+
+&pm8994_gpios {
+	/* MUIC interrupt: push-pull 1.8 V output, idle high */
+	muic_int_default: muic-int-default-state {
+		pins = "gpio4";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-pull-down;
+		power-source = <PM8994_GPIO_S4>;
+	};
+
+	wlan_en_default: wlan-en-state {
+		pins = "gpio8";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		output-low;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		power-source = <PM8994_GPIO_S4>;
+		bias-disable;
+	};
+
+	rome_enable_default: rome-enable-state {
+		pins = "gpio9";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		output-low;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		power-source = <PM8994_GPIO_S4>;
+		bias-disable;
+	};
+
+	audio_mclk_default: audio-mclk-state {
+		pins = "gpio15";
+		function = PMIC_GPIO_FUNC_FUNC1;
+		bias-disable;
+		power-source = <PM8994_GPIO_S4>;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+	};
+
+	rome_sleep_clk_default: rome-sleep-clk-state {
+		pins = "gpio18";
+		function = PMIC_GPIO_FUNC_FUNC2;
+		bias-disable;
+		power-source = <PM8994_GPIO_S4>;
+	};
+
+	bt_en_default: bt-en-state {
+		pins = "gpio19";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		output-low;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
+		power-source = <PM8994_GPIO_S4>;
+		bias-pull-down;
+	};
+};
+
 &tlmm {
 	/*
 	 * Pins owned by Samsung's TrustZone. If Linux reads them, the firmware
@@ -366,11 +931,41 @@
 	 */
 	gpio-reserved-ranges = <25 4>, <58 4>;
 
+	sm5705_i2c_default: sm5705-i2c-default-state {
+		pins = "gpio32", "gpio33";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	charger_int_default: charger-int-default-state {
+		pins = "gpio38";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
 	/* LCD_LDO_EN, from downstream mdss_dsi_active (gpio46) */
 	lcd_ldo_en_default: lcd-ldo-en-default-state {
 		pins = "gpio46";
 		function = "gpio";
 		drive-strength = <8>;
 		bias-disable;
+	};
+
+	cdc_reset_active: cdc-reset-active-state {
+		pins = "gpio74";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-high;
+	};
+
+	wcd_intr_default: wcd-intr-default-state {
+		pins = "gpio79";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
 	};
 };

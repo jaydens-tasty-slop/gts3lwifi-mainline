@@ -2,9 +2,13 @@
 
 ## Status (2026-10-28): working headless with freedreno
 
-On a Tab S3 with no panel attached, booted from RAM with `dts/test/test-gpu.dts`
-and `msm.separate_gpu_kms=1`:
+On a Tab S3 with no panel attached, booted from RAM with
+`dts/test/test-gpu.dts` (merged into the main DTS on 2026-10-28) and
+`msm.separate_gpu_kms=1`:
 
+- nothing loads `msm` by itself: the module only has aliases for the
+  display subsystem, which is off. The device package loads it at boot
+  (`modules-load.conf`) and puts `msm.separate_gpu_kms=1` on the cmdline;
 - the GPU probes as its own DRM device (`/dev/dri/renderD128`), Mesa reports
   **FD530, OpenGL ES 3.1 / OpenGL 3.1 (Mesa 26.2.5)**;
 - Samsung's signed zap shader is accepted by TrustZone, firmware loads

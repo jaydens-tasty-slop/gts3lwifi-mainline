@@ -2,7 +2,7 @@
 
 ## Status (2026-10-28): fuel gauge, charger and MUIC work
 
-With `dts/test/test-charger.dts` (which includes `test-battery.dts`) and
+With `dts/test/test-charger.dts` (merged into the main DTS on 2026-10-28) (which includes `test-battery.dts`) and
 kernel patches 0012-0017 there are two power supplies and an extcon device:
 
 - `sm5705-battery`, the fuel gauge (`CONFIG_FUEL_GAUGE_SM5705=m`): state of

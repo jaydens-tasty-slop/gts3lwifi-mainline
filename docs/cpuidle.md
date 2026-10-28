@@ -136,7 +136,7 @@ Kernel patch 0018 (`cpuidle: psci-domain: accept OSI-only firmware on
 MSM8996`) takes NOT_SUPPORTED from the OSI switch to mean "already OSI" on
 `qcom,apq8096`/`qcom,msm8996` machines. Other msm8996 devices are not
 affected unless their DT uses the hierarchical layout. With it and
-`dts/test/test-cluster1.dts` (CPU 0x4 -> cluster GDHS 0x01000034 -> system
+`dts/test/test-cluster1.dts`, now in the main DTS (CPU 0x4 -> cluster GDHS 0x01000034 -> system
 retention 0x02002334):
 
 ```

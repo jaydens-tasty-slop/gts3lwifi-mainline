@@ -2,7 +2,7 @@
 
 ## Status (2026-10-28): stage 1 works
 
-With `dts/test/test-audio.dts`, kernel patches 0010-0011 and the device
+With `dts/test/test-audio.dts` (merged into the main DTS on 2026-10-28), kernel patches 0010-0011 and the device
 package's UCM profile and WirePlumber config:
 
 - **Headphones:** clean playback. Checked by ear: a test tone, then speech

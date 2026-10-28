@@ -3,7 +3,7 @@
 ## Status (2026-10-28): working
 
 On a Tab S3 with no panel attached, booted from RAM with
-`dts/test/test-wifi.dts`:
+`dts/test/test-wifi.dts` (merged into the main DTS on 2026-10-28):
 
 - PCIe0 trains at boot (`PCIe Gen.1 x1 link up`), the chip enumerates as
   `168c:003e` (subsystem `0000:0000`);
@@ -35,7 +35,7 @@ the Xiaomi MSM8996 boards in mainline (`msm8996-xiaomi-common.dtsi`):
 | I/O 1.8 V | PM8994 S4 |
 | Crystal 1.8 V | PM8994 L30 |
 | Core 1.3 V | PM8994 S3 |
-| Antenna switch | PM8994 L18 (stock `pm8994_l18_pin_ctrl`, 2.7-2.9 V) |
+| Antenna switch | PM8994 L18. msm8996 lists it at 2.7-2.9 V (`pm8994_l18_pin_ctrl`), but this board raises L18 to 3.3 V for the touch controller (`tsp_avdd`). The test DT used 2.85 V, the main DTS uses 3.3 V; Wi-Fi works with both |
 | PCIe PHY | L28 0.925 V, L12 1.8 V (as on every MSM8996 board) |
 
 ath10k does not manage the cnss rails, so the test DTS keeps L30, S3 and L18

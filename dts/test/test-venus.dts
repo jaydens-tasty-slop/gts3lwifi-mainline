@@ -1,15 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Video codec test: Venus (msm8996, firmware v4.2) with Samsung's signed
- * firmware from the apnhlos partition (image/venus.mdt + .b00-.b04),
- * authenticated by TrustZone (PAS id 9). The segments are relocatable
- * (5 MB), so they load into msm8996.dtsi's venus_mem at 0x91000000,
- * which lies inside the stock "peripheral_region" (0x8f400000+0x3100000).
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-28. This file only
+ * keeps the include chain working; the original test is in the git history
+ * of github.com/wh1ter0z3/gts3lwifi-mainline (dts/test/test-venus.dts).
  */
 
 #include "test-bt.dts"
-
-&venus {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/venus.mdt";
-	status = "okay";
-};

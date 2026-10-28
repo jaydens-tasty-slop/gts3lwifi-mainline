@@ -1,35 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Bluetooth test: QCA6174 ("Rome") Bluetooth over BLSP1 UART2, driven by
- * hci_qca. Built on the Wi-Fi test DT, which powers the chip (3.3 V,
- * WLAN_EN), muxes the sleep clock and holds BT_EN low until the 3.3 V
- * rail is up.
- *
- * Stock: uart@7570000 (BLSP1 UART2, TLMM 41-44, blsp1_uart2_active), and
- * a "qca,qca6174" node with bt-reset-gpio PM8994 GPIO 19. Same wiring as
- * apq8096-db820c.dts and the OnePlus 3.
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-28. This file only
+ * keeps the include chain working; the original test is in the git history
+ * of github.com/wh1ter0z3/gts3lwifi-mainline (dts/test/test-bt.dts).
  */
 
 #include "test-wifi.dts"
-
-/ {
-	/* PM8994 GPIO 18 function 2, muxed by the Rome 3.3 V regulator */
-	rome_sleep_clk: rome-sleep-clk {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <32768>;
-		clock-output-names = "rome_sleep_clk";
-	};
-};
-
-&blsp1_uart2 {
-	label = "BT-UART";
-	uart-has-rtscts;
-	status = "okay";
-
-	bluetooth {
-		compatible = "qcom,qca6174-bt";
-		enable-gpios = <&pm8994_gpios 19 GPIO_ACTIVE_HIGH>;
-		clocks = <&rome_sleep_clk>;
-	};
-};

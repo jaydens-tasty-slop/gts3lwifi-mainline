@@ -2,7 +2,7 @@
 
 ## Status (2026-10-28): working
 
-With `dts/test/test-bt.dts` (built on the Wi-Fi test DT):
+With `dts/test/test-bt.dts` (merged into the main DTS on 2026-10-28) (built on the Wi-Fi test DT):
 
 - `hci_qca` finds the ROME controller (product 0x8, SoC 0x44, ROM 0x302,
   version 0x00440302) on BLSP1 UART2 at 3 Mbaud with RTS/CTS;
