@@ -5,6 +5,7 @@
 +	tristate "Samsung AMS968HH01 QXGA dual-DSI command mode panel"
 +	depends on OF
 +	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
 +	help
 +	  Say Y or M here if you want to enable support for the Samsung
 +	  AMS968HH01 2048x1536 AMOLED panel with the Anapass ANA38401 driver

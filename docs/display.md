@@ -16,7 +16,7 @@ Samsung's `ss_regulator_common.c`). Nothing has been tried on hardware yet.
 | Full mode | 2048x1536, htotal 2720, vtotal 1554, pixel clock 253.6 MHz (msm host halves h-timings per link) |
 | Tearing | TE on TLMM GPIO 10 (`mdp_vsync`), tear scanline 1526 |
 | Commands | DCS, sent on link 0 only (downstream `qcom,dcs-cmd-by-left`), init in LP mode |
-| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"). Not done yet; init leaves the panel at 360 nit |
+| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"): backlight device, 256 levels over the vendor's 65 steps from 2 to 360 cd/m2 (patch 0042) |
 
 GPIOs (all TLMM): reset 143 (high = running), TCON_RDY 45 (input, DDI raises it
 when ready), LCD_LDO_EN 46 (panel 3.3 V), TE 10.
@@ -350,10 +350,35 @@ to the display; `dts/test/test-touch.dts` with the GPU and Wi-Fi PCIe off:
 - With the init taking effect but the old gamma table, the DSI test
   pattern showed only red, green and black cells: it also passes through
   the DDI gamma.
+- **Second power-on (patch 0041).** Blank then unblank left the panel
+  dark: the DDI answered reads only after display-on, the boot A
+  signature. `dsi_ctrl_enable()` builds `DSI_LANE_CTRL` from the
+  register's current value, and nothing clears `CLKLN_HS_FORCE_REQUEST`
+  (bit 28) at power-off, so with `msm.defer_hs_clk=1` the clock lane was
+  in HS again through the panel reset. The vendor writes 0 to the
+  register at every controller init (`mdss_dsi_host_init()`). Patch 0041
+  clears the bit when the start is deferred; it only changes anything
+  with `msm.defer_hs_clk=1`, so it can be folded into 0006. Tested with
+  four blank/unblank cycles in one boot: the same picture and scores
+  after each, and the DSI controller, PHY and PLL registers
+  (`/sys/kernel/debug/dri/*/kms`) identical before and after.
+- **Brightness (patch 0042).** The panel registers a backlight device
+  (`/sys/class/backlight/994000.dsi.0`, 0-255, default 255) and sends
+  the vendor brightness update: AID per level, then ELVSS, CAPS and the
+  gamma table of the level's luminance step (65 steps, 2 to 360 cd/m2),
+  then the update key, in HS. The tables below 360 cd/m2 are computed
+  from the MTP the way the vendor smart dimming code does; the 65 tables
+  the driver computes on this panel equal the stock kernel's `aid_log`
+  tables byte for byte. White gets dimmer at every lower level; a
+  blank/unblank keeps the level. At level 174, the level of the stock
+  reference photos (234 cd/m2), the colour grid scores 15/16 against
+  stock (bars 8/8, halves 2/2): grey, dark green and dark blue now match,
+  so the 12/16 above was the 360 cd/m2 tone curve. The one miss (pink
+  read as orange) is the webcam clipping red; the stock photo shows the
+  same. Level 255 sends the same bytes as before.
 - Still open: `msm.defer_hs_clk=1` is needed on the command line (patch
-  0006 keeps it off by default); brightness (AID, ELVSS and the smart
-  dimming tables below 360 cd/m2); a second power-on in the same boot
-  (blank, then unblank) leaves the panel dark with every read failing.
+  0006 keeps it off by default); ACL and HBM (not implemented; ACL stays
+  off); each blank logs `pp done time out, lm=0` (about 1 s, twice).
   Some boots log `pclk0_clk_src: rcg didn't update its configuration`
   warnings at DSI probe, with or without these patches.
 
@@ -391,6 +416,6 @@ under Linux and only the driver work remains.
   one chip; downstream never talks to link 1). If init fails, try dual writes.
 - `qcom,sync-dual-dsi`: not set downstream (`cmd-sync-wait-broadcast` is
   commented out); start without it.
-- Brightness control: needs the gamma/AID/ELVSS tables from the downstream DTS
-  (`samsung,*_tx_cmds_revA`, `candela_map_table`). A fixed 360 nit is fine for
-  bring-up but is bright and warm for an AMOLED; add a simple backlight later.
+- Brightness: ACL (automatic current limiting, which stock Android turns on)
+  and HBM are not implemented; ELVSS uses the vendor's normal-temperature
+  table only.
