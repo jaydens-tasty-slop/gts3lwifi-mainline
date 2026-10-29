@@ -376,9 +376,21 @@ to the display; `dts/test/test-touch.dts` with the GPU and Wi-Fi PCIe off:
   so the 12/16 above was the 360 cd/m2 tone curve. The one miss (pink
   read as orange) is the webcam clipping red; the stock photo shows the
   same. Level 255 sends the same bytes as before.
+- **ACL (patch 0043).** ACL (automatic current limiting) makes the DDI
+  lower the emission current when the average picture level is high,
+  which caps the panel's total current. The vendor kernel has it on by
+  default at 15%: its on-list writes ACL off and the brightness update
+  after display-on turns it on (B0 4D/B2 05, 32-frame average; B0 49/B2
+  7F, start setting; B0 36/B2 12) and takes ELVSS from its ACL table
+  (0x1b at 360 cd/m2 instead of 0x19; the two tables differ on the six
+  steps from 265 to 360 cd/m2). Patch 0043 does the same at init. Tested:
+  small white squares (3% of the screen) read the same as with ACL off,
+  while full-screen white at the same spots reads about 13% lower on the
+  webcam (white-to-squares ratio 0.61, against 0.68 to 0.70 in three
+  ACL-off boots); full-screen white is lower at every brightness level;
+  the colour scores against stock are unchanged.
 - Still open: `msm.defer_hs_clk=1` is needed on the command line (patch
-  0006 keeps it off by default); ACL and HBM (not implemented; ACL stays
-  off); each blank logs `pp done time out, lm=0` (about 1 s, twice).
+  0006 keeps it off by default); HBM (not implemented); each blank logs `pp done time out, lm=0` (about 1 s, twice).
   Some boots log `pclk0_clk_src: rcg didn't update its configuration`
   warnings at DSI probe, with or without these patches.
 
@@ -416,6 +428,5 @@ under Linux and only the driver work remains.
   one chip; downstream never talks to link 1). If init fails, try dual writes.
 - `qcom,sync-dual-dsi`: not set downstream (`cmd-sync-wait-broadcast` is
   commented out); start without it.
-- Brightness: ACL (automatic current limiting, on by default in the vendor
-  kernel at 15%, with its own ELVSS table) and HBM are not implemented;
-  ELVSS uses the vendor's normal-temperature table only.
+- Brightness: HBM is not implemented; ELVSS uses the vendor's
+  normal-temperature table only.

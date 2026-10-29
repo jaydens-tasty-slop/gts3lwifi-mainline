@@ -74,6 +74,7 @@ source="
 	0040-drm-panel-ams968hh01-elvss-360.patch
 	0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 	0042-drm-panel-ams968hh01-brightness.patch
+	0043-drm-panel-ams968hh01-acl.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -147,4 +148,5 @@ f081c36ce6b0d0ad8373b2a67313aad0a36e1f749bf92551f2571e331dd531bf195bc6656a961cde
 cd80a38087d69a5234ddd888375d04b2b3f96b0e561b8167e4f8e883b825c3ed478d801a5778894ef649418992adb9c459b366d41c8b6bf16e929ff9da9b90ec  0040-drm-panel-ams968hh01-elvss-360.patch
 36e7e88dd2ebf50a06fe431863695afbfb6c9d7cafdb575a12cfe8d8a4a285dd76785738b504e897c34f358a35139730372fca7abaca121d60ce91203781a5de  0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 3bc8a9bad50a32688f8f7b1585dab652524b02a735ddb310e9929e2390ad05625bb1517c17d3514aadb0dd9855bc3086e9e3e2f744f8b0a2ec99443a11a6ea30  0042-drm-panel-ams968hh01-brightness.patch
+52d2a7cadb562393c4fbe34026a631388e9b98828e3c870c9e12c42eefa990108c53a178b5900ee1426bec4a564944e542072415de9ed1babf2b43264e4fa786  0043-drm-panel-ams968hh01-acl.patch
 "

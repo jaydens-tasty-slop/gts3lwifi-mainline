@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..ac74a41307 100644
+index 601fa9f44e..f5af7a4520 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -11,7 +11,7 @@ index 601fa9f44e..ac74a41307 100644
  pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
  arch="aarch64"
  _carch="arm64"
-@@ -32,6 +32,48 @@ _tag=v${pkgver//_/-}-msm8996
+@@ -32,6 +32,49 @@ _tag=v${pkgver//_/-}-msm8996
  source="
  	linux-$_tag.tar.gz::$url/-/archive/$_tag/linux-$_tag.tar.gz
  	config-$_flavor.$arch
@@ -57,10 +57,11 @@ index 601fa9f44e..ac74a41307 100644
 +	0040-drm-panel-ams968hh01-elvss-360.patch
 +	0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 +	0042-drm-panel-ams968hh01-brightness.patch
++	0043-drm-panel-ams968hh01-acl.patch
  "
  builddir="$srcdir/linux-$_tag"
  
-@@ -62,5 +104,47 @@ package() {
+@@ -62,5 +105,48 @@ package() {
  }
  sha512sums="
  dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
@@ -108,4 +109,5 @@ index 601fa9f44e..ac74a41307 100644
 +cd80a38087d69a5234ddd888375d04b2b3f96b0e561b8167e4f8e883b825c3ed478d801a5778894ef649418992adb9c459b366d41c8b6bf16e929ff9da9b90ec  0040-drm-panel-ams968hh01-elvss-360.patch
 +36e7e88dd2ebf50a06fe431863695afbfb6c9d7cafdb575a12cfe8d8a4a285dd76785738b504e897c34f358a35139730372fca7abaca121d60ce91203781a5de  0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 +3bc8a9bad50a32688f8f7b1585dab652524b02a735ddb310e9929e2390ad05625bb1517c17d3514aadb0dd9855bc3086e9e3e2f744f8b0a2ec99443a11a6ea30  0042-drm-panel-ams968hh01-brightness.patch
++52d2a7cadb562393c4fbe34026a631388e9b98828e3c870c9e12c42eefa990108c53a178b5900ee1426bec4a564944e542072415de9ed1babf2b43264e4fa786  0043-drm-panel-ams968hh01-acl.patch
  "
