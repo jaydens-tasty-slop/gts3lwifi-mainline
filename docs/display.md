@@ -419,6 +419,13 @@ Round 20 (2026-10-29, same tablet and webcam):
   only after display-on, as in round 19's boot A. Patches 0006 and 0041
   stay applied; 0051 removes the parameter they use. With 0006 and 0041
   folded into one patch, 0051 is the clean form of both.
+- **No `pp done time out` (patch 0053).** The MDP5 command-mode CRTC
+  flushes its mixers when it is disabled, which re-arms the PP_DONE
+  completion with no ping-pong running, so the next wait for it timed
+  out: once at boot, then once at each blank and each unblank. Patch
+  0053 skips the wait on a disabled CRTC. Round 20 logs no
+  `pp done time out` line over a boot with six power-ons (round 19
+  logged seven over the same kind of run).
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over

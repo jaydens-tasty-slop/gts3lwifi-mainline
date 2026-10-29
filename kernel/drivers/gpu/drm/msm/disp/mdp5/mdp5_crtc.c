@@ -1384,12 +1384,21 @@ struct mdp5_pipeline *mdp5_crtc_get_pipeline(struct drm_crtc *crtc)
 
 void mdp5_crtc_wait_for_commit_done(struct drm_crtc *crtc)
 {
+	struct mdp5_crtc *mdp5_crtc = to_mdp5_crtc(crtc);
 	struct mdp5_crtc_state *mdp5_cstate = to_mdp5_crtc_state(crtc->state);
 
-	if (mdp5_cstate->cmd_mode)
-		mdp5_crtc_wait_for_pp_done(crtc);
-	else
+	if (mdp5_cstate->cmd_mode) {
+		/*
+		 * A disabled CRTC has no frame in flight. Its completion
+		 * can be pending all the same: the commit that disables it
+		 * still flushes it, and the first enable waits before any
+		 * frame was sent.
+		 */
+		if (mdp5_crtc->enabled)
+			mdp5_crtc_wait_for_pp_done(crtc);
+	} else {
 		mdp5_crtc_wait_for_flush_done(crtc);
+	}
 }
 
 /* initialize crtc */
