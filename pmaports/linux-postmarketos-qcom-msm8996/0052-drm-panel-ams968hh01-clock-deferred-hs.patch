@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:27:56 -0600
+Subject: [PATCH] drm/panel: samsung-ams968hh01: start the link clock after the
+ panel reset
+
+The ANA38401 DDI ignores its init sequence and every read when the DSI
+clock lane is in HS while its reset is released, so the panel stayed
+dark unless msm.defer_hs_clk=1 was on the command line. Ask the host for
+that order with MIPI_DSI_CLOCK_DEFERRED_HS: lanes in LP-11 through the
+reset, then the continuous HS clock from the first command on. That is
+the vendor order for this panel (qcom,mdss-dsi-lp11-init and
+qcom,mdss-dsi-force-clock-lane-hs in dsi_panel_ANA38401_AMS968HH01_
+qxga_octa_cmd.dtsi, Samsung's GPL-2.0 kernel source for the SM-T820).
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../gpu/drm/panel/panel-samsung-ams968hh01.c   | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+index d32ad9f32522..9ff673427b29 100644
+--- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
++++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+@@ -711,7 +711,7 @@ static void ams968hh01_gamma_tables(struct ams968hh01 *ctx, const u8 *mtp)
+  * The panel's own gamma offsets (MTP): 33 bytes in register 0x83 order,
+  * read the vendor way (B0 <offset>, then a generic read of D8) from
+  * offset 0x5a. The DDI only answers reads before the init sequence when
+- * the link clock starts after the panel reset (msm.defer_hs_clk=1);
++ * the link clock starts after the panel reset (MIPI_DSI_CLOCK_DEFERRED_HS);
+  * without the offsets the tables stay those of a panel with zero offsets.
+  */
+ static int ams968hh01_read_mtp(struct ams968hh01 *ctx)
+@@ -855,8 +855,9 @@ static int ams968hh01_prepare(struct drm_panel *panel)
+ 	msleep(10);
+ 
+ 	/*
+-	 * The DSI lanes are already in LP11 here (prepare_prev_first). The
+-	 * DDI wants 70 ms plus margin between LP11 and reset.
++	 * The DSI lanes are already in LP11 here (prepare_prev_first), the
++	 * clock lane too (MIPI_DSI_CLOCK_DEFERRED_HS). The DDI wants 70 ms
++	 * plus margin between LP11 and reset.
+ 	 */
+ 	msleep(75);
+ 	before = gpiod_get_value_cansleep(ctx->tcon_ready_gpio);
+@@ -1068,8 +1069,15 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
+ 	for (i = 0; i < ARRAY_SIZE(ctx->dsi); i++) {
+ 		ctx->dsi[i]->lanes = 4;
+ 		ctx->dsi[i]->format = MIPI_DSI_FMT_RGB888;
+-		/* command mode, init commands in LP, continuous clock */
+-		ctx->dsi[i]->mode_flags = MIPI_DSI_MODE_LPM;
++		/*
++		 * Command mode, init commands in LP. The DDI ignores
++		 * everything when the HS clock runs through its reset, and
++		 * it wants a continuous clock: LP-11 on all lanes through
++		 * the reset, then HS, as the vendor driver does
++		 * (qcom,mdss-dsi-lp11-init, qcom,mdss-dsi-force-clock-lane-hs).
++		 */
++		ctx->dsi[i]->mode_flags = MIPI_DSI_MODE_LPM |
++					  MIPI_DSI_CLOCK_DEFERRED_HS;
+ 
+ 		ret = mipi_dsi_attach(ctx->dsi[i]);
+ 		if (ret < 0) {
+-- 
+2.56.0
+

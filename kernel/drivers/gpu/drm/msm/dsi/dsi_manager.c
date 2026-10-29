@@ -281,6 +281,23 @@ void dsi_mgr_power_off(struct msm_dsi *msm_dsi)
 	dsi_mgr_phy_disable(id);
 }
 
+/* MIPI_DSI_CLOCK_DEFERRED_HS: start the clock lane in HS, on both links if bonded */
+static void dsi_mgr_start_deferred_hs_clk(int id)
+{
+	struct msm_dsi *msm_dsi0 = dsi_mgr_get_dsi(DSI_0);
+	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
+
+	if (!IS_BONDED_DSI()) {
+		msm_dsi_host_start_deferred_hs_clk(dsi_mgr_get_dsi(id)->host);
+		return;
+	}
+
+	if (msm_dsi0)
+		msm_dsi_host_start_deferred_hs_clk(msm_dsi0->host);
+	if (msm_dsi1)
+		msm_dsi_host_start_deferred_hs_clk(msm_dsi1->host);
+}
+
 static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int id = dsi_mgr_bridge_get_id(bridge);
@@ -335,6 +352,14 @@ host1_en_fail:
 	msm_dsi_host_disable(host);
 put_pm:
 	pm_runtime_put_sync(&msm_dsi->pdev->dev);
+}
+
+static void dsi_mgr_bridge_enable(struct drm_bridge *bridge)
+{
+	int id = dsi_mgr_bridge_get_id(bridge);
+
+	/* The peripheral did not send anything after its reset */
+	dsi_mgr_start_deferred_hs_clk(id);
 }
 
 void msm_dsi_manager_tpg_enable(void)
@@ -447,6 +472,7 @@ static int dsi_mgr_bridge_attach(struct drm_bridge *bridge,
 static const struct drm_bridge_funcs dsi_mgr_bridge_funcs = {
 	.attach = dsi_mgr_bridge_attach,
 	.pre_enable = dsi_mgr_bridge_pre_enable,
+	.enable = dsi_mgr_bridge_enable,
 	.post_disable = dsi_mgr_bridge_post_disable,
 	.mode_set = dsi_mgr_bridge_mode_set,
 	.mode_valid = dsi_mgr_bridge_mode_valid,
@@ -526,17 +552,7 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 		goto restore_host0;
 	}
 
-	/* msm.defer_hs_clk: start the clock lane HS now, on both links */
-	if (IS_BONDED_DSI()) {
-		struct msm_dsi *d0 = dsi_mgr_get_dsi(DSI_0), *d1 = dsi_mgr_get_dsi(DSI_1);
-
-		if (d0)
-			msm_dsi_host_start_deferred_hs_clk(d0->host);
-		if (d1)
-			msm_dsi_host_start_deferred_hs_clk(d1->host);
-	} else {
-		msm_dsi_host_start_deferred_hs_clk(host);
-	}
+	dsi_mgr_start_deferred_hs_clk(id);
 
 	ret = is_read ? msm_dsi_host_cmd_rx(host, msg) :
 			msm_dsi_host_cmd_tx(host, msg);

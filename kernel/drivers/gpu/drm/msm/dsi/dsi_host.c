@@ -187,7 +187,7 @@ struct msm_dsi_host {
 	bool registered;
 	bool power_on;
 	bool enabled;
-	bool hs_clk_pending;	/* defer_hs_clk: clock lane not forced to HS yet */
+	bool hs_clk_pending;	/* MIPI_DSI_CLOCK_DEFERRED_HS: clock lane still in LP-11 */
 	int irq;
 };
 
@@ -775,16 +775,6 @@ bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
 }
 
 /* Bring-up aid: colour component order on the link (0 RGB, 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR) */
-/*
- * Bring-up aid: start the continuous HS clock only right before the first
- * command after power-on, i.e. after the panel driver has released its
- * reset, like the vendor driver (all lanes LP-11 through the panel reset,
- * then force the clock lane to HS). Default: force HS at power-on.
- */
-static bool defer_hs_clk;
-module_param(defer_hs_clk, bool, 0444);
-MODULE_PARM_DESC(defer_hs_clk, "Keep the clock lane in LP-11 until the first command (vendor order)");
-
 static unsigned int rgb_swap = SWAP_RGB;
 module_param(rgb_swap, uint, 0444);
 MODULE_PARM_DESC(rgb_swap, "DSI RGB component order: 0 RGB (default), 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR");
@@ -896,12 +886,14 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 		if (msm_dsi_phy_set_continuous_clock(phy, true))
 			lane_ctrl &= ~DSI_LANE_CTRL_HS_REQ_SEL_PHY;
 
-		if (defer_hs_clk) {
+		if (flags & MIPI_DSI_CLOCK_DEFERRED_HS) {
 			/*
+			 * The peripheral releases its reset after this: keep
+			 * the clock lane in LP-11 until the first transfer.
 			 * LANE_CTRL keeps the request from the previous
 			 * power-on (the vendor driver clears the register at
 			 * every controller init): drop it, or the clock lane
-			 * is in HS again through the next panel reset.
+			 * is in HS again through the next reset.
 			 */
 			lane_ctrl &= ~DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST;
 			dsi_write(msm_host, REG_DSI_LANE_CTRL, lane_ctrl);
@@ -2127,6 +2119,7 @@ void msm_dsi_host_unregister(struct mipi_dsi_host *host)
 	}
 }
 
+/* MIPI_DSI_CLOCK_DEFERRED_HS: start the continuous clock left in LP-11 at power-on */
 void msm_dsi_host_start_deferred_hs_clk(struct mipi_dsi_host *host)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
@@ -2139,8 +2132,7 @@ void msm_dsi_host_start_deferred_hs_clk(struct mipi_dsi_host *host)
 	dsi_write(msm_host, REG_DSI_LANE_CTRL,
 		  lane_ctrl | DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST);
 	msm_host->hs_clk_pending = false;
-	pr_info("msm_dsi: DSI%d clock lane forced to HS (deferred start)\n",
-		msm_host->id);
+	DBG("DSI%d clock lane in HS", msm_host->id);
 }
 
 int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,

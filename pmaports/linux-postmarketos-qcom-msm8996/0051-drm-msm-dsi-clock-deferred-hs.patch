@@ -1,0 +1,162 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:27:36 -0600
+Subject: [PATCH] drm/msm/dsi: support MIPI_DSI_CLOCK_DEFERRED_HS
+
+Start the continuous clock of a peripheral with MIPI_DSI_CLOCK_DEFERRED_HS
+at its first transfer after power-on instead of in dsi_ctrl_enable(), on
+both links of a bonded pair, and in the bridge's enable if the
+peripheral sent nothing before. This replaces the msm.defer_hs_clk
+bring-up parameter, which did the same for every DSI device and had to
+be given on the command line.
+
+Tested on an SM-T820 (Samsung AMS968HH01, bonded command-mode DSI) with
+the panel driver setting the flag and no msm.defer_hs_clk: the DDI
+answers reads before its init sequence and the picture is the same as
+with the parameter, at the first power-on and after blank and unblank.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/gpu/drm/msm/dsi/dsi_host.c    | 22 +++++-----------
+ drivers/gpu/drm/msm/dsi/dsi_manager.c | 38 +++++++++++++++++++--------
+ 2 files changed, 34 insertions(+), 26 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index de977c2c7f1e..b76b7cae985c 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -187,7 +187,7 @@ struct msm_dsi_host {
+ 	bool registered;
+ 	bool power_on;
+ 	bool enabled;
+-	bool hs_clk_pending;	/* defer_hs_clk: clock lane not forced to HS yet */
++	bool hs_clk_pending;	/* MIPI_DSI_CLOCK_DEFERRED_HS: clock lane still in LP-11 */
+ 	int irq;
+ };
+ 
+@@ -775,16 +775,6 @@ bool msm_dsi_host_is_wide_bus_enabled(struct mipi_dsi_host *host)
+ }
+ 
+ /* Bring-up aid: colour component order on the link (0 RGB, 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR) */
+-/*
+- * Bring-up aid: start the continuous HS clock only right before the first
+- * command after power-on, i.e. after the panel driver has released its
+- * reset, like the vendor driver (all lanes LP-11 through the panel reset,
+- * then force the clock lane to HS). Default: force HS at power-on.
+- */
+-static bool defer_hs_clk;
+-module_param(defer_hs_clk, bool, 0444);
+-MODULE_PARM_DESC(defer_hs_clk, "Keep the clock lane in LP-11 until the first command (vendor order)");
+-
+ static unsigned int rgb_swap = SWAP_RGB;
+ module_param(rgb_swap, uint, 0444);
+ MODULE_PARM_DESC(rgb_swap, "DSI RGB component order: 0 RGB (default), 1 RBG, 2 BGR, 3 BRG, 4 GRB, 5 GBR");
+@@ -896,12 +886,14 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
+ 		if (msm_dsi_phy_set_continuous_clock(phy, true))
+ 			lane_ctrl &= ~DSI_LANE_CTRL_HS_REQ_SEL_PHY;
+ 
+-		if (defer_hs_clk) {
++		if (flags & MIPI_DSI_CLOCK_DEFERRED_HS) {
+ 			/*
++			 * The peripheral releases its reset after this: keep
++			 * the clock lane in LP-11 until the first transfer.
+ 			 * LANE_CTRL keeps the request from the previous
+ 			 * power-on (the vendor driver clears the register at
+ 			 * every controller init): drop it, or the clock lane
+-			 * is in HS again through the next panel reset.
++			 * is in HS again through the next reset.
+ 			 */
+ 			lane_ctrl &= ~DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST;
+ 			dsi_write(msm_host, REG_DSI_LANE_CTRL, lane_ctrl);
+@@ -2127,6 +2119,7 @@ void msm_dsi_host_unregister(struct mipi_dsi_host *host)
+ 	}
+ }
+ 
++/* MIPI_DSI_CLOCK_DEFERRED_HS: start the continuous clock left in LP-11 at power-on */
+ void msm_dsi_host_start_deferred_hs_clk(struct mipi_dsi_host *host)
+ {
+ 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+@@ -2139,8 +2132,7 @@ void msm_dsi_host_start_deferred_hs_clk(struct mipi_dsi_host *host)
+ 	dsi_write(msm_host, REG_DSI_LANE_CTRL,
+ 		  lane_ctrl | DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST);
+ 	msm_host->hs_clk_pending = false;
+-	pr_info("msm_dsi: DSI%d clock lane forced to HS (deferred start)\n",
+-		msm_host->id);
++	DBG("DSI%d clock lane in HS", msm_host->id);
+ }
+ 
+ int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_manager.c b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+index 48dd96f677d1..1b648d7b9eb0 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_manager.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+@@ -281,6 +281,23 @@ void dsi_mgr_power_off(struct msm_dsi *msm_dsi)
+ 	dsi_mgr_phy_disable(id);
+ }
+ 
++/* MIPI_DSI_CLOCK_DEFERRED_HS: start the clock lane in HS, on both links if bonded */
++static void dsi_mgr_start_deferred_hs_clk(int id)
++{
++	struct msm_dsi *msm_dsi0 = dsi_mgr_get_dsi(DSI_0);
++	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
++
++	if (!IS_BONDED_DSI()) {
++		msm_dsi_host_start_deferred_hs_clk(dsi_mgr_get_dsi(id)->host);
++		return;
++	}
++
++	if (msm_dsi0)
++		msm_dsi_host_start_deferred_hs_clk(msm_dsi0->host);
++	if (msm_dsi1)
++		msm_dsi_host_start_deferred_hs_clk(msm_dsi1->host);
++}
++
+ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
+ {
+ 	int id = dsi_mgr_bridge_get_id(bridge);
+@@ -337,6 +354,14 @@ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
+ 	pm_runtime_put_sync(&msm_dsi->pdev->dev);
+ }
+ 
++static void dsi_mgr_bridge_enable(struct drm_bridge *bridge)
++{
++	int id = dsi_mgr_bridge_get_id(bridge);
++
++	/* The peripheral did not send anything after its reset */
++	dsi_mgr_start_deferred_hs_clk(id);
++}
++
+ void msm_dsi_manager_tpg_enable(void)
+ {
+ 	struct msm_dsi *m_dsi = dsi_mgr_get_dsi(DSI_0);
+@@ -447,6 +472,7 @@ static int dsi_mgr_bridge_attach(struct drm_bridge *bridge,
+ static const struct drm_bridge_funcs dsi_mgr_bridge_funcs = {
+ 	.attach = dsi_mgr_bridge_attach,
+ 	.pre_enable = dsi_mgr_bridge_pre_enable,
++	.enable = dsi_mgr_bridge_enable,
+ 	.post_disable = dsi_mgr_bridge_post_disable,
+ 	.mode_set = dsi_mgr_bridge_mode_set,
+ 	.mode_valid = dsi_mgr_bridge_mode_valid,
+@@ -526,17 +552,7 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
+ 		goto restore_host0;
+ 	}
+ 
+-	/* msm.defer_hs_clk: start the clock lane HS now, on both links */
+-	if (IS_BONDED_DSI()) {
+-		struct msm_dsi *d0 = dsi_mgr_get_dsi(DSI_0), *d1 = dsi_mgr_get_dsi(DSI_1);
+-
+-		if (d0)
+-			msm_dsi_host_start_deferred_hs_clk(d0->host);
+-		if (d1)
+-			msm_dsi_host_start_deferred_hs_clk(d1->host);
+-	} else {
+-		msm_dsi_host_start_deferred_hs_clk(host);
+-	}
++	dsi_mgr_start_deferred_hs_clk(id);
+ 
+ 	ret = is_read ? msm_dsi_host_cmd_rx(host, msg) :
+ 			msm_dsi_host_cmd_tx(host, msg);
+-- 
+2.56.0
+

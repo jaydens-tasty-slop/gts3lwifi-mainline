@@ -711,7 +711,7 @@ static void ams968hh01_gamma_tables(struct ams968hh01 *ctx, const u8 *mtp)
  * The panel's own gamma offsets (MTP): 33 bytes in register 0x83 order,
  * read the vendor way (B0 <offset>, then a generic read of D8) from
  * offset 0x5a. The DDI only answers reads before the init sequence when
- * the link clock starts after the panel reset (msm.defer_hs_clk=1);
+ * the link clock starts after the panel reset (MIPI_DSI_CLOCK_DEFERRED_HS);
  * without the offsets the tables stay those of a panel with zero offsets.
  */
 static int ams968hh01_read_mtp(struct ams968hh01 *ctx)
@@ -855,8 +855,9 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 	msleep(10);
 
 	/*
-	 * The DSI lanes are already in LP11 here (prepare_prev_first). The
-	 * DDI wants 70 ms plus margin between LP11 and reset.
+	 * The DSI lanes are already in LP11 here (prepare_prev_first), the
+	 * clock lane too (MIPI_DSI_CLOCK_DEFERRED_HS). The DDI wants 70 ms
+	 * plus margin between LP11 and reset.
 	 */
 	msleep(75);
 	before = gpiod_get_value_cansleep(ctx->tcon_ready_gpio);
@@ -1068,8 +1069,15 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
 	for (i = 0; i < ARRAY_SIZE(ctx->dsi); i++) {
 		ctx->dsi[i]->lanes = 4;
 		ctx->dsi[i]->format = MIPI_DSI_FMT_RGB888;
-		/* command mode, init commands in LP, continuous clock */
-		ctx->dsi[i]->mode_flags = MIPI_DSI_MODE_LPM;
+		/*
+		 * Command mode, init commands in LP. The DDI ignores
+		 * everything when the HS clock runs through its reset, and
+		 * it wants a continuous clock: LP-11 on all lanes through
+		 * the reset, then HS, as the vendor driver does
+		 * (qcom,mdss-dsi-lp11-init, qcom,mdss-dsi-force-clock-lane-hs).
+		 */
+		ctx->dsi[i]->mode_flags = MIPI_DSI_MODE_LPM |
+					  MIPI_DSI_CLOCK_DEFERRED_HS;
 
 		ret = mipi_dsi_attach(ctx->dsi[i]);
 		if (ret < 0) {

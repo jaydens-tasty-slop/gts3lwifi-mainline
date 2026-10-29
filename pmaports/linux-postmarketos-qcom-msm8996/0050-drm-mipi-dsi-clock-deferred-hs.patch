@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:26:57 -0600
+Subject: [PATCH] drm/mipi-dsi: add a flag for a clock lane started after the
+ peripheral reset
+
+A DSI host starts the clock lane in pre_enable: in HS for a continuous
+clock, in LP-11 with MIPI_DSI_CLOCK_NON_CONTINUOUS. A peripheral that
+sends commands from its own pre_enable sets pre_enable_prev_first, so it
+releases its reset with the clock lane already in HS.
+
+Some display controllers do not accept that. The Samsung ANA38401 DDI
+(AMS968HH01 panel in the Galaxy Tab S3) ignores every command and read
+when the HS clock was running through its reset, and it does not answer
+with a non-continuous clock either. It works when the lanes are in LP-11
+through the reset and the continuous HS clock starts after it, which is
+the order the vendor display driver uses for this panel (qcom,mdss-dsi-
+lp11-init and qcom,mdss-dsi-force-clock-lane-hs: mdss_dsi_on() in
+drivers/video/msm/mdss/mdss_dsi.c releases the panel reset with the lanes
+in LP-11, waits qcom,mdss-dsi-init-delay-us, then sets the clock lane's
+HS request; Samsung's GPL-2.0 kernel source for the SM-T820).
+
+Add MIPI_DSI_CLOCK_DEFERRED_HS for such peripherals: the host keeps the
+clock lane in LP-11 in pre_enable and starts the continuous HS clock at
+the first transfer, or in enable if the peripheral sent nothing before.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/gpu/drm/drm_bridge.c | 7 +++++++
+ include/drm/drm_mipi_dsi.h   | 2 ++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_bridge.c b/drivers/gpu/drm/drm_bridge.c
+index 8f355df883d8..313ff8373e8e 100644
+--- a/drivers/gpu/drm/drm_bridge.c
++++ b/drivers/gpu/drm/drm_bridge.c
+@@ -172,6 +172,13 @@
+  * clock lane to either LP-11 or HS depending on the mode_flag
+  * %MIPI_DSI_CLOCK_NON_CONTINUOUS.
+  *
++ * Some DSI peripherals need to see the clock lane leave LP-11 after their
++ * reset, which they release in their own pre_enable. Such a peripheral sets
++ * %MIPI_DSI_CLOCK_DEFERRED_HS together with &pre_enable_prev_first: the host
++ * then leaves the clock lane in LP-11 in pre_enable and starts the continuous
++ * HS clock at the first transfer, or in its enable operation if no transfer
++ * came first.
++ *
+  * Ordinarily the downstream bridge DSI peripheral pre_enable will have been
+  * called before the DSI host. If the DSI peripheral requires LP-11 and/or
+  * the clock lane to be in HS mode prior to pre_enable, then it can set the
+diff --git a/include/drm/drm_mipi_dsi.h b/include/drm/drm_mipi_dsi.h
+index 3aba7b380c8d..332b96697dc4 100644
+--- a/include/drm/drm_mipi_dsi.h
++++ b/include/drm/drm_mipi_dsi.h
+@@ -138,6 +138,8 @@ struct mipi_dsi_host *of_find_mipi_dsi_host_by_node(struct device_node *node);
+ #define MIPI_DSI_MODE_LPM		BIT(11)
+ /* transmit data ending at the same time for all lanes within one hsync */
+ #define MIPI_DSI_HS_PKT_END_ALIGNED	BIT(12)
++/* keep the continuous clock in LP-11 until the first transfer after power-on */
++#define MIPI_DSI_CLOCK_DEFERRED_HS	BIT(13)
+ 
+ enum mipi_dsi_pixel_format {
+ 	MIPI_DSI_FMT_RGB888,
+-- 
+2.56.0
+

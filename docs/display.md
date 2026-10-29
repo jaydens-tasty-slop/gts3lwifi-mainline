@@ -389,10 +389,36 @@ to the display; `dts/test/test-touch.dts` with the GPU and Wi-Fi PCIe off:
   webcam (white-to-squares ratio 0.61, against 0.68 to 0.70 in three
   ACL-off boots); full-screen white is lower at every brightness level;
   the colour scores against stock are unchanged.
-- Still open: `msm.defer_hs_clk=1` is needed on the command line (patch
-  0006 keeps it off by default); HBM (not implemented); each blank logs `pp done time out, lm=0` (about 1 s, twice).
-  Some boots log `pclk0_clk_src: rcg didn't update its configuration`
-  warnings at DSI probe, with or without these patches.
+- Still open after round 19: `msm.defer_hs_clk=1` on the command line
+  (patch 0006 keeps it off by default); HBM; `pp done time out, lm=0`
+  at each blank and unblank (a 50 ms wait each, not the 2 s between the
+  two log lines, which was the test script's pause). Every boot logs
+  `pclk0/1_clk_src: rcg didn't update its configuration` warnings at the
+  first modeset, with or without these patches.
+
+Round 20 (2026-10-29, same tablet and webcam):
+
+- **No command-line option (patches 0050-0052).** Patch 0050 adds a
+  mode flag, `MIPI_DSI_CLOCK_DEFERRED_HS`, with which a panel asks the
+  DSI host to keep the clock lane in LP-11 until the panel has been
+  reset and has sent its first command (the vendor's
+  `qcom,mdss-dsi-lp11-init` with `force-clock-lane-hs`). Patch 0051 makes
+  the MSM DSI host honour it in place of the `msm.defer_hs_clk`
+  parameter of patch 0006 (the clock lane goes to HS at the first
+  transfer after the panel's prepare, or at bridge enable if the panel
+  sent nothing; the stale request bit of patch 0041 is still cleared),
+  and patch 0052 sets it in the panel driver. With patches 0001-0054
+  (plus a test-only patch of bring-up parameters, all at their defaults)
+  and no `msm.defer_hs_clk` on the command line, the panel lights at the
+  first power-on and through five more blank/unblank cycles, the DDI
+  answers reads in prepare before the init list every time, and the
+  webcam scores are as in round 19 (colour grid 14/16 at level 255,
+  15/16 at level 174 with the stock camera profile, bars 8/8, halves
+  2/2). The negative control, the same kernel with the panel's flag
+  turned off by a test-only parameter, stays black and the DDI answers
+  only after display-on, as in round 19's boot A. Patches 0006 and 0041
+  stay applied; 0051 removes the parameter they use. With 0006 and 0041
+  folded into one patch, 0051 is the clean form of both.
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
