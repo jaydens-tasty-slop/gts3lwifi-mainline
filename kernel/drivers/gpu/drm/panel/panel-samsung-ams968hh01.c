@@ -46,6 +46,7 @@ struct ams968hh01 {
 	struct regulator *vdd;
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *tcon_ready_gpio;
+	enum drm_panel_orientation orientation;
 	bool mtp_valid;
 	/* register 0x83 and its table, per luminance step */
 	u8 gamma[AMS968HH01_NUM_STEPS][1 + AMS968HH01_GAMMA_LEN];
@@ -1095,12 +1096,18 @@ static const struct backlight_ops ams968hh01_bl_ops = {
 	.update_status = ams968hh01_bl_update_status,
 };
 
+static enum drm_panel_orientation ams968hh01_get_orientation(struct drm_panel *panel)
+{
+	return to_ams968hh01(panel)->orientation;
+}
+
 static const struct drm_panel_funcs ams968hh01_panel_funcs = {
 	.prepare = ams968hh01_prepare,
 	.enable = ams968hh01_enable,
 	.disable = ams968hh01_disable,
 	.unprepare = ams968hh01_unprepare,
 	.get_modes = ams968hh01_get_modes,
+	.get_orientation = ams968hh01_get_orientation,
 };
 
 static int ams968hh01_probe(struct mipi_dsi_device *dsi)
@@ -1139,6 +1146,10 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
 	ctx->tcon_ready_gpio = devm_gpiod_get(dev, "tcon-ready", GPIOD_IN);
 	if (IS_ERR(ctx->tcon_ready_gpio))
 		return dev_err_probe(dev, PTR_ERR(ctx->tcon_ready_gpio), "failed to get tcon-ready gpio\n");
+
+	ret = of_drm_get_panel_orientation(dev->of_node, &ctx->orientation);
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid rotation\n");
 
 	/*
 	 * The panel node sits under the master DSI controller and has a second

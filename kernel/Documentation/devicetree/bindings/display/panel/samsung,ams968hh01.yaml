@@ -26,6 +26,8 @@ properties:
 
   reset-gpios: true
 
+  rotation: true
+
   tcon-ready-gpios:
     maxItems: 1
     description: input raised by the DDI once it accepts commands

@@ -55,6 +55,12 @@
 		/* TLMM 143 high = panel running, so "active" (in reset) is low */
 		reset-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
 		tcon-ready-gpios = <&tlmm 45 GPIO_ACTIVE_HIGH>;
+		/*
+		 * Portrait device, landscape panel: the panel's left edge is
+		 * the top (the boot logo and stock Android, which rotates the
+		 * display by 270 degrees). Patch 0055.
+		 */
+		rotation = <270>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&panel_default>;

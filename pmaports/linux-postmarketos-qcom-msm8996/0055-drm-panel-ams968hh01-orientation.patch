@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:51:30 -0600
+Subject: [PATCH] drm/panel: samsung-ams968hh01: report the panel orientation
+
+The AMS968HH01 is a 2048x1536 landscape panel, but the Galaxy Tab S3
+(SM-T820) is a portrait device: its boot logo and the stock Android
+user interface (which rotates the display by 270 degrees) come up with
+the top of the picture on the panel's left edge, as seen on the
+hardware.
+
+Read the common "rotation" property and report it through
+.get_orientation, so the connector gets its "panel orientation"
+property and user space can rotate the picture to the device's natural
+orientation. Without the property the orientation stays unknown, as
+before.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/gpu/drm/panel/panel-samsung-ams968hh01.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+index 159733f001a4..1fb1281b0c45 100644
+--- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
++++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+@@ -46,6 +46,7 @@ struct ams968hh01 {
+ 	struct regulator *vdd;
+ 	struct gpio_desc *reset_gpio;
+ 	struct gpio_desc *tcon_ready_gpio;
++	enum drm_panel_orientation orientation;
+ 	bool mtp_valid;
+ 	/* register 0x83 and its table, per luminance step */
+ 	u8 gamma[AMS968HH01_NUM_STEPS][1 + AMS968HH01_GAMMA_LEN];
+@@ -1095,12 +1096,18 @@ static const struct backlight_ops ams968hh01_bl_ops = {
+ 	.update_status = ams968hh01_bl_update_status,
+ };
+ 
++static enum drm_panel_orientation ams968hh01_get_orientation(struct drm_panel *panel)
++{
++	return to_ams968hh01(panel)->orientation;
++}
++
+ static const struct drm_panel_funcs ams968hh01_panel_funcs = {
+ 	.prepare = ams968hh01_prepare,
+ 	.enable = ams968hh01_enable,
+ 	.disable = ams968hh01_disable,
+ 	.unprepare = ams968hh01_unprepare,
+ 	.get_modes = ams968hh01_get_modes,
++	.get_orientation = ams968hh01_get_orientation,
+ };
+ 
+ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
+@@ -1140,6 +1147,10 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
+ 	if (IS_ERR(ctx->tcon_ready_gpio))
+ 		return dev_err_probe(dev, PTR_ERR(ctx->tcon_ready_gpio), "failed to get tcon-ready gpio\n");
+ 
++	ret = of_drm_get_panel_orientation(dev->of_node, &ctx->orientation);
++	if (ret)
++		return dev_err_probe(dev, ret, "invalid rotation\n");
++
+ 	/*
+ 	 * The panel node sits under the master DSI controller and has a second
+ 	 * input port fed by the other controller. Register a DSI device there.
+-- 
+2.56.0
+

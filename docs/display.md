@@ -440,6 +440,20 @@ Round 20 (2026-10-29, same tablet and webcam):
   and the reads equal the stock kernel's. White on the webcam rises with
   every step (camera units 69 at 255, 77 at 256, 84 at 259, 97 at 263),
   and levels 263 and 64 come back after a blank/unblank.
+- **Panel orientation (patch 0055).** The tablet is a portrait device
+  with a landscape panel: the boot logo and stock Android (which rotates
+  the display by 270 degrees, `SF_PRIMARY_DISPLAY_ORIENTATION := 270` in
+  the LineageOS device tree) put the top of the picture on the panel's
+  left edge, as seen on the webcam. Patch 0055 reads the common
+  `rotation` property, and `dts/test/test-display.dts` sets
+  `rotation = <270>`: the DSI connector's "panel orientation" property
+  reads "Left Side Up" (checked with `modetest -c`). User space that
+  reads the property can turn the picture to portrait; the framebuffer
+  console would too, but `CONFIG_FRAMEBUFFER_CONSOLE_ROTATION` is off in
+  the kernel config, so it stays landscape (256x96). Touch (and the
+  S-Pen) still report the panel's
+  own coordinates, as DRM expects: their DT flags map them to the
+  panel's landscape frame, not to portrait (docs/input.md).
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
