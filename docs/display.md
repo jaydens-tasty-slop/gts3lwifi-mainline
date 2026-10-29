@@ -308,6 +308,55 @@ reset, then goes HS, like the vendor), boot C sends the init from enable()
 available. Readbacks now also run just before display-on, and the dmesg
 filter includes DSI host messages.
 
+Round 19 (2026-10-28/29), run on a second SM-T820 with a webcam on the
+screen, scored against webcam photos of the stock kernel (brightness 128).
+Same patch stack on v6.19.5-msm8996 plus a local watchdog patch unrelated
+to the display; `dts/test/test-touch.dts` with the GPU and Wi-Fi PCIe off:
+- Boot A: as before. Boot C (`init_in_enable=1`): the panel lights, but
+  with a scrambled frame.
+- **Boot B (`msm.defer_hs_clk=1`) confirms the clock-lane theory.** The DDI
+  now answers reads in prepare(), before the init (ID 42 40 16, MTP from
+  D8@5A), and the init sequence takes effect. `late_init=1` alone gives the
+  same picture as boot B. Other differences from the vendor sequence,
+  tried one at a time with options from a local bring-up patch (a VDD
+  power cycle at the first prepare, the vendor's manufacture_read_pre_tx
+  block, display-on at the end of the init list plus tear-on, a
+  non-continuous clock), each left the screen black without
+  `msm.defer_hs_clk=1`.
+- With the init taking effect, blue gave no light at all and every level
+  below about 190/255 was black. That was the gamma table (register 0x83):
+  the DDI takes 11 bytes per channel, R then G then B, each V11, V23, V35,
+  V51, V87, V151, V203, V255 bits 7:0, V3, V255 bit 8 (as 0x80) and VT.
+  The reference table we sent was in the vendor smart dimming code's
+  internal order; the vendor converts its tables to register order in
+  `gamma_command_sorting_post()` before sending. The vendor DT
+  `gamma_tx_cmds` that we took for a placeholder is the nominal table in
+  register order. For its 360 cd/m2 table the vendor adds the panel's 33
+  MTP bytes (D8 from 0x5a, already in register order). Kernel patches
+  0038-0040 send nominal + MTP and the vendor's 360 cd/m2 ELVSS (0x19).
+- The MTP differs per panel (this unit: `41 56 5c 49 3f 56 5d 25 02 00 00
+  ...`, the round 18 tester's: `1f 47 4e 3d 34 51 5b 36`), so the driver
+  reads it. The table it sends matches, byte for byte, the one the stock
+  kernel computes for the same panel. The stock kernel prints all its
+  tables and the MTP offsets when `/sys/devices/virtual/lcd/panel/aid_log`
+  is read (root, no unlock needed).
+- **Result with 0038-0040 and `msm.defer_hs_clk=1`: correct picture.**
+  Geometry and colours right, smooth red, green, blue and white ramps.
+  Webcam against stock: colour bars 8/8, halves 2/2, colour grid 12/16;
+  the four misses (grey, dark green, dark blue, orange's green half) have
+  the right hue at about half the stock level. That is a tone-curve
+  difference: stock ran Samsung's UI mDNIe mode at brightness 128, this
+  runs mDNIe bypass at 360 cd/m2.
+- With the init taking effect but the old gamma table, the DSI test
+  pattern showed only red, green and black cells: it also passes through
+  the DDI gamma.
+- Still open: `msm.defer_hs_clk=1` is needed on the command line (patch
+  0006 keeps it off by default); brightness (AID, ELVSS and the smart
+  dimming tables below 360 cd/m2); a second power-on in the same boot
+  (blank, then unblank) leaves the panel dark with every read failing.
+  Some boots log `pclk0_clk_src: rcg didn't update its configuration`
+  warnings at DSI probe, with or without these patches.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).

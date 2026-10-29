@@ -25,7 +25,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Reboot, power-off | work: PS_HOLD through syscon-reboot and syscon-poweroff, because PSCI SYSTEM_RESET hangs and SYSTEM_OFF does nothing in Samsung's TrustZone (docs/reboot.md) |
 | Suspend (s2idle) | works with the Wi-Fi driver unloaded; with Wi-Fi the PCIe link dies when its power domain switches off and the tablet resets. Fix (PCIe power domains in retention, patch 0037) written, not tested yet; the SoC does not reach its deepest sleep yet (docs/suspend.md) |
 | TLMM GPIOs | work, 4 TrustZone-owned pins reserved |
-| Display | both DSI links stream in sync (MDP5 split display, patch 0003), geometry correct, console readable, panel answers register reads. Colours still wrong; link-isolation images and the DSI test pattern place the fault between the DSI controller and the panel controller, most likely the panel init being sent as short DSI packets where the vendor uses long ones (fix in test, docs/display.md). No brightness control yet |
+| Display | works with `msm.defer_hs_clk=1` (DSI clock lane started after the panel reset, patch 0006): both DSI links stream in sync (MDP5 split display, patch 0003), geometry and colours correct, gamma table from the panel's MTP as in stock (patches 0038-0040), checked by webcam against the stock kernel (docs/display.md, round 19). Fixed 360 cd/m2, no brightness control yet; blank then unblank leaves the panel dark |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts) |
 | S-Pen | not started |
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, main DTS) |
