@@ -448,9 +448,12 @@ Round 20 (2026-10-29, same tablet and webcam):
   `rotation` property, and `dts/test/test-display.dts` sets
   `rotation = <270>`: the DSI connector's "panel orientation" property
   reads "Left Side Up" (checked with `modetest -c`). User space that
-  reads the property can turn the picture to portrait; the framebuffer
-  console would too, but `CONFIG_FRAMEBUFFER_CONSOLE_ROTATION` is off in
-  the kernel config, so it stays landscape (256x96). Touch (and the
+  reads the property can turn the picture to portrait. So does the
+  framebuffer console with `CONFIG_FRAMEBUFFER_CONSOLE_ROTATION=y` (off
+  in the current config, where it stays landscape, 256x96): it comes up
+  as 192x128 and its text runs in the same direction as the "SAMSUNG"
+  printed on the bezel above the screen (webcam), which confirms
+  rotation 270. Touch (and the
   S-Pen) still report the panel's
   own coordinates, as DRM expects: their DT flags map them to the
   panel's landscape frame, not to portrait (docs/input.md).
