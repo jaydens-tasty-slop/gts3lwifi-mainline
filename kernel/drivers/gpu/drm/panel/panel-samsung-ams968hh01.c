@@ -29,12 +29,16 @@
 #include <drm/drm_probe_helper.h>
 #include <video/mipi_display.h>
 
+#define AMS968HH01_GAMMA_LEN	33
+
 struct ams968hh01 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi[2];
 	struct regulator *vdd;
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *tcon_ready_gpio;
+	bool mtp_valid;
+	u8 gamma[1 + AMS968HH01_GAMMA_LEN];	/* register 0x83 and its table */
 };
 
 static inline struct ams968hh01 *to_ams968hh01(struct drm_panel *panel)
@@ -111,10 +115,6 @@ static const u8 ams968hh01_mdnie_bypass2[] = {
 	0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0x20, 0x00,
 	0x20, 0x00, 0x20, 0x00, 0x20, 0x00, 0xff,
 };
-
-static bool gamma_ref = true;
-module_param(gamma_ref, bool, 0444);
-MODULE_PARM_DESC(gamma_ref, "Use the vendor reference gamma table (default) instead of the DTS power-on placeholder");
 
 static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx);
 
@@ -275,8 +275,77 @@ static void ams968hh01_mode_regs(struct mipi_dsi_multi_context *ctx)
 	ams968hh01_reg_write(ctx, d2, sizeof(d2));		/* Anapass compression mode */
 }
 
+/*
+ * Brightness condition set (gamma), register 0x83. The DDI takes 11 bytes
+ * per channel, red then green then blue: V11, V23, V35, V51, V87, V151,
+ * V203, V255 bits 7:0, V3, V255 bit 8 (as 0x80) and VT. This is the
+ * vendor's nominal table (samsung,gamma_tx_cmds_revA). The vendor smart
+ * dimming code builds its tables in another order and converts them to
+ * this one before sending (gamma_command_sorting_post()).
+ */
+static const u8 ams968hh01_gamma_nominal[11] = {
+	0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
+};
+
+static void ams968hh01_gamma_init(struct ams968hh01 *ctx)
+{
+	int i;
+
+	ctx->gamma[0] = 0x83;
+	for (i = 0; i < AMS968HH01_GAMMA_LEN; i++)
+		ctx->gamma[1 + i] = ams968hh01_gamma_nominal[i % 11];
+}
+
+/*
+ * The panel's own gamma offsets (MTP): 33 bytes in register 0x83 order,
+ * read the vendor way (B0 <offset>, then a generic read of D8) from
+ * offset 0x5a. The vendor's 360 cd/m2 table is the nominal table plus
+ * these offsets, with any sum above 0xff sent as 0x80
+ * (gamma_command_sorting_post()). The DDI only answers reads before
+ * the init sequence when the link clock starts after the panel reset
+ * (msm.defer_hs_clk=1); without the offsets the nominal table is sent.
+ */
+static int ams968hh01_read_mtp(struct ams968hh01 *ctx)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi[0];
+	u8 mtp[AMS968HH01_GAMMA_LEN];
+	int i, n, ret;
+
+	ret = mipi_dsi_set_maximum_return_packet_size(dsi, 8);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < sizeof(mtp); i += n) {
+		u8 sel[] = { 0xb0, 0x5a + i };
+		u8 rd[2];
+
+		n = min_t(int, 8, sizeof(mtp) - i);
+		rd[0] = 0xd8;
+		rd[1] = n;
+		ret = mipi_dsi_dcs_write_buffer(dsi, sel, sizeof(sel));
+		if (ret < 0)
+			return ret;
+		ret = mipi_dsi_generic_read(dsi, rd, sizeof(rd), mtp + i, n);
+		if (ret != n)
+			return ret < 0 ? ret : -EIO;
+	}
+
+	for (i = 0; i < sizeof(mtp); i++) {
+		unsigned int v = ams968hh01_gamma_nominal[i % 11] + mtp[i];
+
+		ctx->gamma[1 + i] = v > 0xff ? 0x80 : v;
+	}
+	ctx->mtp_valid = true;
+	dev_info(&dsi->dev, "MTP %*ph\n", (int)sizeof(mtp), mtp);
+	dev_dbg(&dsi->dev, "gamma %*ph\n", AMS968HH01_GAMMA_LEN, ctx->gamma + 1);
+
+	return 0;
+}
+
 static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 {
+	struct ams968hh01 *panel = mipi_dsi_get_drvdata(ctx->dsi);
+
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x34);
 	ams968hh01_reg(ctx, 0xb2, 0x64, 0x00);	/* check fail off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x75);
@@ -292,32 +361,17 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xbc);
 	ams968hh01_reg(ctx, 0xb2, 0x04);		/* gamma offset index */
 
-	/*
-	 * Brightness condition set (gamma). Layout from the vendor smart
-	 * dimming code: V255 R/G/B as 9-bit big-endian pairs, then one byte
-	 * per channel for V203, V151, V87, V51, V35, V23, V11, V3 and VT.
-	 * The reference point of the vendor tables is 0x0100 / 0x80 / 0x00
-	 * (about 300 cd/m2); the vendor DTS power-on placeholder (0x80 in
-	 * the V255 high bytes, zeros scattered over the channels) is out of
-	 * range and is replaced by a computed table before anything is shown.
-	 */
-	if (gamma_ref)
-		ams968hh01_reg(ctx, 0x83,
-					     0x01, 0x00, 0x01, 0x00, 0x01, 0x00,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-					     0x00, 0x00, 0x00);
-	else
-		ams968hh01_reg(ctx, 0x83,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00,
-					     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x00);
+	/* brightness condition set (gamma), 360 cd/m2 */
+	ams968hh01_reg_write(ctx, panel->gamma, sizeof(panel->gamma));
 
 	ams968hh01_reg(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
+	/*
+	 * ELVSS, 360 nit. The vendor on-sequence writes 0x0f, but at 360 nit
+	 * the brightness update sent after display-on writes 0x19 from the
+	 * vendor ELVSS table (samsung,elvss_tx_cmds_revA).
+	 */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x67);
-	ams968hh01_reg(ctx, 0xb2, 0x0f);		/* ELVSS, 360 nit */
+	ams968hh01_reg(ctx, 0xb2, 0x19);
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x4d);
 	ams968hh01_reg(ctx, 0xb2, 0x04);		/* 16 frame avg, ACL off */
 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x36);
@@ -376,6 +430,12 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 	}
 
 	ams968hh01_readback(ctx, "prepare, before init");
+	if (!ctx->mtp_valid) {
+		ret = ams968hh01_read_mtp(ctx);
+		if (ret)
+			dev_warn(panel->dev, "MTP read failed (%d), using the nominal gamma table\n",
+				 ret);
+	}
 	if (init_in_enable)
 		return 0;
 
@@ -508,6 +568,7 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->dsi[1]), "failed to register second DSI device\n");
 
 	mipi_dsi_set_drvdata(dsi, ctx);
+	ams968hh01_gamma_init(ctx);
 
 	drm_panel_init(&ctx->panel, dev, &ams968hh01_panel_funcs,
 		       DRM_MODE_CONNECTOR_DSI);

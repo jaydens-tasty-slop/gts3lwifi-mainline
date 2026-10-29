@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 07:10:28 -0600
+Subject: [PATCH] drm/panel: samsung-ams968hh01: use the 360 cd/m2 ELVSS value
+
+The init sequence writes ELVSS 0x0f, the value in the vendor
+on-sequence. The vendor driver does not leave it there: the brightness
+update it sends right after display-on writes the value from its ELVSS
+table, which is 0x19 at 360 cd/m2, the level this driver runs at. Write
+0x19 so that the panel runs as the stock kernel runs it at that level.
+
+The table is samsung,elvss_tx_cmds_revA in
+drivers/video/msm/mdss/samsung/ANA38401_AMS968HH01/
+dsi_panel_ANA38401_AMS968HH01_qxga_octa_cmd.dtsi, Samsung's GPL-2.0
+kernel source for the SM-T820.
+
+Tested on an SM-T820 with msm.defer_hs_clk=1: white is slightly dimmer
+than with 0x0f, which shows the write lands; colours are unchanged.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/gpu/drm/panel/panel-samsung-ams968hh01.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+index 6ef19f5e31e4..a2f9c309fa68 100644
+--- a/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
++++ b/drivers/gpu/drm/panel/panel-samsung-ams968hh01.c
+@@ -365,8 +365,13 @@ static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
+ 	ams968hh01_reg_write(ctx, panel->gamma, sizeof(panel->gamma));
+ 
+ 	ams968hh01_reg(ctx, 0x90, 0x00, 0x00, 0x0e);	/* AID, 360 nit */
++	/*
++	 * ELVSS, 360 nit. The vendor on-sequence writes 0x0f, but at 360 nit
++	 * the brightness update sent after display-on writes 0x19 from the
++	 * vendor ELVSS table (samsung,elvss_tx_cmds_revA).
++	 */
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x67);
+-	ams968hh01_reg(ctx, 0xb2, 0x0f);		/* ELVSS, 360 nit */
++	ams968hh01_reg(ctx, 0xb2, 0x19);
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x4d);
+ 	ams968hh01_reg(ctx, 0xb2, 0x04);		/* 16 frame avg, ACL off */
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x36);
+-- 
+2.56.0
+
