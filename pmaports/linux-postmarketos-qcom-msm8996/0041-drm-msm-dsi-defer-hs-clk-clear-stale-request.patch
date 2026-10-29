@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 07:45:22 -0600
+Subject: [PATCH] drm/msm/dsi: clear a stale clock lane HS request when
+ deferring its start
+
+With msm.defer_hs_clk=1 the host leaves the clock lane in LP-11 at
+power-on and forces it to HS before the first command. dsi_ctrl_enable()
+builds the new LANE_CTRL value from the register's current contents, and
+nothing clears CLKLN_HS_FORCE_REQUEST at power-off: dsi_ctrl_disable()
+only writes DSI_CTRL. After the first power-on the bit is still set, so
+on every later power-on the clock lane is in HS again before the panel
+driver releases the panel reset, the case the parameter exists to avoid.
+
+On the Galaxy Tab S3 (Samsung AMS968HH01 panel, ANA38401 DDI) this left
+the panel dark after an fb0 blank and unblank: the DDI does not answer
+reads until after display-on, the same signature as without
+msm.defer_hs_clk. Clearing the bit before the write fixes it, so the
+bit is still set when dsi_ctrl_enable() reads the register.
+
+Without msm.defer_hs_clk the host sets the bit at every power-on
+anyway, so this changes nothing there.
+
+The vendor driver writes 0 to LANE_CTRL at every controller init
+(mdss_dsi_host_init() in drivers/video/msm/mdss/mdss_dsi_host.c,
+Samsung's GPL-2.0 kernel source for the SM-T820). Clear the request bit
+in the deferred path.
+
+Tested on an SM-T820: four blank/unblank cycles in one boot; the panel
+answers reads in prepare and shows the same picture after each.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/gpu/drm/msm/dsi/dsi_host.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index 945b91dd220b..de977c2c7f1e 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -897,6 +897,13 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
+ 			lane_ctrl &= ~DSI_LANE_CTRL_HS_REQ_SEL_PHY;
+ 
+ 		if (defer_hs_clk) {
++			/*
++			 * LANE_CTRL keeps the request from the previous
++			 * power-on (the vendor driver clears the register at
++			 * every controller init): drop it, or the clock lane
++			 * is in HS again through the next panel reset.
++			 */
++			lane_ctrl &= ~DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST;
+ 			dsi_write(msm_host, REG_DSI_LANE_CTRL, lane_ctrl);
+ 			msm_host->hs_clk_pending = true;
+ 		} else {
+-- 
+2.56.0
+

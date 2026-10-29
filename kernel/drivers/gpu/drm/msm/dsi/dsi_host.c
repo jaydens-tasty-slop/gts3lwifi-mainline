@@ -897,6 +897,13 @@ static void dsi_ctrl_enable(struct msm_dsi_host *msm_host,
 			lane_ctrl &= ~DSI_LANE_CTRL_HS_REQ_SEL_PHY;
 
 		if (defer_hs_clk) {
+			/*
+			 * LANE_CTRL keeps the request from the previous
+			 * power-on (the vendor driver clears the register at
+			 * every controller init): drop it, or the clock lane
+			 * is in HS again through the next panel reset.
+			 */
+			lane_ctrl &= ~DSI_LANE_CTRL_CLKLN_HS_FORCE_REQUEST;
 			dsi_write(msm_host, REG_DSI_LANE_CTRL, lane_ctrl);
 			msm_host->hs_clk_pending = true;
 		} else {
