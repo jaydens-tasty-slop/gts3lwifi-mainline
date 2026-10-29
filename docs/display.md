@@ -16,7 +16,7 @@ Samsung's `ss_regulator_common.c`). Nothing has been tried on hardware yet.
 | Full mode | 2048x1536, htotal 2720, vtotal 1554, pixel clock 253.6 MHz (msm host halves h-timings per link) |
 | Tearing | TE on TLMM GPIO 10 (`mdp_vsync`), tear scanline 1526 |
 | Commands | DCS, sent on link 0 only (downstream `qcom,dcs-cmd-by-left`), init in LP mode |
-| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"): backlight device, 256 levels over the vendor's 65 steps from 2 to 360 cd/m2 (patch 0042) |
+| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"): backlight device, 256 levels over the vendor's 65 steps from 2 to 360 cd/m2 (patch 0042), levels 256-263 for the 8 HBM steps up to 500 cd/m2 (patch 0054) |
 
 GPIOs (all TLMM): reset 143 (high = running), TCON_RDY 45 (input, DDI raises it
 when ready), LCD_LDO_EN 46 (panel 3.3 V), TE 10.
@@ -426,6 +426,20 @@ Round 20 (2026-10-29, same tablet and webcam):
   0053 skips the wait on a disabled CRTC. Round 20 logs no
   `pp done time out` line over a boot with six power-ons (round 19
   logged seven over the same kind of run).
+- **HBM (patch 0054).** Backlight levels 256-263 are the vendor's eight
+  high brightness steps, 378 to 500 cd/m2 (`max_brightness` is 263; the
+  default stays 255, so nothing changes until user space asks). With
+  the MTP the driver reads the HBM gamma table (D4 from offset 0x5b, 33
+  bytes, plus the MTP) and the two values of ELVSS register B0 70 (D2 at
+  0x70 outside HBM, D8 at 0x81 in HBM), and interpolates each step from
+  the 360 cd/m2 table to the HBM table as the vendor does. An HBM level
+  sends gamma, AID at its 360 cd/m2 value, ELVSS 0x25-0x17 per step with the
+  HBM register 70 value, and the vendor's HBM ACL setting; going back to
+  a normal level restores register 70. The eight tables the driver
+  computes equal the stock kernel's `aid_log` HBM tables byte for byte,
+  and the reads equal the stock kernel's. White on the webcam rises with
+  every step (camera units 69 at 255, 77 at 256, 84 at 259, 97 at 263),
+  and levels 263 and 64 come back after a blank/unblank.
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
@@ -461,5 +475,4 @@ under Linux and only the driver work remains.
   one chip; downstream never talks to link 1). If init fails, try dual writes.
 - `qcom,sync-dual-dsi`: not set downstream (`cmd-sync-wait-broadcast` is
   commented out); start without it.
-- Brightness: HBM is not implemented; ELVSS uses the vendor's
-  normal-temperature table only.
+- Brightness: ELVSS uses the vendor's normal-temperature table only.
