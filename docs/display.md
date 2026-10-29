@@ -416,6 +416,6 @@ under Linux and only the driver work remains.
   one chip; downstream never talks to link 1). If init fails, try dual writes.
 - `qcom,sync-dual-dsi`: not set downstream (`cmd-sync-wait-broadcast` is
   commented out); start without it.
-- Brightness: ACL (automatic current limiting, which stock Android turns on)
-  and HBM are not implemented; ELVSS uses the vendor's normal-temperature
-  table only.
+- Brightness: ACL (automatic current limiting, on by default in the vendor
+  kernel at 15%, with its own ELVSS table) and HBM are not implemented;
+  ELVSS uses the vendor's normal-temperature table only.
