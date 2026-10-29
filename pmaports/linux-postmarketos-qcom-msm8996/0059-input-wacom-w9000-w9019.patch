@@ -1,0 +1,601 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:14:57 -0600
+Subject: [PATCH] Input: wacom_w9000: add W9019 support
+
+Support the W9019 protocol variant, including its split query transfer,
+14-byte coordinate reports, special-packet release semantics, distance
+reporting and power-off delay.
+
+Move protocol parsing into internal helpers so each transfer length and
+packet field can be checked before the driver reports input state.
+
+The protocol facts (query command 0x2a and its 15-byte reply, the 14-byte
+coordinate report and its flag bits, the soft-key marker in byte 12, the
+off interval) come from the W9019 driver in drivers/input/wacom_tab/
+(wacom.h, wacom_i2c.c, wacom_i2c_func.c) of Samsung's GPL-2.0 kernel for
+the Galaxy Tab S3 (SM-T820).  No firmware, blob or decompiled code was
+used.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/touchscreen/wacom_w9000.c | 276 +++++++++++++++++-------
+ drivers/input/touchscreen/wacom_w9000.h |  99 +++++++++
+ 2 files changed, 296 insertions(+), 79 deletions(-)
+ create mode 100644 drivers/input/touchscreen/wacom_w9000.h
+
+diff --git a/drivers/input/touchscreen/wacom_w9000.c b/drivers/input/touchscreen/wacom_w9000.c
+index 4a2629a54167..b99b052997c0 100644
+--- a/drivers/input/touchscreen/wacom_w9000.c
++++ b/drivers/input/touchscreen/wacom_w9000.c
+@@ -16,14 +16,15 @@
+ #include <linux/interrupt.h>
+ #include <linux/lockdep.h>
+ #include <linux/regulator/consumer.h>
+-#include <linux/unaligned.h>
++
++#include "wacom_w9000.h"
+ 
+ /* Some chips have flaky firmware that requires many retries before responding. */
+ #define CMD_QUERY_RETRIES	8
+ 
+ /* Message length */
+-#define CMD_QUERY_NUM_MAX	9
+-#define MSG_COORD_NUM_MAX	12
++#define CMD_QUERY_NUM_MAX	15
++#define MSG_COORD_NUM_MAX	14
+ 
+ /* Commands */
+ #define CMD_QUERY		0x2a
+@@ -31,6 +32,10 @@
+ struct wacom_w9000_variant {
+ 	const u8 cmd_query_num;
+ 	const u8 msg_coord_num;
++	const u8 special_packet_byte;
++	const bool has_distance;
++	const u16 query_delay_ms;
++	const u16 power_off_delay_us;
+ 	const char *name;
+ };
+ 
+@@ -51,10 +56,13 @@ struct wacom_w9000_data {
+ 	unsigned int irq;
+ 
+ 	bool pen_proximity;
++	bool powered;
+ };
+ 
+-static int wacom_w9000_read(struct i2c_client *client, u8 command, u8 len, u8 *data)
++static int wacom_w9000_read(struct wacom_w9000_data *wacom_data,
++			    u8 command, u8 len, u8 *data)
+ {
++	struct i2c_client *client = wacom_data->client;
+ 	int error, res;
+ 	struct i2c_msg msg[] = {
+ 		{
+@@ -70,9 +78,30 @@ static int wacom_w9000_read(struct i2c_client *client, u8 command, u8 len, u8 *d
+ 		}
+ 	};
+ 
++	if (wacom_data->variant->query_delay_ms) {
++		res = i2c_master_send(client, &command, sizeof(command));
++		error = wacom_w9000_xfer_result(res, sizeof(command));
++		if (error) {
++			dev_err(&client->dev, "%s: i2c send failed: %d (%d)\n",
++				__func__, error, res);
++			return error;
++		}
++
++		msleep(wacom_data->variant->query_delay_ms);
++		res = i2c_master_recv(client, data, len);
++		error = wacom_w9000_xfer_result(res, len);
++		if (error) {
++			dev_err(&client->dev, "%s: i2c receive failed: %d (%d)\n",
++				__func__, error, res);
++			return error;
++		}
++
++		return 0;
++	}
++
+ 	res = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
+-	if (res != ARRAY_SIZE(msg)) {
+-		error = res < 0 ? res : -EIO;
++	error = wacom_w9000_xfer_result(res, ARRAY_SIZE(msg));
++	if (error) {
+ 		dev_err(&client->dev, "%s: i2c transfer failed: %d (%d)\n",
+ 			__func__, error, res);
+ 		return error;
+@@ -83,14 +112,14 @@ static int wacom_w9000_read(struct i2c_client *client, u8 command, u8 len, u8 *d
+ 
+ static int wacom_w9000_query(struct wacom_w9000_data *wacom_data)
+ {
+-	struct i2c_client *client = wacom_data->client;
+ 	struct device *dev = &wacom_data->client->dev;
++	struct wacom_w9000_features features;
+ 	u8 data[CMD_QUERY_NUM_MAX];
+ 	int retry;
+ 	int error;
+ 
+ 	for (retry = 0; retry < CMD_QUERY_RETRIES; retry++) {
+-		error = wacom_w9000_read(client, CMD_QUERY,
++		error = wacom_w9000_read(wacom_data, CMD_QUERY,
+ 					 wacom_data->variant->cmd_query_num,
+ 					 data);
+ 		if (!error && data[0] == 0x0f)
+@@ -106,10 +135,16 @@ static int wacom_w9000_query(struct wacom_w9000_data *wacom_data)
+ 	dev_dbg(dev, "query: %*ph, %d\n",
+ 		wacom_data->variant->cmd_query_num, data, retry);
+ 
+-	wacom_data->prop.max_x = get_unaligned_be16(&data[1]);
+-	wacom_data->prop.max_y = get_unaligned_be16(&data[3]);
+-	wacom_data->max_pressure = get_unaligned_be16(&data[5]);
+-	wacom_data->fw_version = get_unaligned_be16(&data[7]);
++	error = wacom_w9000_parse_query(data,
++					wacom_data->variant->cmd_query_num,
++					&features);
++	if (error)
++		return error;
++
++	wacom_data->prop.max_x = features.max_x;
++	wacom_data->prop.max_y = features.max_y;
++	wacom_data->max_pressure = features.max_pressure;
++	wacom_data->fw_version = features.fw_version;
+ 
+ 	dev_dbg(dev, "max_x:%d, max_y:%d, max_pressure:%d, fw:%#x\n",
+ 		wacom_data->prop.max_x, wacom_data->prop.max_y,
+@@ -124,13 +159,17 @@ static int wacom_w9000_power_on(struct wacom_w9000_data *wacom_data)
+ 
+ 	lockdep_assert_held(&wacom_data->input_dev->mutex);
+ 
+-	error = regulator_enable(wacom_data->regulator);
+-	if (error) {
+-		dev_err(&wacom_data->client->dev, "Failed to enable regulators: %d\n", error);
+-		return error;
+-	}
++	if (!wacom_data->powered) {
++		error = regulator_enable(wacom_data->regulator);
++		if (error) {
++			dev_err(&wacom_data->client->dev,
++				"Failed to enable regulators: %d\n", error);
++			return error;
++		}
+ 
+-	msleep(200);
++		wacom_data->powered = true;
++		msleep(200);
++	}
+ 
+ 	gpiod_set_value_cansleep(wacom_data->reset_gpio, 0);
+ 	enable_irq(wacom_data->irq);
+@@ -138,86 +177,119 @@ static int wacom_w9000_power_on(struct wacom_w9000_data *wacom_data)
+ 	return 0;
+ }
+ 
++static void wacom_w9000_release_pen(struct wacom_w9000_data *wacom_data)
++{
++	struct input_dev *input = wacom_data->input_dev;
++
++	if (!wacom_data->pen_proximity)
++		return;
++
++	input_report_key(input, BTN_TOUCH, 0);
++	input_report_abs(input, ABS_PRESSURE, 0);
++	if (wacom_data->variant->has_distance)
++		input_report_abs(input, ABS_DISTANCE, 255);
++	input_report_key(input, BTN_STYLUS, 0);
++	input_report_key(input, BTN_TOOL_PEN, 0);
++	input_report_key(input, BTN_TOOL_RUBBER, 0);
++	input_sync(input);
++
++	wacom_data->pen_proximity = false;
++}
++
+ static int wacom_w9000_power_off(struct wacom_w9000_data *wacom_data)
+ {
++	int error;
++
+ 	lockdep_assert_held(&wacom_data->input_dev->mutex);
+ 
+ 	disable_irq(wacom_data->irq);
++	wacom_w9000_release_pen(wacom_data);
+ 	gpiod_set_value_cansleep(wacom_data->reset_gpio, 1);
+-	regulator_disable(wacom_data->regulator);
++	if (!wacom_data->powered)
++		return 0;
++
++	error = regulator_disable(wacom_data->regulator);
++	if (error)
++		return error;
++	wacom_data->powered = false;
++	if (wacom_data->variant->power_off_delay_us)
++		usleep_range(wacom_data->variant->power_off_delay_us,
++			     wacom_data->variant->power_off_delay_us + 1000);
+ 
+ 	return 0;
+ }
+ 
++static void wacom_w9000_disable_regulator(void *data)
++{
++	struct wacom_w9000_data *wacom_data = data;
++
++	if (wacom_data->powered &&
++	    !regulator_disable(wacom_data->regulator))
++		wacom_data->powered = false;
++}
++
+ static void wacom_w9000_coord(struct wacom_w9000_data *wacom_data)
+ {
+ 	struct i2c_client *client = wacom_data->client;
+ 	struct device *dev = &wacom_data->client->dev;
++	const struct wacom_w9000_report_format format = {
++		.length = wacom_data->variant->msg_coord_num,
++		.special_packet_byte = wacom_data->variant->special_packet_byte,
++		.has_distance = wacom_data->variant->has_distance,
++	};
++	const struct wacom_w9000_features features = {
++		.max_x = wacom_data->prop.max_x,
++		.max_y = wacom_data->prop.max_y,
++		.max_pressure = wacom_data->max_pressure,
++		.fw_version = wacom_data->fw_version,
++	};
++	struct wacom_w9000_report report;
+ 	u8 data[MSG_COORD_NUM_MAX];
+-	bool touch, rubber, side_button;
+-	u16 x, y, pressure;
+-	u8 distance = 0;
++	unsigned int old_tool;
+ 	int error;
+ 
+ 	error = i2c_master_recv(client, data, wacom_data->variant->msg_coord_num);
+-	if (error != wacom_data->variant->msg_coord_num) {
+-		if (error >= 0)
+-			error = -EIO;
++	error = wacom_w9000_xfer_result(error,
++					wacom_data->variant->msg_coord_num);
++	if (error) {
+ 		dev_err_ratelimited(dev, "%s: i2c receive failed (%d)\n", __func__, error);
+ 		return;
+ 	}
+ 
+ 	dev_dbg(dev, "data: %*ph\n", wacom_data->variant->msg_coord_num, data);
+ 
+-	if (data[0] & BIT(7)) {
+-		wacom_data->pen_proximity = true;
+-
+-		touch = !!(data[0] & BIT(4));
+-		side_button = !!(data[0] & BIT(5));
+-		rubber = !!(data[0] & BIT(6));
+-
+-		x = get_unaligned_be16(&data[1]);
+-		y = get_unaligned_be16(&data[3]);
+-		pressure = get_unaligned_be16(&data[5]);
+-
+-		if (wacom_data->variant->msg_coord_num > 7)
+-			distance = data[7];
+-
+-		if (x > wacom_data->prop.max_x || y > wacom_data->prop.max_y) {
+-			dev_warn_ratelimited(dev, "Coordinates out of range x=%d, y=%d\n", x, y);
+-			return;
+-		}
+-
+-		if (pressure > wacom_data->max_pressure) {
+-			dev_warn_ratelimited(dev, "Pressure out of range %d\n", pressure);
+-			return;
+-		}
+-
+-		touchscreen_report_pos(wacom_data->input_dev, &wacom_data->prop, x, y, false);
+-		input_report_abs(wacom_data->input_dev, ABS_PRESSURE, pressure);
+-
+-		if (wacom_data->variant->msg_coord_num > 7)
+-			input_report_abs(wacom_data->input_dev, ABS_DISTANCE, distance);
+-
+-		input_report_key(wacom_data->input_dev, BTN_STYLUS, side_button);
+-		input_report_key(wacom_data->input_dev, BTN_TOUCH, touch);
+-		input_report_key(wacom_data->input_dev, BTN_TOOL_PEN, !rubber);
+-		input_report_key(wacom_data->input_dev, BTN_TOOL_RUBBER, rubber);
+-		input_sync(wacom_data->input_dev);
+-	} else if (wacom_data->pen_proximity) {
+-		input_report_abs(wacom_data->input_dev, ABS_PRESSURE, 0);
+-
+-		if (wacom_data->variant->msg_coord_num > 7)
+-			input_report_abs(wacom_data->input_dev, ABS_DISTANCE, 255);
+-
+-		input_report_key(wacom_data->input_dev, BTN_STYLUS, 0);
+-		input_report_key(wacom_data->input_dev, BTN_TOUCH, 0);
+-		input_report_key(wacom_data->input_dev, BTN_TOOL_PEN, 0);
+-		input_report_key(wacom_data->input_dev, BTN_TOOL_RUBBER, 0);
+-		input_sync(wacom_data->input_dev);
++	error = wacom_w9000_parse_report(data,
++					 wacom_data->variant->msg_coord_num,
++					 &format, &features, &report);
++	if (error) {
++		dev_warn_ratelimited(dev, "Invalid coordinate report: %d\n", error);
++		return;
++	}
+ 
+-		wacom_data->pen_proximity = false;
++	if (!report.proximity) {
++		wacom_w9000_release_pen(wacom_data);
++		return;
+ 	}
++
++	old_tool = report.rubber ? BTN_TOOL_PEN : BTN_TOOL_RUBBER;
++	if (test_bit(old_tool, wacom_data->input_dev->key))
++		wacom_w9000_release_pen(wacom_data);
++
++	wacom_data->pen_proximity = true;
++	input_report_key(wacom_data->input_dev, BTN_TOUCH, report.touch);
++	touchscreen_report_pos(wacom_data->input_dev, &wacom_data->prop,
++			       report.x, report.y, false);
++	input_report_abs(wacom_data->input_dev, ABS_PRESSURE, report.pressure);
++	if (wacom_data->variant->has_distance)
++		input_report_abs(wacom_data->input_dev, ABS_DISTANCE,
++				 report.distance);
++	input_report_key(wacom_data->input_dev, BTN_STYLUS,
++			 report.side_button);
++	input_report_key(wacom_data->input_dev, BTN_TOOL_PEN,
++			 !report.rubber);
++	input_report_key(wacom_data->input_dev, BTN_TOOL_RUBBER,
++			 report.rubber);
++	input_sync(wacom_data->input_dev);
+ }
+ 
+ static irqreturn_t wacom_w9000_interrupt(int irq, void *dev_id)
+@@ -248,6 +320,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	struct device *dev = &client->dev;
+ 	struct wacom_w9000_data *wacom_data;
+ 	struct input_dev *input_dev;
++	int disable_error;
+ 	int error;
+ 	u32 val;
+ 
+@@ -266,18 +339,32 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 		return -EINVAL;
+ 	}
+ 
+-	if (wacom_data->variant->cmd_query_num > CMD_QUERY_NUM_MAX ||
++	if (wacom_data->variant->cmd_query_num < WACOM_W9000_QUERY_MIN_LEN ||
++	    wacom_data->variant->cmd_query_num > CMD_QUERY_NUM_MAX ||
+ 	    wacom_data->variant->msg_coord_num > MSG_COORD_NUM_MAX) {
+-		dev_err(dev, "Length of message for %s exceeds the maximum\n",
++		dev_err(dev, "Invalid message length for %s\n",
+ 			wacom_data->variant->name);
+ 		return -EINVAL;
+ 	}
+ 
+-	if (wacom_data->variant->msg_coord_num < 7) {
++	if (wacom_data->variant->msg_coord_num < WACOM_W9000_REPORT_MIN_LEN) {
+ 		dev_err(dev, "Length of coordinates message for %s too short\n",
+ 			wacom_data->variant->name);
+ 		return -EINVAL;
+ 	}
++	if (wacom_data->variant->has_distance &&
++	    wacom_data->variant->msg_coord_num <= WACOM_W9000_REPORT_MIN_LEN) {
++		dev_err(dev, "Distance report for %s has no data byte\n",
++			wacom_data->variant->name);
++		return -EINVAL;
++	}
++
++	if (wacom_data->variant->special_packet_byte >=
++	    wacom_data->variant->msg_coord_num) {
++		dev_err(dev, "Special packet byte for %s is out of range\n",
++			wacom_data->variant->name);
++		return -EINVAL;
++	}
+ 
+ 	wacom_data->client = client;
+ 	wacom_data->irq = client->irq;
+@@ -287,6 +374,10 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	if (IS_ERR(wacom_data->regulator))
+ 		return dev_err_probe(dev, PTR_ERR(wacom_data->regulator),
+ 				     "Failed to get regulators\n");
++	error = devm_add_action_or_reset(dev, wacom_w9000_disable_regulator,
++					 wacom_data);
++	if (error)
++		return error;
+ 
+ 	wacom_data->flash_mode_gpio = devm_gpiod_get_optional(dev, "flash-mode", GPIOD_OUT_LOW);
+ 	if (IS_ERR(wacom_data->flash_mode_gpio))
+@@ -301,6 +392,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	error = regulator_enable(wacom_data->regulator);
+ 	if (error)
+ 		return dev_err_probe(dev, error, "Failed to enable regulators\n");
++	wacom_data->powered = true;
+ 
+ 	msleep(200);
+ 
+@@ -309,10 +401,18 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	error = wacom_w9000_query(wacom_data);
+ 
+ 	gpiod_set_value_cansleep(wacom_data->reset_gpio, 1);
+-	regulator_disable(wacom_data->regulator);
++	disable_error = regulator_disable(wacom_data->regulator);
++	if (!disable_error)
++		wacom_data->powered = false;
++	if (!disable_error && wacom_data->variant->power_off_delay_us)
++		usleep_range(wacom_data->variant->power_off_delay_us,
++			     wacom_data->variant->power_off_delay_us + 1000);
+ 
+ 	if (error)
+ 		return dev_err_probe(dev, error, "Failed to query\n");
++	if (disable_error)
++		return dev_err_probe(dev, disable_error,
++				     "Failed to disable regulators\n");
+ 
+ 	error = devm_request_threaded_irq(dev, wacom_data->irq, NULL, wacom_w9000_interrupt,
+ 					  IRQF_ONESHOT | IRQF_NO_AUTOEN, client->name, wacom_data);
+@@ -342,7 +442,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	input_set_abs_params(input_dev, ABS_Y, 0, wacom_data->prop.max_y, 4, 0);
+ 	input_set_abs_params(input_dev, ABS_PRESSURE, 0, wacom_data->max_pressure, 0, 0);
+ 
+-	if (wacom_data->variant->msg_coord_num > 7)
++	if (wacom_data->variant->has_distance)
+ 		input_set_abs_params(input_dev, ABS_DISTANCE, 0, 255, 0, 0);
+ 
+ 	touchscreen_parse_properties(input_dev, false, &wacom_data->prop);
+@@ -373,8 +473,13 @@ static int wacom_w9000_suspend(struct device *dev)
+ 
+ 	guard(mutex)(&wacom_data->input_dev->mutex);
+ 
+-	if (input_device_enabled(wacom_data->input_dev))
+-		return wacom_w9000_power_off(wacom_data);
++	if (input_device_enabled(wacom_data->input_dev)) {
++		int error = wacom_w9000_power_off(wacom_data);
++
++		if (error)
++			wacom_w9000_power_on(wacom_data);
++		return error;
++	}
+ 
+ 	return 0;
+ }
+@@ -403,19 +508,31 @@ static const struct wacom_w9000_variant w9002 = {
+ static const struct wacom_w9000_variant w9007a_lt03 = {
+ 	.cmd_query_num	= 9,
+ 	.msg_coord_num	= 8,
++	.has_distance	= true,
+ 	.name = "Wacom W9007A LT03 Digitizer",
+ };
+ 
+ static const struct wacom_w9000_variant w9007a_v1 = {
+ 	.cmd_query_num	= 9,
+ 	.msg_coord_num	= 12,
++	.has_distance	= true,
+ 	.name = "Wacom W9007A V1 Digitizer",
+ };
+ 
++static const struct wacom_w9000_variant w9019 = {
++	.cmd_query_num	= 15,
++	.msg_coord_num	= 14,
++	.special_packet_byte = 12,
++	.query_delay_ms = 100,
++	.power_off_delay_us = 10000,
++	.name = "Wacom W9019 Digitizer",
++};
++
+ static const struct of_device_id wacom_w9000_of_match[] = {
+ 	{ .compatible = "wacom,w9002", .data = &w9002 },
+ 	{ .compatible = "wacom,w9007a-lt03", .data = &w9007a_lt03, },
+ 	{ .compatible = "wacom,w9007a-v1", .data = &w9007a_v1, },
++	{ .compatible = "wacom,w9019", .data = &w9019, },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, wacom_w9000_of_match);
+@@ -424,6 +541,7 @@ static const struct i2c_device_id wacom_w9000_id[] = {
+ 	{ .name = "w9002", .driver_data = (kernel_ulong_t)&w9002 },
+ 	{ .name = "w9007a-lt03", .driver_data = (kernel_ulong_t)&w9007a_lt03 },
+ 	{ .name = "w9007a-v1", .driver_data = (kernel_ulong_t)&w9007a_v1 },
++	{ .name = "w9019", .driver_data = (kernel_ulong_t)&w9019 },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(i2c, wacom_w9000_id);
+diff --git a/drivers/input/touchscreen/wacom_w9000.h b/drivers/input/touchscreen/wacom_w9000.h
+new file mode 100644
+index 000000000000..514f70fdcbee
+--- /dev/null
++++ b/drivers/input/touchscreen/wacom_w9000.h
+@@ -0,0 +1,99 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef _WACOM_W9000_H
++#define _WACOM_W9000_H
++
++#include <linux/bits.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/unaligned.h>
++
++#define WACOM_W9000_QUERY_MIN_LEN	9
++#define WACOM_W9000_REPORT_MIN_LEN	7
++
++struct wacom_w9000_features {
++	u16 max_x;
++	u16 max_y;
++	u16 max_pressure;
++	u16 fw_version;
++};
++
++struct wacom_w9000_report_format {
++	u8 length;
++	u8 special_packet_byte;
++	bool has_distance;
++};
++
++struct wacom_w9000_report {
++	u16 x;
++	u16 y;
++	u16 pressure;
++	u8 distance;
++	bool proximity;
++	bool touch;
++	bool rubber;
++	bool side_button;
++};
++
++static inline int wacom_w9000_xfer_result(int result, int expected)
++{
++	if (result == expected)
++		return 0;
++
++	return result < 0 ? result : -EIO;
++}
++
++static inline int
++wacom_w9000_parse_query(const u8 *data, size_t len,
++			struct wacom_w9000_features *features)
++{
++	if (len < WACOM_W9000_QUERY_MIN_LEN || data[0] != 0x0f)
++		return -EINVAL;
++
++	features->max_x = get_unaligned_be16(&data[1]);
++	features->max_y = get_unaligned_be16(&data[3]);
++	features->max_pressure = get_unaligned_be16(&data[5]);
++	features->fw_version = get_unaligned_be16(&data[7]);
++
++	if (!features->max_x || !features->max_y || !features->max_pressure)
++		return -EINVAL;
++
++	return 0;
++}
++
++static inline int
++wacom_w9000_parse_report(const u8 *data, size_t len,
++			 const struct wacom_w9000_report_format *format,
++			 const struct wacom_w9000_features *features,
++			 struct wacom_w9000_report *report)
++{
++	if (len != format->length || len < WACOM_W9000_REPORT_MIN_LEN ||
++	    (format->has_distance && len <= WACOM_W9000_REPORT_MIN_LEN) ||
++	    (format->special_packet_byte &&
++	     format->special_packet_byte >= len))
++		return -EINVAL;
++
++	*report = (struct wacom_w9000_report) {};
++
++	if (!(data[0] & BIT(7)) ||
++	    (format->special_packet_byte &&
++	     data[format->special_packet_byte] & BIT(7)))
++		return 0;
++
++	report->x = get_unaligned_be16(&data[1]);
++	report->y = get_unaligned_be16(&data[3]);
++	report->pressure = get_unaligned_be16(&data[5]);
++	if (report->x > features->max_x || report->y > features->max_y ||
++	    report->pressure > features->max_pressure)
++		return -EINVAL;
++
++	report->proximity = true;
++	report->touch = data[0] & BIT(4);
++	report->side_button = data[0] & BIT(5);
++	report->rubber = data[0] & BIT(6);
++	if (format->has_distance)
++		report->distance = data[7];
++
++	return 0;
++}
++
++#endif
+-- 
+2.56.0
+

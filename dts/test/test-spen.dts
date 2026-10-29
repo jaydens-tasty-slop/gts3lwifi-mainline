@@ -1,13 +1,16 @@
 #include "test-touch.dts"
 
 /*
- * Test: S-Pen digitizer (Wacom W9019, Samsung firmware, patches 0056-0057)
- * on BLSP2 I2C6, on top of the display and touch tests.
+ * Test: S-Pen digitizer (Wacom W9019, Samsung firmware; upstream
+ * wacom_w9000 driver, patches 0056-0063) on BLSP2 I2C6, on top of the
+ * display and touch tests.
  *
  * From the stock DT (msm8996-sec-gts3lwifi-r04.dtsi, wacom@56 on i2c_12):
  * interrupt GPIO 34 (falling there; the line stays low until the packet
- * is read, so level-low here), firmware write enable GPIO 24 (low = run
- * the firmware), 3.3 V from a GPIO 126 switch (boot-on), I2C at 400 kHz.
+ * is read, so level-low here), flash mode (firmware write enable) GPIO 24
+ * (held low = run the firmware), 3.3 V from a GPIO 126 switch (boot-on),
+ * I2C at 400 kHz.  The size in mm is the panel's active area, as in the
+ * panel driver: 100 units per mm.
  * Stock flips x and then swaps x/y into portrait, so in the panel's
  * landscape frame both axes are inverted and nothing is swapped
  * (docs/input.md).
@@ -39,11 +42,13 @@
 		interrupts = <34 IRQ_TYPE_LEVEL_LOW>;
 
 		vdd-supply = <&pen_vdd>;
-		fwe-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+		flash-mode-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&pen_int_default &pen_fwe_default>;
+		pinctrl-0 = <&pen_int_default &pen_flash_default>;
 
+		touchscreen-x-mm = <196>;
+		touchscreen-y-mm = <147>;
 		touchscreen-inverted-x;
 		touchscreen-inverted-y;
 	};
@@ -57,7 +62,7 @@
 		bias-disable;
 	};
 
-	pen_fwe_default: pen-fwe-default-state {
+	pen_flash_default: pen-flash-default-state {
 		pins = "gpio24";
 		function = "gpio";
 		drive-strength = <2>;

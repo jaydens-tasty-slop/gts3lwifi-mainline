@@ -1,0 +1,1564 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:41:26 -0600
+Subject: [PATCH] Input: wacom_w9000: harden W9019 state transitions
+
+Require an active-high flash-mode line for W9019. Acquire it without
+driving malformed active-low descriptions and then hold the physical line
+low for normal operation.
+
+Make regulator and IRQ state independent and idempotent. A failed system
+suspend restores reset and IRQ operation. A failed input close remains
+quiesced and is repaired without adding a regulator vote on reopen. A
+failed enable leaves both state flags off. Use shared production and KUnit
+callback seams for fault injection.
+
+Make query retry count and pacing variant data. W9019 uses the three
+attempts and 100 ms inter-attempt delay in its public GPL implementation.
+Existing variants retain combined transfers and eight unpaced attempts.
+
+Preserve the existing input event sequence. Add query, event, and power
+transition tests through the production seams.
+
+The W9019 retry count and pacing come from the same Samsung GPL-2.0
+driver: COM_QUERY_RETRY and wacom_i2c_query() in
+drivers/input/wacom_tab/.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/touchscreen/Kconfig            |   6 +-
+ drivers/input/touchscreen/wacom_w9000.c      | 352 ++++++-----
+ drivers/input/touchscreen/wacom_w9000.h      | 221 ++++++-
+ drivers/input/touchscreen/wacom_w9000_test.c | 629 +++++++++++++++++--
+ 4 files changed, 1018 insertions(+), 190 deletions(-)
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 0d3ece2a8ec9..d494f7dfddb4 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -615,7 +615,7 @@ config TOUCHSCREEN_WACOM_W9000
+ 	depends on I2C
+ 	help
+ 	  Say Y here if you have a Wacom W9000-series penabled I2C touchscreen.
+-	  This driver supports models W9002 and W9007A.
++	  This driver supports models W9002, W9007A and W9019.
+ 
+ 	  If unsure, say N.
+ 
+@@ -629,8 +629,8 @@ config TOUCHSCREEN_WACOM_W9000_KUNIT_TEST
+ 	help
+ 	  Test Wacom W9000-series query and coordinate report parsing with
+ 	  synthetic packets. These tests do not access physical hardware or
+-	  an I2C adapter. Test transfer-result handling, field bounds and
+-	  special-packet release semantics for supported protocol variants.
++	  an I2C adapter. Test transfer handling, field bounds, input-event
++	  sequences, retry policy and power-transition fault rollback.
+ 
+ config TOUCHSCREEN_LPC32XX
+ 	tristate "LPC32XX touchscreen controller"
+diff --git a/drivers/input/touchscreen/wacom_w9000.c b/drivers/input/touchscreen/wacom_w9000.c
+index b99b052997c0..008be43a1302 100644
+--- a/drivers/input/touchscreen/wacom_w9000.c
++++ b/drivers/input/touchscreen/wacom_w9000.c
+@@ -19,22 +19,16 @@
+ 
+ #include "wacom_w9000.h"
+ 
+-/* Some chips have flaky firmware that requires many retries before responding. */
+-#define CMD_QUERY_RETRIES	8
+-
+ /* Message length */
+ #define CMD_QUERY_NUM_MAX	15
+ #define MSG_COORD_NUM_MAX	14
+ 
+-/* Commands */
+-#define CMD_QUERY		0x2a
+-
+ struct wacom_w9000_variant {
+-	const u8 cmd_query_num;
++	const struct wacom_w9000_query_policy query;
+ 	const u8 msg_coord_num;
+ 	const u8 special_packet_byte;
+ 	const bool has_distance;
+-	const u16 query_delay_ms;
++	const bool requires_flash_mode;
+ 	const u16 power_off_delay_us;
+ 	const char *name;
+ };
+@@ -55,15 +49,15 @@ struct wacom_w9000_data {
+ 
+ 	unsigned int irq;
+ 
+-	bool pen_proximity;
+-	bool powered;
++	struct wacom_w9000_input_state input_state;
++	struct wacom_w9000_power_state power_state;
+ };
+ 
+-static int wacom_w9000_read(struct wacom_w9000_data *wacom_data,
+-			    u8 command, u8 len, u8 *data)
++static int wacom_w9000_query_transfer(void *context, u8 command, u8 *data,
++				      size_t len)
+ {
++	struct wacom_w9000_data *wacom_data = context;
+ 	struct i2c_client *client = wacom_data->client;
+-	int error, res;
+ 	struct i2c_msg msg[] = {
+ 		{
+ 			.addr = client->addr,
+@@ -78,68 +72,51 @@ static int wacom_w9000_read(struct wacom_w9000_data *wacom_data,
+ 		}
+ 	};
+ 
+-	if (wacom_data->variant->query_delay_ms) {
+-		res = i2c_master_send(client, &command, sizeof(command));
+-		error = wacom_w9000_xfer_result(res, sizeof(command));
+-		if (error) {
+-			dev_err(&client->dev, "%s: i2c send failed: %d (%d)\n",
+-				__func__, error, res);
+-			return error;
+-		}
++	return i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
++}
+ 
+-		msleep(wacom_data->variant->query_delay_ms);
+-		res = i2c_master_recv(client, data, len);
+-		error = wacom_w9000_xfer_result(res, len);
+-		if (error) {
+-			dev_err(&client->dev, "%s: i2c receive failed: %d (%d)\n",
+-				__func__, error, res);
+-			return error;
+-		}
++static int wacom_w9000_query_send(void *context, u8 command)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-		return 0;
+-	}
++	return i2c_master_send(wacom_data->client, &command, sizeof(command));
++}
+ 
+-	res = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
+-	error = wacom_w9000_xfer_result(res, ARRAY_SIZE(msg));
+-	if (error) {
+-		dev_err(&client->dev, "%s: i2c transfer failed: %d (%d)\n",
+-			__func__, error, res);
+-		return error;
+-	}
++static int wacom_w9000_query_receive(void *context, u8 *data, size_t len)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	return 0;
++	return i2c_master_recv(wacom_data->client, data, len);
++}
++
++static void wacom_w9000_query_delay(void *context, unsigned int delay_ms)
++{
++	msleep(delay_ms);
+ }
+ 
++static const struct wacom_w9000_query_ops wacom_w9000_query_ops = {
++	.transfer = wacom_w9000_query_transfer,
++	.send = wacom_w9000_query_send,
++	.receive = wacom_w9000_query_receive,
++	.delay = wacom_w9000_query_delay,
++};
++
+ static int wacom_w9000_query(struct wacom_w9000_data *wacom_data)
+ {
++	const struct wacom_w9000_query_policy *policy =
++		&wacom_data->variant->query;
++	const struct wacom_w9000_query_ops *ops = &wacom_w9000_query_ops;
+ 	struct device *dev = &wacom_data->client->dev;
+ 	struct wacom_w9000_features features;
+ 	u8 data[CMD_QUERY_NUM_MAX];
+-	int retry;
+ 	int error;
+ 
+-	for (retry = 0; retry < CMD_QUERY_RETRIES; retry++) {
+-		error = wacom_w9000_read(wacom_data, CMD_QUERY,
+-					 wacom_data->variant->cmd_query_num,
+-					 data);
+-		if (!error && data[0] == 0x0f)
+-			break;
+-	}
+-
++	error = wacom_w9000_run_query(policy, ops, wacom_data, data, &features);
+ 	if (error)
+ 		return error;
+ 
+-	if (data[0] != 0x0f)
+-		return -EIO;
+-
+-	dev_dbg(dev, "query: %*ph, %d\n",
+-		wacom_data->variant->cmd_query_num, data, retry);
+-
+-	error = wacom_w9000_parse_query(data,
+-					wacom_data->variant->cmd_query_num,
+-					&features);
+-	if (error)
+-		return error;
++	dev_dbg(dev, "query: %*ph\n",
++		wacom_data->variant->query.response_len, data);
+ 
+ 	wacom_data->prop.max_x = features.max_x;
+ 	wacom_data->prop.max_y = features.max_y;
+@@ -153,79 +130,153 @@ static int wacom_w9000_query(struct wacom_w9000_data *wacom_data)
+ 	return 0;
+ }
+ 
+-static int wacom_w9000_power_on(struct wacom_w9000_data *wacom_data)
++static void wacom_w9000_input_report_key(void *context, unsigned int code,
++					 int value)
+ {
+-	int error;
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	lockdep_assert_held(&wacom_data->input_dev->mutex);
++	input_report_key(wacom_data->input_dev, code, value);
++}
+ 
+-	if (!wacom_data->powered) {
+-		error = regulator_enable(wacom_data->regulator);
+-		if (error) {
+-			dev_err(&wacom_data->client->dev,
+-				"Failed to enable regulators: %d\n", error);
+-			return error;
+-		}
++static void wacom_w9000_input_report_abs(void *context, unsigned int code,
++					 int value)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-		wacom_data->powered = true;
+-		msleep(200);
+-	}
++	input_report_abs(wacom_data->input_dev, code, value);
++}
+ 
+-	gpiod_set_value_cansleep(wacom_data->reset_gpio, 0);
+-	enable_irq(wacom_data->irq);
++static void wacom_w9000_input_report_pos(void *context, u16 x, u16 y)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	return 0;
++	touchscreen_report_pos(wacom_data->input_dev, &wacom_data->prop,
++			       x, y, false);
++}
++
++static void wacom_w9000_input_sync(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
++
++	input_sync(wacom_data->input_dev);
+ }
+ 
++static const struct wacom_w9000_input_ops wacom_w9000_input_ops = {
++	.report_key = wacom_w9000_input_report_key,
++	.report_abs = wacom_w9000_input_report_abs,
++	.report_pos = wacom_w9000_input_report_pos,
++	.sync = wacom_w9000_input_sync,
++};
++
+ static void wacom_w9000_release_pen(struct wacom_w9000_data *wacom_data)
+ {
+-	struct input_dev *input = wacom_data->input_dev;
++	wacom_w9000_release_input(&wacom_data->input_state,
++				  wacom_data->variant->has_distance,
++				  &wacom_w9000_input_ops, wacom_data);
++}
+ 
+-	if (!wacom_data->pen_proximity)
+-		return;
++static int wacom_w9000_supply_enable(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	input_report_key(input, BTN_TOUCH, 0);
+-	input_report_abs(input, ABS_PRESSURE, 0);
+-	if (wacom_data->variant->has_distance)
+-		input_report_abs(input, ABS_DISTANCE, 255);
+-	input_report_key(input, BTN_STYLUS, 0);
+-	input_report_key(input, BTN_TOOL_PEN, 0);
+-	input_report_key(input, BTN_TOOL_RUBBER, 0);
+-	input_sync(input);
++	return regulator_enable(wacom_data->regulator);
++}
++
++static int wacom_w9000_supply_disable(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	wacom_data->pen_proximity = false;
++	return regulator_disable(wacom_data->regulator);
+ }
+ 
+-static int wacom_w9000_power_off(struct wacom_w9000_data *wacom_data)
++static void wacom_w9000_reset(void *context, bool asserted)
+ {
+-	int error;
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	lockdep_assert_held(&wacom_data->input_dev->mutex);
++	gpiod_set_value_cansleep(wacom_data->reset_gpio, asserted);
++}
++
++static void wacom_w9000_irq_enable(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
++
++	enable_irq(wacom_data->irq);
++}
++
++static void wacom_w9000_irq_disable(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+ 	disable_irq(wacom_data->irq);
+-	wacom_w9000_release_pen(wacom_data);
+-	gpiod_set_value_cansleep(wacom_data->reset_gpio, 1);
+-	if (!wacom_data->powered)
+-		return 0;
++}
++
++static void wacom_w9000_release_input_callback(void *context)
++{
++	wacom_w9000_release_pen(context);
++}
++
++static void wacom_w9000_startup_delay(void *context)
++{
++	msleep(200);
++}
++
++static void wacom_w9000_shutdown_delay(void *context)
++{
++	struct wacom_w9000_data *wacom_data = context;
+ 
+-	error = regulator_disable(wacom_data->regulator);
+-	if (error)
+-		return error;
+-	wacom_data->powered = false;
+ 	if (wacom_data->variant->power_off_delay_us)
+ 		usleep_range(wacom_data->variant->power_off_delay_us,
+ 			     wacom_data->variant->power_off_delay_us + 1000);
++}
+ 
+-	return 0;
++static const struct wacom_w9000_power_ops wacom_w9000_power_ops = {
++	.supply_enable = wacom_w9000_supply_enable,
++	.supply_disable = wacom_w9000_supply_disable,
++	.reset = wacom_w9000_reset,
++	.irq_enable = wacom_w9000_irq_enable,
++	.irq_disable = wacom_w9000_irq_disable,
++	.release_input = wacom_w9000_release_input_callback,
++	.startup_delay = wacom_w9000_startup_delay,
++	.shutdown_delay = wacom_w9000_shutdown_delay,
++};
++
++static int wacom_w9000_power_on(struct wacom_w9000_data *wacom_data)
++{
++	struct wacom_w9000_power_state *state = &wacom_data->power_state;
++	const struct wacom_w9000_power_ops *ops = &wacom_w9000_power_ops;
++	int error;
++
++	lockdep_assert_held(&wacom_data->input_dev->mutex);
++
++	error = wacom_w9000_power_on_transition(state, ops, wacom_data);
++	if (error)
++		dev_err(&wacom_data->client->dev,
++			"Failed to enable regulators: %d\n", error);
++
++	return error;
++}
++
++static int wacom_w9000_power_off(struct wacom_w9000_data *wacom_data,
++				 bool restore_on_failure)
++{
++	lockdep_assert_held(&wacom_data->input_dev->mutex);
++
++	return wacom_w9000_power_off_transition(&wacom_data->power_state,
++						&wacom_w9000_power_ops,
++						wacom_data,
++						restore_on_failure);
+ }
+ 
+ static void wacom_w9000_disable_regulator(void *data)
+ {
+ 	struct wacom_w9000_data *wacom_data = data;
++	int error;
+ 
+-	if (wacom_data->powered &&
+-	    !regulator_disable(wacom_data->regulator))
+-		wacom_data->powered = false;
++	error = wacom_w9000_supply_off(&wacom_data->power_state,
++				       &wacom_w9000_power_ops, wacom_data);
++	if (error)
++		dev_err(&wacom_data->client->dev,
++			"Failed to disable regulators during cleanup: %d\n", error);
+ }
+ 
+ static void wacom_w9000_coord(struct wacom_w9000_data *wacom_data)
+@@ -245,7 +296,6 @@ static void wacom_w9000_coord(struct wacom_w9000_data *wacom_data)
+ 	};
+ 	struct wacom_w9000_report report;
+ 	u8 data[MSG_COORD_NUM_MAX];
+-	unsigned int old_tool;
+ 	int error;
+ 
+ 	error = i2c_master_recv(client, data, wacom_data->variant->msg_coord_num);
+@@ -266,30 +316,9 @@ static void wacom_w9000_coord(struct wacom_w9000_data *wacom_data)
+ 		return;
+ 	}
+ 
+-	if (!report.proximity) {
+-		wacom_w9000_release_pen(wacom_data);
+-		return;
+-	}
+-
+-	old_tool = report.rubber ? BTN_TOOL_PEN : BTN_TOOL_RUBBER;
+-	if (test_bit(old_tool, wacom_data->input_dev->key))
+-		wacom_w9000_release_pen(wacom_data);
+-
+-	wacom_data->pen_proximity = true;
+-	input_report_key(wacom_data->input_dev, BTN_TOUCH, report.touch);
+-	touchscreen_report_pos(wacom_data->input_dev, &wacom_data->prop,
+-			       report.x, report.y, false);
+-	input_report_abs(wacom_data->input_dev, ABS_PRESSURE, report.pressure);
+-	if (wacom_data->variant->has_distance)
+-		input_report_abs(wacom_data->input_dev, ABS_DISTANCE,
+-				 report.distance);
+-	input_report_key(wacom_data->input_dev, BTN_STYLUS,
+-			 report.side_button);
+-	input_report_key(wacom_data->input_dev, BTN_TOOL_PEN,
+-			 !report.rubber);
+-	input_report_key(wacom_data->input_dev, BTN_TOOL_RUBBER,
+-			 report.rubber);
+-	input_sync(wacom_data->input_dev);
++	wacom_w9000_report_input(&wacom_data->input_state, &report,
++				 wacom_data->variant->has_distance,
++				 &wacom_w9000_input_ops, wacom_data);
+ }
+ 
+ static irqreturn_t wacom_w9000_interrupt(int irq, void *dev_id)
+@@ -311,8 +340,12 @@ static int wacom_w9000_open(struct input_dev *dev)
+ static void wacom_w9000_close(struct input_dev *dev)
+ {
+ 	struct wacom_w9000_data *wacom_data = input_get_drvdata(dev);
++	int error;
+ 
+-	wacom_w9000_power_off(wacom_data);
++	error = wacom_w9000_power_off(wacom_data, false);
++	if (error)
++		dev_err(&wacom_data->client->dev,
++			"Failed to disable regulators: %d\n", error);
+ }
+ 
+ static int wacom_w9000_probe(struct i2c_client *client)
+@@ -320,6 +353,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	struct device *dev = &client->dev;
+ 	struct wacom_w9000_data *wacom_data;
+ 	struct input_dev *input_dev;
++	enum gpiod_flags flash_mode_flags;
+ 	int disable_error;
+ 	int error;
+ 	u32 val;
+@@ -339,8 +373,9 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 		return -EINVAL;
+ 	}
+ 
+-	if (wacom_data->variant->cmd_query_num < WACOM_W9000_QUERY_MIN_LEN ||
+-	    wacom_data->variant->cmd_query_num > CMD_QUERY_NUM_MAX ||
++	if (wacom_data->variant->query.response_len <
++					WACOM_W9000_QUERY_MIN_LEN ||
++	    wacom_data->variant->query.response_len > CMD_QUERY_NUM_MAX ||
+ 	    wacom_data->variant->msg_coord_num > MSG_COORD_NUM_MAX) {
+ 		dev_err(dev, "Invalid message length for %s\n",
+ 			wacom_data->variant->name);
+@@ -379,10 +414,29 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	if (error)
+ 		return error;
+ 
+-	wacom_data->flash_mode_gpio = devm_gpiod_get_optional(dev, "flash-mode", GPIOD_OUT_LOW);
++	flash_mode_flags = wacom_data->variant->requires_flash_mode ?
++					GPIOD_ASIS : GPIOD_OUT_LOW;
++	wacom_data->flash_mode_gpio =
++		devm_gpiod_get_optional(dev, "flash-mode", flash_mode_flags);
+ 	if (IS_ERR(wacom_data->flash_mode_gpio))
+ 		return dev_err_probe(dev, PTR_ERR(wacom_data->flash_mode_gpio),
+ 				     "Failed to get flash-mode gpio\n");
++	if (wacom_data->variant->requires_flash_mode &&
++	    !wacom_data->flash_mode_gpio)
++		return dev_err_probe(dev, -EINVAL,
++				     "active-high flash-mode gpio is required for %s\n",
++				     wacom_data->variant->name);
++	if (wacom_data->variant->requires_flash_mode &&
++	    gpiod_is_active_low(wacom_data->flash_mode_gpio))
++		return dev_err_probe(dev, -EINVAL,
++				     "flash-mode gpio for %s must be active-high\n",
++				     wacom_data->variant->name);
++	if (wacom_data->variant->requires_flash_mode) {
++		error = gpiod_direction_output_raw(wacom_data->flash_mode_gpio, 0);
++		if (error)
++			return dev_err_probe(dev, error,
++					     "Failed to hold flash-mode gpio low\n");
++	}
+ 
+ 	wacom_data->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+ 	if (IS_ERR(wacom_data->reset_gpio))
+@@ -392,7 +446,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	error = regulator_enable(wacom_data->regulator);
+ 	if (error)
+ 		return dev_err_probe(dev, error, "Failed to enable regulators\n");
+-	wacom_data->powered = true;
++	wacom_data->power_state.supply_enabled = true;
+ 
+ 	msleep(200);
+ 
+@@ -401,12 +455,9 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	error = wacom_w9000_query(wacom_data);
+ 
+ 	gpiod_set_value_cansleep(wacom_data->reset_gpio, 1);
+-	disable_error = regulator_disable(wacom_data->regulator);
+-	if (!disable_error)
+-		wacom_data->powered = false;
+-	if (!disable_error && wacom_data->variant->power_off_delay_us)
+-		usleep_range(wacom_data->variant->power_off_delay_us,
+-			     wacom_data->variant->power_off_delay_us + 1000);
++	disable_error = wacom_w9000_supply_off(&wacom_data->power_state,
++					       &wacom_w9000_power_ops,
++					       wacom_data);
+ 
+ 	if (error)
+ 		return dev_err_probe(dev, error, "Failed to query\n");
+@@ -474,12 +525,10 @@ static int wacom_w9000_suspend(struct device *dev)
+ 	guard(mutex)(&wacom_data->input_dev->mutex);
+ 
+ 	if (input_device_enabled(wacom_data->input_dev)) {
+-		int error = wacom_w9000_power_off(wacom_data);
+-
+-		if (error)
+-			wacom_w9000_power_on(wacom_data);
+-		return error;
++		return wacom_w9000_power_off(wacom_data, true);
+ 	}
++	if (wacom_data->power_state.supply_enabled)
++		return wacom_w9000_power_off(wacom_data, false);
+ 
+ 	return 0;
+ }
+@@ -500,30 +549,37 @@ static int wacom_w9000_resume(struct device *dev)
+ static DEFINE_SIMPLE_DEV_PM_OPS(wacom_w9000_pm, wacom_w9000_suspend, wacom_w9000_resume);
+ 
+ static const struct wacom_w9000_variant w9002 = {
+-	.cmd_query_num  = 9,
++	.query.response_len = 9,
+ 	.msg_coord_num  = 7,
+ 	.name = "Wacom W9002 Digitizer",
+ };
+ 
+ static const struct wacom_w9000_variant w9007a_lt03 = {
+-	.cmd_query_num	= 9,
++	.query.response_len = 9,
+ 	.msg_coord_num	= 8,
+ 	.has_distance	= true,
+ 	.name = "Wacom W9007A LT03 Digitizer",
+ };
+ 
+ static const struct wacom_w9000_variant w9007a_v1 = {
+-	.cmd_query_num	= 9,
++	.query.response_len = 9,
+ 	.msg_coord_num	= 12,
+ 	.has_distance	= true,
+ 	.name = "Wacom W9007A V1 Digitizer",
+ };
+ 
+ static const struct wacom_w9000_variant w9019 = {
+-	.cmd_query_num	= 15,
++	.query = {
++		.response_len = 15,
++		.retries = 3,
++		.response_delay_ms = 100,
++		.retry_delay_ms = 100,
++		.split_transfer = true,
++		.require_nonzero_ranges = true,
++	},
+ 	.msg_coord_num	= 14,
+ 	.special_packet_byte = 12,
+-	.query_delay_ms = 100,
++	.requires_flash_mode = true,
+ 	.power_off_delay_us = 10000,
+ 	.name = "Wacom W9019 Digitizer",
+ };
+diff --git a/drivers/input/touchscreen/wacom_w9000.h b/drivers/input/touchscreen/wacom_w9000.h
+index 514f70fdcbee..30349980b87b 100644
+--- a/drivers/input/touchscreen/wacom_w9000.h
++++ b/drivers/input/touchscreen/wacom_w9000.h
+@@ -4,11 +4,14 @@
+ 
+ #include <linux/bits.h>
+ #include <linux/errno.h>
++#include <linux/input-event-codes.h>
+ #include <linux/types.h>
+ #include <linux/unaligned.h>
+ 
+ #define WACOM_W9000_QUERY_MIN_LEN	9
+ #define WACOM_W9000_REPORT_MIN_LEN	7
++#define WACOM_W9000_DEFAULT_QUERY_RETRIES	8
++#define WACOM_W9000_QUERY_COMMAND	0x2a
+ 
+ struct wacom_w9000_features {
+ 	u16 max_x;
+@@ -34,6 +37,49 @@ struct wacom_w9000_report {
+ 	bool side_button;
+ };
+ 
++struct wacom_w9000_query_policy {
++	u8 response_len;
++	u8 retries;
++	u16 response_delay_ms;
++	u16 retry_delay_ms;
++	bool split_transfer;
++	bool require_nonzero_ranges;
++};
++
++struct wacom_w9000_query_ops {
++	int (*transfer)(void *context, u8 command, u8 *data, size_t len);
++	int (*send)(void *context, u8 command);
++	int (*receive)(void *context, u8 *data, size_t len);
++	void (*delay)(void *context, unsigned int delay_ms);
++};
++
++struct wacom_w9000_input_state {
++	bool pen_proximity;
++};
++
++struct wacom_w9000_input_ops {
++	void (*report_key)(void *context, unsigned int code, int value);
++	void (*report_abs)(void *context, unsigned int code, int value);
++	void (*report_pos)(void *context, u16 x, u16 y);
++	void (*sync)(void *context);
++};
++
++struct wacom_w9000_power_state {
++	bool supply_enabled;
++	bool irq_enabled;
++};
++
++struct wacom_w9000_power_ops {
++	int (*supply_enable)(void *context);
++	int (*supply_disable)(void *context);
++	void (*reset)(void *context, bool asserted);
++	void (*irq_enable)(void *context);
++	void (*irq_disable)(void *context);
++	void (*release_input)(void *context);
++	void (*startup_delay)(void *context);
++	void (*shutdown_delay)(void *context);
++};
++
+ static inline int wacom_w9000_xfer_result(int result, int expected)
+ {
+ 	if (result == expected)
+@@ -54,12 +100,61 @@ wacom_w9000_parse_query(const u8 *data, size_t len,
+ 	features->max_pressure = get_unaligned_be16(&data[5]);
+ 	features->fw_version = get_unaligned_be16(&data[7]);
+ 
+-	if (!features->max_x || !features->max_y || !features->max_pressure)
+-		return -EINVAL;
+-
+ 	return 0;
+ }
+ 
++static inline int
++wacom_w9000_query_once(const struct wacom_w9000_query_policy *policy,
++		       const struct wacom_w9000_query_ops *ops, void *context,
++		       u8 *data)
++{
++	int result;
++
++	if (!policy->split_transfer) {
++		result = ops->transfer(context, WACOM_W9000_QUERY_COMMAND,
++				       data, policy->response_len);
++		return wacom_w9000_xfer_result(result, 2);
++	}
++
++	result = ops->send(context, WACOM_W9000_QUERY_COMMAND);
++	result = wacom_w9000_xfer_result(result, 1);
++	if (result)
++		return result;
++
++	ops->delay(context, policy->response_delay_ms);
++	result = ops->receive(context, data, policy->response_len);
++
++	return wacom_w9000_xfer_result(result, policy->response_len);
++}
++
++static inline int
++wacom_w9000_run_query(const struct wacom_w9000_query_policy *policy,
++		      const struct wacom_w9000_query_ops *ops, void *context,
++		      u8 *data, struct wacom_w9000_features *features)
++{
++	unsigned int retries = policy->retries ? policy->retries :
++			       WACOM_W9000_DEFAULT_QUERY_RETRIES;
++	int error = -EIO;
++	unsigned int attempt;
++
++	for (attempt = 0; attempt < retries; attempt++) {
++		error = wacom_w9000_query_once(policy, ops, context, data);
++		if (!error)
++			error = wacom_w9000_parse_query(data, policy->response_len, features);
++		if (!error && policy->require_nonzero_ranges &&
++		    (!features->max_x || !features->max_y ||
++		     !features->max_pressure))
++			error = -EINVAL;
++		if (!error)
++			return 0;
++
++		if (attempt + 1 < retries && policy->retry_delay_ms)
++			ops->delay(context, policy->retry_delay_ms);
++	}
++
++	return error;
++}
++
+ static inline int
+ wacom_w9000_parse_report(const u8 *data, size_t len,
+ 			 const struct wacom_w9000_report_format *format,
+@@ -96,4 +191,124 @@ wacom_w9000_parse_report(const u8 *data, size_t len,
+ 	return 0;
+ }
+ 
++static inline void
++wacom_w9000_release_input(struct wacom_w9000_input_state *state,
++			  bool has_distance,
++			  const struct wacom_w9000_input_ops *ops,
++			  void *context)
++{
++	if (!state->pen_proximity)
++		return;
++
++	ops->report_abs(context, ABS_PRESSURE, 0);
++	if (has_distance)
++		ops->report_abs(context, ABS_DISTANCE, 255);
++	ops->report_key(context, BTN_STYLUS, 0);
++	ops->report_key(context, BTN_TOUCH, 0);
++	ops->report_key(context, BTN_TOOL_PEN, 0);
++	ops->report_key(context, BTN_TOOL_RUBBER, 0);
++	ops->sync(context);
++
++	state->pen_proximity = false;
++}
++
++static inline void
++wacom_w9000_report_input(struct wacom_w9000_input_state *state,
++			 const struct wacom_w9000_report *report,
++			 bool has_distance,
++			 const struct wacom_w9000_input_ops *ops,
++			 void *context)
++{
++	if (!report->proximity) {
++		wacom_w9000_release_input(state, has_distance, ops, context);
++		return;
++	}
++
++	state->pen_proximity = true;
++	ops->report_pos(context, report->x, report->y);
++	ops->report_abs(context, ABS_PRESSURE, report->pressure);
++	if (has_distance)
++		ops->report_abs(context, ABS_DISTANCE, report->distance);
++	ops->report_key(context, BTN_STYLUS, report->side_button);
++	ops->report_key(context, BTN_TOUCH, report->touch);
++	ops->report_key(context, BTN_TOOL_PEN, !report->rubber);
++	ops->report_key(context, BTN_TOOL_RUBBER, report->rubber);
++	ops->sync(context);
++}
++
++static inline int
++wacom_w9000_power_on_transition(struct wacom_w9000_power_state *state,
++				const struct wacom_w9000_power_ops *ops,
++				void *context)
++{
++	int error;
++
++	if (!state->supply_enabled) {
++		error = ops->supply_enable(context);
++		if (error)
++			return error;
++		state->supply_enabled = true;
++		ops->startup_delay(context);
++	}
++
++	ops->reset(context, false);
++	if (!state->irq_enabled) {
++		ops->irq_enable(context);
++		state->irq_enabled = true;
++	}
++
++	return 0;
++}
++
++static inline int
++wacom_w9000_supply_off(struct wacom_w9000_power_state *state,
++		       const struct wacom_w9000_power_ops *ops, void *context)
++{
++	int error;
++
++	if (!state->supply_enabled)
++		return 0;
++
++	error = ops->supply_disable(context);
++	if (error)
++		return error;
++
++	state->supply_enabled = false;
++	ops->shutdown_delay(context);
++
++	return 0;
++}
++
++static inline int
++wacom_w9000_power_off_transition(struct wacom_w9000_power_state *state,
++				 const struct wacom_w9000_power_ops *ops,
++				 void *context, bool restore_on_failure)
++{
++	int error;
++
++	if (state->irq_enabled) {
++		ops->irq_disable(context);
++		state->irq_enabled = false;
++	}
++	ops->release_input(context);
++	ops->reset(context, true);
++
++	if (!state->supply_enabled)
++		return 0;
++
++	error = wacom_w9000_supply_off(state, ops, context);
++	if (error) {
++		if (restore_on_failure) {
++			ops->reset(context, false);
++			if (!state->irq_enabled) {
++				ops->irq_enable(context);
++				state->irq_enabled = true;
++			}
++		}
++		return error;
++	}
++
++	return 0;
++}
++
+ #endif
+diff --git a/drivers/input/touchscreen/wacom_w9000_test.c b/drivers/input/touchscreen/wacom_w9000_test.c
+index b33112068c00..0780d0279a77 100644
+--- a/drivers/input/touchscreen/wacom_w9000_test.c
++++ b/drivers/input/touchscreen/wacom_w9000_test.c
+@@ -2,6 +2,7 @@
+ #include <kunit/test.h>
+ #include <linux/err.h>
+ #include <linux/module.h>
++#include <linux/string.h>
+ 
+ #include "wacom_w9000.h"
+ 
+@@ -19,7 +20,7 @@ static const struct wacom_w9000_report_format w9019_format = {
+ 
+ static void wacom_w9000_xfer_result_test(struct kunit *test)
+ {
+-	const int lengths[] = { 1, 15, 14 };
++	const int lengths[] = { 1, 2, 7, 8, 9, 12, 14, 15 };
+ 	int expected;
+ 	int result;
+ 	int i;
+@@ -42,14 +43,91 @@ static void wacom_w9000_xfer_result_test(struct kunit *test)
+ 	}
+ }
+ 
+-static void wacom_w9000_query_test(struct kunit *test)
++struct wacom_w9000_query_fake {
++	u8 response[15];
++	int send_results[3];
++	int receive_results[3];
++	int transfer_result;
++	unsigned int transfer_calls;
++	unsigned int send_calls;
++	unsigned int receive_calls;
++	unsigned int delay_calls;
++	unsigned int delays[8];
++	u8 command;
++	size_t length;
++};
++
++static int wacom_w9000_test_transfer(void *context, u8 command, u8 *data,
++				     size_t len)
++{
++	struct wacom_w9000_query_fake *fake = context;
++
++	fake->transfer_calls++;
++	fake->command = command;
++	fake->length = len;
++	if (fake->transfer_result == 2)
++		memcpy(data, fake->response, len);
++
++	return fake->transfer_result;
++}
++
++static int wacom_w9000_test_send(void *context, u8 command)
++{
++	struct wacom_w9000_query_fake *fake = context;
++	unsigned int call = fake->send_calls++;
++
++	fake->command = command;
++	return fake->send_results[min_t(unsigned int, call,
++					 ARRAY_SIZE(fake->send_results) - 1)];
++}
++
++static int wacom_w9000_test_receive(void *context, u8 *data, size_t len)
++{
++	struct wacom_w9000_query_fake *fake = context;
++	unsigned int call = fake->receive_calls++;
++	int result;
++
++	fake->length = len;
++	result = fake->receive_results[min_t(unsigned int, call,
++					      ARRAY_SIZE(fake->receive_results) - 1)];
++	if (result == len)
++		memcpy(data, fake->response, len);
++
++	return result;
++}
++
++static void wacom_w9000_test_delay(void *context, unsigned int delay_ms)
++{
++	struct wacom_w9000_query_fake *fake = context;
++
++	if (fake->delay_calls < ARRAY_SIZE(fake->delays))
++		fake->delays[fake->delay_calls] = delay_ms;
++	fake->delay_calls++;
++}
++
++static const struct wacom_w9000_query_ops wacom_w9000_test_query_ops = {
++	.transfer = wacom_w9000_test_transfer,
++	.send = wacom_w9000_test_send,
++	.receive = wacom_w9000_test_receive,
++	.delay = wacom_w9000_test_delay,
++};
++
++static void wacom_w9000_set_valid_query(u8 *data)
+ {
+-	u8 data[15] = {
++	const u8 query[] = {
+ 		0x0f, 0x4c, 0xcd, 0x39, 0x9a, 0x0f, 0xff, 0x12, 0x34,
+ 	};
++
++	memcpy(data, query, sizeof(query));
++}
++
++static void wacom_w9000_query_parser_test(struct kunit *test)
++{
++	u8 data[15] = {};
+ 	struct wacom_w9000_features features;
+ 	int len;
+ 
++	wacom_w9000_set_valid_query(data);
+ 	KUNIT_ASSERT_EQ(test,
+ 			wacom_w9000_parse_query(data, sizeof(data), &features),
+ 			0);
+@@ -63,39 +141,99 @@ static void wacom_w9000_query_test(struct kunit *test)
+ 		KUNIT_EXPECT_EQ(test,
+ 				wacom_w9000_parse_query(data, len, &features),
+ 				-EINVAL);
+-	KUNIT_EXPECT_EQ(test,
+-			wacom_w9000_parse_query(data, WACOM_W9000_QUERY_MIN_LEN,
+-						&features),
+-			0);
+ 
+ 	data[0] = 0;
+ 	KUNIT_EXPECT_EQ(test,
+ 			wacom_w9000_parse_query(data, sizeof(data), &features),
+ 			-EINVAL);
+-	data[0] = 0x0f;
+ 
+-	data[1] = 0;
+-	data[2] = 0;
+-	KUNIT_EXPECT_EQ(test,
+-			wacom_w9000_parse_query(data, sizeof(data), &features),
+-			-EINVAL);
+-	data[1] = 0x4c;
+-	data[2] = 0xcd;
+-	data[3] = 0;
+-	data[4] = 0;
+-	KUNIT_EXPECT_EQ(test,
+-			wacom_w9000_parse_query(data, sizeof(data), &features),
+-			-EINVAL);
+-	data[3] = 0x39;
+-	data[4] = 0x9a;
+-	data[5] = 0;
+-	data[6] = 0;
++	/* Existing variants historically accept a zero range from firmware. */
++	memset(data, 0, sizeof(data));
++	data[0] = 0x0f;
+ 	KUNIT_EXPECT_EQ(test,
+-			wacom_w9000_parse_query(data, sizeof(data), &features),
+-			-EINVAL);
++			wacom_w9000_parse_query(data, sizeof(data), &features), 0);
+ }
+ 
+-static void wacom_w9000_report_test(struct kunit *test)
++static void wacom_w9000_existing_query_test(struct kunit *test)
++{
++	const struct wacom_w9000_query_ops *ops = &wacom_w9000_test_query_ops;
++	const struct wacom_w9000_query_policy policy = {
++		.response_len = 9,
++	};
++	struct wacom_w9000_query_fake fake = {
++		.transfer_result = 2,
++	};
++	struct wacom_w9000_features features;
++	u8 data[15];
++	int error;
++
++	wacom_w9000_set_valid_query(fake.response);
++	error = wacom_w9000_run_query(&policy, ops, &fake, data, &features);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.transfer_calls, 1U);
++	KUNIT_EXPECT_EQ(test, fake.send_calls, 0U);
++	KUNIT_EXPECT_EQ(test, fake.receive_calls, 0U);
++	KUNIT_EXPECT_EQ(test, fake.delay_calls, 0U);
++	KUNIT_EXPECT_EQ(test, fake.command, (u8)WACOM_W9000_QUERY_COMMAND);
++	KUNIT_EXPECT_EQ(test, fake.length, (size_t)9);
++
++	memset(fake.response, 0, sizeof(fake.response));
++	fake.transfer_calls = 0;
++	error = wacom_w9000_run_query(&policy, ops, &fake, data, &features);
++	KUNIT_EXPECT_EQ(test, error, -EINVAL);
++	KUNIT_EXPECT_EQ(test, fake.transfer_calls,
++			WACOM_W9000_DEFAULT_QUERY_RETRIES);
++	KUNIT_EXPECT_EQ(test, fake.delay_calls, 0U);
++}
++
++static void wacom_w9000_w9019_query_retry_test(struct kunit *test)
++{
++	const struct wacom_w9000_query_ops *ops = &wacom_w9000_test_query_ops;
++	const struct wacom_w9000_query_policy policy = {
++		.response_len = 15,
++		.retries = 3,
++		.response_delay_ms = 100,
++		.retry_delay_ms = 100,
++		.split_transfer = true,
++		.require_nonzero_ranges = true,
++	};
++	struct wacom_w9000_query_fake fake = {
++		.send_results = { -EIO, 1, 1 },
++		.receive_results = { -EREMOTEIO, 15, 15 },
++	};
++	struct wacom_w9000_features features;
++	u8 data[15];
++	int error;
++	int i;
++
++	wacom_w9000_set_valid_query(fake.response);
++	error = wacom_w9000_run_query(&policy, ops, &fake, data, &features);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.transfer_calls, 0U);
++	KUNIT_EXPECT_EQ(test, fake.send_calls, 3U);
++	KUNIT_EXPECT_EQ(test, fake.receive_calls, 2U);
++	KUNIT_ASSERT_EQ(test, fake.delay_calls, 4U);
++	for (i = 0; i < fake.delay_calls; i++)
++		KUNIT_EXPECT_EQ(test, fake.delays[i], 100U);
++	KUNIT_EXPECT_EQ(test, fake.command, (u8)WACOM_W9000_QUERY_COMMAND);
++	KUNIT_EXPECT_EQ(test, fake.length, (size_t)15);
++
++	/* The W9019-specific validity rule is retried exactly three times. */
++	memset(fake.response, 0, sizeof(fake.response));
++	fake.response[0] = 0x0f;
++	fake.send_results[0] = 1;
++	fake.receive_results[0] = 15;
++	fake.send_calls = 0;
++	fake.receive_calls = 0;
++	fake.delay_calls = 0;
++	error = wacom_w9000_run_query(&policy, ops, &fake, data, &features);
++	KUNIT_EXPECT_EQ(test, error, -EINVAL);
++	KUNIT_EXPECT_EQ(test, fake.send_calls, 3U);
++	KUNIT_EXPECT_EQ(test, fake.receive_calls, 3U);
++	KUNIT_EXPECT_EQ(test, fake.delay_calls, 5U);
++}
++
++static void wacom_w9000_report_parser_test(struct kunit *test)
+ {
+ 	u8 data[14] = {
+ 		0xb0, 0x4c, 0xcd, 0x39, 0x9a, 0x0f, 0xff, 0x7f,
+@@ -127,14 +265,11 @@ static void wacom_w9000_report_test(struct kunit *test)
+ 	KUNIT_EXPECT_FALSE(test, report.touch);
+ 	KUNIT_EXPECT_FALSE(test, report.side_button);
+ 
+-	for (len = 0; len <= sizeof(data); len++) {
+-		if (len == sizeof(data))
+-			continue;
++	for (len = 0; len < sizeof(data); len++)
+ 		KUNIT_EXPECT_EQ(test,
+ 				wacom_w9000_parse_report(data, len, &w9019_format,
+ 							 &w9019_features, &report),
+ 				-EINVAL);
+-	}
+ }
+ 
+ static void wacom_w9000_release_and_bounds_test(struct kunit *test)
+@@ -187,7 +322,421 @@ static void wacom_w9000_release_and_bounds_test(struct kunit *test)
+ 			-EINVAL);
+ }
+ 
+-static void wacom_w9000_existing_variant_test(struct kunit *test)
++struct wacom_w9000_test_event {
++	unsigned int type;
++	unsigned int code;
++	int value;
++};
++
++struct wacom_w9000_input_fake {
++	struct wacom_w9000_test_event events[32];
++	unsigned int count;
++};
++
++static void wacom_w9000_record_event(struct wacom_w9000_input_fake *fake,
++				     unsigned int type, unsigned int code,
++				     int value)
++{
++	if (fake->count < ARRAY_SIZE(fake->events))
++		fake->events[fake->count] = (struct wacom_w9000_test_event) {
++			.type = type,
++			.code = code,
++			.value = value,
++		};
++	fake->count++;
++}
++
++static void wacom_w9000_test_report_key(void *context, unsigned int code,
++					int value)
++{
++	wacom_w9000_record_event(context, EV_KEY, code, value);
++}
++
++static void wacom_w9000_test_report_abs(void *context, unsigned int code,
++					int value)
++{
++	wacom_w9000_record_event(context, EV_ABS, code, value);
++}
++
++static void wacom_w9000_test_report_pos(void *context, u16 x, u16 y)
++{
++	wacom_w9000_record_event(context, EV_ABS, ABS_X, x);
++	wacom_w9000_record_event(context, EV_ABS, ABS_Y, y);
++}
++
++static void wacom_w9000_test_sync(void *context)
++{
++	wacom_w9000_record_event(context, EV_SYN, SYN_REPORT, 0);
++}
++
++static const struct wacom_w9000_input_ops wacom_w9000_test_input_ops = {
++	.report_key = wacom_w9000_test_report_key,
++	.report_abs = wacom_w9000_test_report_abs,
++	.report_pos = wacom_w9000_test_report_pos,
++	.sync = wacom_w9000_test_sync,
++};
++
++static void wacom_w9000_expect_event(struct kunit *test,
++				     const struct wacom_w9000_input_fake *fake,
++				     unsigned int index, unsigned int type,
++				     unsigned int code, int value)
++{
++	KUNIT_ASSERT_LT(test, index, fake->count);
++	KUNIT_EXPECT_EQ(test, fake->events[index].type, type);
++	KUNIT_EXPECT_EQ(test, fake->events[index].code, code);
++	KUNIT_EXPECT_EQ(test, fake->events[index].value, value);
++}
++
++static void wacom_w9000_existing_input_event_test(struct kunit *test)
++{
++	struct wacom_w9000_input_state state = {};
++	struct wacom_w9000_input_fake fake = {};
++	struct wacom_w9000_report report = {
++		.x = 101,
++		.y = 202,
++		.pressure = 303,
++		.distance = 44,
++		.proximity = true,
++		.touch = true,
++		.side_button = true,
++	};
++
++	/* W9002 preserves the seven-byte, no-distance event sequence. */
++	wacom_w9000_report_input(&state, &report, false,
++				 &wacom_w9000_test_input_ops, &fake);
++	KUNIT_ASSERT_EQ(test, fake.count, 8U);
++	wacom_w9000_expect_event(test, &fake, 0, EV_ABS, ABS_X, 101);
++	wacom_w9000_expect_event(test, &fake, 1, EV_ABS, ABS_Y, 202);
++	wacom_w9000_expect_event(test, &fake, 2, EV_ABS, ABS_PRESSURE, 303);
++	wacom_w9000_expect_event(test, &fake, 3, EV_KEY, BTN_STYLUS, 1);
++	wacom_w9000_expect_event(test, &fake, 4, EV_KEY, BTN_TOUCH, 1);
++	wacom_w9000_expect_event(test, &fake, 5, EV_KEY, BTN_TOOL_PEN, 1);
++	wacom_w9000_expect_event(test, &fake, 6, EV_KEY, BTN_TOOL_RUBBER, 0);
++	wacom_w9000_expect_event(test, &fake, 7, EV_SYN, SYN_REPORT, 0);
++
++	/* A direct tool switch remains one frame for existing variants. */
++	report.rubber = true;
++	wacom_w9000_report_input(&state, &report, false,
++				 &wacom_w9000_test_input_ops, &fake);
++	KUNIT_ASSERT_EQ(test, fake.count, 16U);
++	wacom_w9000_expect_event(test, &fake, 13, EV_KEY, BTN_TOOL_PEN, 0);
++	wacom_w9000_expect_event(test, &fake, 14, EV_KEY, BTN_TOOL_RUBBER, 1);
++	wacom_w9000_expect_event(test, &fake, 15, EV_SYN, SYN_REPORT, 0);
++
++	report.proximity = false;
++	wacom_w9000_report_input(&state, &report, false,
++				 &wacom_w9000_test_input_ops, &fake);
++	KUNIT_ASSERT_EQ(test, fake.count, 22U);
++	wacom_w9000_expect_event(test, &fake, 16, EV_ABS, ABS_PRESSURE, 0);
++	wacom_w9000_expect_event(test, &fake, 21, EV_SYN, SYN_REPORT, 0);
++	wacom_w9000_release_input(&state, false,
++				  &wacom_w9000_test_input_ops, &fake);
++	KUNIT_EXPECT_EQ(test, fake.count, 22U);
++}
++
++static void wacom_w9000_distance_input_event_test(struct kunit *test)
++{
++	struct wacom_w9000_input_state state = {};
++	struct wacom_w9000_input_fake fake = {};
++	const struct wacom_w9000_report report = {
++		.x = 1,
++		.y = 2,
++		.pressure = 3,
++		.distance = 127,
++		.proximity = true,
++	};
++
++	wacom_w9000_report_input(&state, &report, true,
++				 &wacom_w9000_test_input_ops, &fake);
++	KUNIT_ASSERT_EQ(test, fake.count, 9U);
++	wacom_w9000_expect_event(test, &fake, 3, EV_ABS, ABS_DISTANCE, 127);
++
++	wacom_w9000_release_input(&state, true,
++				  &wacom_w9000_test_input_ops, &fake);
++	KUNIT_ASSERT_EQ(test, fake.count, 16U);
++	wacom_w9000_expect_event(test, &fake, 10, EV_ABS, ABS_DISTANCE, 255);
++}
++
++enum wacom_w9000_power_action {
++	POWER_SUPPLY_ENABLE,
++	POWER_SUPPLY_DISABLE,
++	POWER_RESET_ASSERT,
++	POWER_RESET_DEASSERT,
++	POWER_IRQ_ENABLE,
++	POWER_IRQ_DISABLE,
++	POWER_RELEASE_INPUT,
++	POWER_STARTUP_DELAY,
++	POWER_SHUTDOWN_DELAY,
++};
++
++struct wacom_w9000_power_fake {
++	enum wacom_w9000_power_action actions[32];
++	unsigned int count;
++	unsigned int supply_enables;
++	unsigned int supply_disables;
++	unsigned int irq_enables;
++	unsigned int irq_disables;
++	unsigned int shutdown_delay_us;
++	int enable_error;
++	int disable_error;
++};
++
++static void wacom_w9000_record_power(struct wacom_w9000_power_fake *fake,
++				     enum wacom_w9000_power_action action)
++{
++	if (fake->count < ARRAY_SIZE(fake->actions))
++		fake->actions[fake->count] = action;
++	fake->count++;
++}
++
++static int wacom_w9000_test_supply_enable(void *context)
++{
++	struct wacom_w9000_power_fake *fake = context;
++
++	wacom_w9000_record_power(fake, POWER_SUPPLY_ENABLE);
++	fake->supply_enables++;
++	return fake->enable_error;
++}
++
++static int wacom_w9000_test_supply_disable(void *context)
++{
++	struct wacom_w9000_power_fake *fake = context;
++
++	wacom_w9000_record_power(fake, POWER_SUPPLY_DISABLE);
++	fake->supply_disables++;
++	return fake->disable_error;
++}
++
++static void wacom_w9000_test_reset(void *context, bool asserted)
++{
++	wacom_w9000_record_power(context, asserted ? POWER_RESET_ASSERT :
++							 POWER_RESET_DEASSERT);
++}
++
++static void wacom_w9000_test_irq_enable(void *context)
++{
++	struct wacom_w9000_power_fake *fake = context;
++
++	wacom_w9000_record_power(fake, POWER_IRQ_ENABLE);
++	fake->irq_enables++;
++}
++
++static void wacom_w9000_test_irq_disable(void *context)
++{
++	struct wacom_w9000_power_fake *fake = context;
++
++	wacom_w9000_record_power(fake, POWER_IRQ_DISABLE);
++	fake->irq_disables++;
++}
++
++static void wacom_w9000_test_release_input(void *context)
++{
++	wacom_w9000_record_power(context, POWER_RELEASE_INPUT);
++}
++
++static void wacom_w9000_test_startup_delay(void *context)
++{
++	wacom_w9000_record_power(context, POWER_STARTUP_DELAY);
++}
++
++static void wacom_w9000_test_shutdown_delay(void *context)
++{
++	struct wacom_w9000_power_fake *fake = context;
++
++	if (fake->shutdown_delay_us)
++		wacom_w9000_record_power(fake, POWER_SHUTDOWN_DELAY);
++}
++
++static const struct wacom_w9000_power_ops wacom_w9000_test_power_ops = {
++	.supply_enable = wacom_w9000_test_supply_enable,
++	.supply_disable = wacom_w9000_test_supply_disable,
++	.reset = wacom_w9000_test_reset,
++	.irq_enable = wacom_w9000_test_irq_enable,
++	.irq_disable = wacom_w9000_test_irq_disable,
++	.release_input = wacom_w9000_test_release_input,
++	.startup_delay = wacom_w9000_test_startup_delay,
++	.shutdown_delay = wacom_w9000_test_shutdown_delay,
++};
++
++static void wacom_w9000_pm_enable_failure_test(struct kunit *test)
++{
++	const struct wacom_w9000_power_ops *ops = &wacom_w9000_test_power_ops;
++	struct wacom_w9000_power_state state = {};
++	struct wacom_w9000_power_fake fake = {
++		.enable_error = -EIO,
++	};
++	int error;
++
++	error = wacom_w9000_power_on_transition(&state, ops, &fake);
++	KUNIT_EXPECT_EQ(test, error, -EIO);
++	KUNIT_EXPECT_FALSE(test, state.supply_enabled);
++	KUNIT_EXPECT_FALSE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_enables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 0U);
++
++	/* A later off path cannot nest the already-disabled IRQ. */
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, false);
++	KUNIT_EXPECT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 0U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 0U);
++
++	fake.enable_error = 0;
++	error = wacom_w9000_power_on_transition(&state, ops, &fake);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_TRUE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_enables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 1U);
++
++	/* Repeated resume/open cannot add regulator votes or IRQ enable depth. */
++	error = wacom_w9000_power_on_transition(&state, ops, &fake);
++	KUNIT_EXPECT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.supply_enables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 1U);
++}
++
++static void wacom_w9000_pm_disable_rollback_test(struct kunit *test)
++{
++	const struct wacom_w9000_power_ops *ops = &wacom_w9000_test_power_ops;
++	struct wacom_w9000_power_state state = {
++		.supply_enabled = true,
++		.irq_enabled = true,
++	};
++	struct wacom_w9000_power_fake fake = {
++		.disable_error = -EIO,
++	};
++	int error;
++
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, true);
++	KUNIT_EXPECT_EQ(test, error, -EIO);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_TRUE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 1U);
++	KUNIT_ASSERT_GE(test, fake.count, 6U);
++	KUNIT_EXPECT_EQ(test, fake.actions[0], POWER_IRQ_DISABLE);
++	KUNIT_EXPECT_EQ(test, fake.actions[1], POWER_RELEASE_INPUT);
++	KUNIT_EXPECT_EQ(test, fake.actions[2], POWER_RESET_ASSERT);
++	KUNIT_EXPECT_EQ(test, fake.actions[3], POWER_SUPPLY_DISABLE);
++	KUNIT_EXPECT_EQ(test, fake.actions[4], POWER_RESET_DEASSERT);
++	KUNIT_EXPECT_EQ(test, fake.actions[5], POWER_IRQ_ENABLE);
++
++	fake.disable_error = 0;
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, true);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_FALSE(test, state.supply_enabled);
++	KUNIT_EXPECT_FALSE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 1U);
++
++	/* Repeated close/suspend leaves both nesting counts unchanged. */
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, true);
++	KUNIT_EXPECT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 2U);
++
++	error = wacom_w9000_power_on_transition(&state, ops, &fake);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_TRUE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_enables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 2U);
++}
++
++static void wacom_w9000_close_disable_failure_test(struct kunit *test)
++{
++	const struct wacom_w9000_power_ops *ops = &wacom_w9000_test_power_ops;
++	struct wacom_w9000_power_state state = {
++		.supply_enabled = true,
++		.irq_enabled = true,
++	};
++	struct wacom_w9000_power_fake fake = {
++		.disable_error = -EIO,
++	};
++	int error;
++
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, false);
++	KUNIT_EXPECT_EQ(test, error, -EIO);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_FALSE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 1U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 0U);
++	KUNIT_ASSERT_EQ(test, fake.count, 4U);
++	KUNIT_EXPECT_EQ(test, fake.actions[0], POWER_IRQ_DISABLE);
++	KUNIT_EXPECT_EQ(test, fake.actions[1], POWER_RELEASE_INPUT);
++	KUNIT_EXPECT_EQ(test, fake.actions[2], POWER_RESET_ASSERT);
++	KUNIT_EXPECT_EQ(test, fake.actions[3], POWER_SUPPLY_DISABLE);
++
++	/* Reopen repairs only the IRQ/reset side; it cannot stack a vote. */
++	error = wacom_w9000_power_on_transition(&state, ops, &fake);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_TRUE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_enables, 0U);
++	KUNIT_EXPECT_EQ(test, fake.irq_enables, 1U);
++
++	fake.disable_error = 0;
++	error = wacom_w9000_power_off_transition(&state, ops, &fake, false);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_FALSE(test, state.supply_enabled);
++	KUNIT_EXPECT_FALSE(test, state.irq_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.irq_disables, 2U);
++}
++
++static void wacom_w9000_cleanup_retry_delay_test(struct kunit *test)
++{
++	const struct wacom_w9000_power_ops *ops = &wacom_w9000_test_power_ops;
++	struct wacom_w9000_power_state state = {
++		.supply_enabled = true,
++	};
++	struct wacom_w9000_power_fake fake = {
++		.shutdown_delay_us = 10000,
++		.disable_error = -EIO,
++	};
++	struct wacom_w9000_power_state old_state = {
++		.supply_enabled = true,
++	};
++	struct wacom_w9000_power_fake old_fake = {};
++	int error;
++
++	/* A failed managed-cleanup attempt retains the vote without a delay. */
++	error = wacom_w9000_supply_off(&state, ops, &fake);
++	KUNIT_EXPECT_EQ(test, error, -EIO);
++	KUNIT_EXPECT_TRUE(test, state.supply_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 1U);
++	KUNIT_ASSERT_EQ(test, fake.count, 1U);
++	KUNIT_EXPECT_EQ(test, fake.actions[0], POWER_SUPPLY_DISABLE);
++
++	/* A later successful cleanup observes the W9019 shutdown delay. */
++	fake.disable_error = 0;
++	error = wacom_w9000_supply_off(&state, ops, &fake);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_FALSE(test, state.supply_enabled);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 2U);
++	KUNIT_ASSERT_EQ(test, fake.count, 3U);
++	KUNIT_EXPECT_EQ(test, fake.actions[1], POWER_SUPPLY_DISABLE);
++	KUNIT_EXPECT_EQ(test, fake.actions[2], POWER_SHUTDOWN_DELAY);
++
++	/* Already-off cleanup is idempotent. */
++	error = wacom_w9000_supply_off(&state, ops, &fake);
++	KUNIT_EXPECT_EQ(test, error, 0);
++	KUNIT_EXPECT_EQ(test, fake.supply_disables, 2U);
++	KUNIT_EXPECT_EQ(test, fake.count, 3U);
++
++	/* Existing variants have no configured shutdown delay. */
++	error = wacom_w9000_supply_off(&old_state, ops, &old_fake);
++	KUNIT_ASSERT_EQ(test, error, 0);
++	KUNIT_EXPECT_FALSE(test, old_state.supply_enabled);
++	KUNIT_EXPECT_EQ(test, old_fake.supply_disables, 1U);
++	KUNIT_ASSERT_EQ(test, old_fake.count, 1U);
++	KUNIT_EXPECT_EQ(test, old_fake.actions[0], POWER_SUPPLY_DISABLE);
++}
++
++static void wacom_w9000_existing_variant_parser_test(struct kunit *test)
+ {
+ 	struct wacom_w9000_report_format format = { .length = 7 };
+ 	u8 data[8] = { 0x90, 0, 1, 0, 2, 0, 3, 0x7f };
+@@ -244,10 +793,18 @@ static void wacom_w9000_parser_fuzz_test(struct kunit *test)
+ 
+ static struct kunit_case wacom_w9000_cases[] = {
+ 	KUNIT_CASE(wacom_w9000_xfer_result_test),
+-	KUNIT_CASE(wacom_w9000_query_test),
+-	KUNIT_CASE(wacom_w9000_report_test),
++	KUNIT_CASE(wacom_w9000_query_parser_test),
++	KUNIT_CASE(wacom_w9000_existing_query_test),
++	KUNIT_CASE(wacom_w9000_w9019_query_retry_test),
++	KUNIT_CASE(wacom_w9000_report_parser_test),
+ 	KUNIT_CASE(wacom_w9000_release_and_bounds_test),
+-	KUNIT_CASE(wacom_w9000_existing_variant_test),
++	KUNIT_CASE(wacom_w9000_existing_input_event_test),
++	KUNIT_CASE(wacom_w9000_distance_input_event_test),
++	KUNIT_CASE(wacom_w9000_pm_enable_failure_test),
++	KUNIT_CASE(wacom_w9000_pm_disable_rollback_test),
++	KUNIT_CASE(wacom_w9000_close_disable_failure_test),
++	KUNIT_CASE(wacom_w9000_cleanup_retry_delay_test),
++	KUNIT_CASE(wacom_w9000_existing_variant_parser_test),
+ 	KUNIT_CASE(wacom_w9000_parser_fuzz_test),
+ 	{}
+ };
+@@ -259,5 +816,5 @@ static struct kunit_suite wacom_w9000_suite = {
+ 
+ kunit_test_suite(wacom_w9000_suite);
+ 
+-MODULE_DESCRIPTION("KUnit tests for Wacom W9000-series protocol");
++MODULE_DESCRIPTION("KUnit tests for Wacom W9000-series protocol and state");
+ MODULE_LICENSE("GPL");
+-- 
+2.56.0
+

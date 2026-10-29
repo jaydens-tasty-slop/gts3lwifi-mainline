@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 11:39:26 -0600
+Subject: [PATCH] Input: wacom_w9000: report a direct input device
+
+The W9000-series digitizers sit under the display: a pen position is a
+point on the screen, as with the other display digitizers (wacom_w8001,
+the silead pen).  Without INPUT_PROP_DIRECT userspace takes the pen for
+an external tablet: libinput does not bind it to a display, and Android
+types a touch device without the property as a pointer.
+
+Set INPUT_PROP_DIRECT.
+
+Tested on a Galaxy Tab S3 (SM-T820, W9019, firmware 0x0124): the
+properties of the input device read 2 (INPUT_PROP_DIRECT) instead of 0.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/touchscreen/wacom_w9000.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/input/touchscreen/wacom_w9000.c b/drivers/input/touchscreen/wacom_w9000.c
+index 008be43a1302..d5f735976e1b 100644
+--- a/drivers/input/touchscreen/wacom_w9000.c
++++ b/drivers/input/touchscreen/wacom_w9000.c
+@@ -488,6 +488,7 @@ static int wacom_w9000_probe(struct i2c_client *client)
+ 	input_set_capability(input_dev, EV_KEY, BTN_TOOL_PEN);
+ 	input_set_capability(input_dev, EV_KEY, BTN_TOOL_RUBBER);
+ 	input_set_capability(input_dev, EV_KEY, BTN_STYLUS);
++	__set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
+ 
+ 	input_set_abs_params(input_dev, ABS_X, 0, wacom_data->prop.max_x, 4, 0);
+ 	input_set_abs_params(input_dev, ABS_Y, 0, wacom_data->prop.max_y, 4, 0);
+-- 
+2.56.0
+

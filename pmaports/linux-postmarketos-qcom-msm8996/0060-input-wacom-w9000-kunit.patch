@@ -1,0 +1,323 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:18:01 -0600
+Subject: [PATCH] Input: wacom_w9000: add protocol KUnit tests
+
+Exercise transfer-result handling, query parsing, coordinate bounds and
+special-packet release semantics with synthetic packets.  The tests use no
+physical I2C adapter or tablet.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/touchscreen/Kconfig            |  10 +
+ drivers/input/touchscreen/Makefile           |   1 +
+ drivers/input/touchscreen/wacom_w9000_test.c | 263 +++++++++++++++++++
+ 3 files changed, 274 insertions(+)
+ create mode 100644 drivers/input/touchscreen/wacom_w9000_test.c
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index a28328fb7648..0d3ece2a8ec9 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -622,6 +622,16 @@ config TOUCHSCREEN_WACOM_W9000
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called wacom_w9000.
+ 
++config TOUCHSCREEN_WACOM_W9000_KUNIT_TEST
++	tristate "KUnit tests for Wacom W9000-series protocol" if !KUNIT_ALL_TESTS
++	depends on KUNIT
++	default KUNIT_ALL_TESTS
++	help
++	  Test Wacom W9000-series query and coordinate report parsing with
++	  synthetic packets. These tests do not access physical hardware or
++	  an I2C adapter. Test transfer-result handling, field bounds and
++	  special-packet release semantics for supported protocol variants.
++
+ config TOUCHSCREEN_LPC32XX
+ 	tristate "LPC32XX touchscreen controller"
+ 	depends on ARCH_LPC32XX
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index aa3915df83b2..9c020678632c 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -103,6 +103,7 @@ obj-$(CONFIG_TOUCHSCREEN_TSC2007)	+= tsc2007.o
+ obj-$(CONFIG_TOUCHSCREEN_WACOM_W8001)	+= wacom_w8001.o
+ obj-$(CONFIG_TOUCHSCREEN_WACOM_I2C)	+= wacom_i2c.o
+ obj-$(CONFIG_TOUCHSCREEN_WACOM_W9000)	+= wacom_w9000.o
++obj-$(CONFIG_TOUCHSCREEN_WACOM_W9000_KUNIT_TEST) += wacom_w9000_test.o
+ obj-$(CONFIG_TOUCHSCREEN_WDT87XX_I2C)	+= wdt87xx_i2c.o
+ obj-$(CONFIG_TOUCHSCREEN_WM831X)	+= wm831x-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_WM97XX)	+= wm97xx-ts.o
+diff --git a/drivers/input/touchscreen/wacom_w9000_test.c b/drivers/input/touchscreen/wacom_w9000_test.c
+new file mode 100644
+index 000000000000..b33112068c00
+--- /dev/null
++++ b/drivers/input/touchscreen/wacom_w9000_test.c
+@@ -0,0 +1,263 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include <kunit/test.h>
++#include <linux/err.h>
++#include <linux/module.h>
++
++#include "wacom_w9000.h"
++
++static const struct wacom_w9000_features w9019_features = {
++	.max_x = 19661,
++	.max_y = 14746,
++	.max_pressure = 4095,
++	.fw_version = 0x1234,
++};
++
++static const struct wacom_w9000_report_format w9019_format = {
++	.length = 14,
++	.special_packet_byte = 12,
++};
++
++static void wacom_w9000_xfer_result_test(struct kunit *test)
++{
++	const int lengths[] = { 1, 15, 14 };
++	int expected;
++	int result;
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(lengths); i++) {
++		expected = lengths[i];
++		for (result = -MAX_ERRNO; result < 0; result++)
++			KUNIT_EXPECT_EQ(test,
++					wacom_w9000_xfer_result(result, expected),
++					result);
++		for (result = 0; result < expected; result++)
++			KUNIT_EXPECT_EQ(test,
++					wacom_w9000_xfer_result(result, expected),
++					-EIO);
++		KUNIT_EXPECT_EQ(test,
++				wacom_w9000_xfer_result(expected, expected), 0);
++		KUNIT_EXPECT_EQ(test,
++				wacom_w9000_xfer_result(expected + 1, expected),
++				-EIO);
++	}
++}
++
++static void wacom_w9000_query_test(struct kunit *test)
++{
++	u8 data[15] = {
++		0x0f, 0x4c, 0xcd, 0x39, 0x9a, 0x0f, 0xff, 0x12, 0x34,
++	};
++	struct wacom_w9000_features features;
++	int len;
++
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_query(data, sizeof(data), &features),
++			0);
++	KUNIT_EXPECT_EQ(test, features.max_x, w9019_features.max_x);
++	KUNIT_EXPECT_EQ(test, features.max_y, w9019_features.max_y);
++	KUNIT_EXPECT_EQ(test, features.max_pressure,
++			w9019_features.max_pressure);
++	KUNIT_EXPECT_EQ(test, features.fw_version, w9019_features.fw_version);
++
++	for (len = 0; len < WACOM_W9000_QUERY_MIN_LEN; len++)
++		KUNIT_EXPECT_EQ(test,
++				wacom_w9000_parse_query(data, len, &features),
++				-EINVAL);
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_query(data, WACOM_W9000_QUERY_MIN_LEN,
++						&features),
++			0);
++
++	data[0] = 0;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_query(data, sizeof(data), &features),
++			-EINVAL);
++	data[0] = 0x0f;
++
++	data[1] = 0;
++	data[2] = 0;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_query(data, sizeof(data), &features),
++			-EINVAL);
++	data[1] = 0x4c;
++	data[2] = 0xcd;
++	data[3] = 0;
++	data[4] = 0;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_query(data, sizeof(data), &features),
++			-EINVAL);
++	data[3] = 0x39;
++	data[4] = 0x9a;
++	data[5] = 0;
++	data[6] = 0;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_query(data, sizeof(data), &features),
++			-EINVAL);
++}
++
++static void wacom_w9000_report_test(struct kunit *test)
++{
++	u8 data[14] = {
++		0xb0, 0x4c, 0xcd, 0x39, 0x9a, 0x0f, 0xff, 0x7f,
++	};
++	struct wacom_w9000_report report;
++	int len;
++
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			0);
++	KUNIT_EXPECT_TRUE(test, report.proximity);
++	KUNIT_EXPECT_TRUE(test, report.touch);
++	KUNIT_EXPECT_TRUE(test, report.side_button);
++	KUNIT_EXPECT_FALSE(test, report.rubber);
++	KUNIT_EXPECT_EQ(test, report.x, w9019_features.max_x);
++	KUNIT_EXPECT_EQ(test, report.y, w9019_features.max_y);
++	KUNIT_EXPECT_EQ(test, report.pressure, w9019_features.max_pressure);
++	KUNIT_EXPECT_EQ(test, report.distance, 0);
++
++	data[0] = 0xc0;
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			0);
++	KUNIT_EXPECT_TRUE(test, report.rubber);
++	KUNIT_EXPECT_FALSE(test, report.touch);
++	KUNIT_EXPECT_FALSE(test, report.side_button);
++
++	for (len = 0; len <= sizeof(data); len++) {
++		if (len == sizeof(data))
++			continue;
++		KUNIT_EXPECT_EQ(test,
++				wacom_w9000_parse_report(data, len, &w9019_format,
++							 &w9019_features, &report),
++				-EINVAL);
++	}
++}
++
++static void wacom_w9000_release_and_bounds_test(struct kunit *test)
++{
++	u8 data[14] = { 0x80, 0, 1, 0, 1, 0, 1 };
++	struct wacom_w9000_report report;
++
++	data[0] = 0;
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			0);
++	KUNIT_EXPECT_FALSE(test, report.proximity);
++
++	data[0] = 0x80;
++	data[12] = 0x80;
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			0);
++	KUNIT_EXPECT_FALSE(test, report.proximity);
++	data[12] = 0;
++
++	data[1] = 0x4c;
++	data[2] = 0xce;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			-EINVAL);
++	data[1] = 0;
++	data[2] = 1;
++	data[3] = 0x39;
++	data[4] = 0x9b;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			-EINVAL);
++	data[3] = 0;
++	data[4] = 1;
++	data[5] = 0x10;
++	data[6] = 0;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report),
++			-EINVAL);
++}
++
++static void wacom_w9000_existing_variant_test(struct kunit *test)
++{
++	struct wacom_w9000_report_format format = { .length = 7 };
++	u8 data[8] = { 0x90, 0, 1, 0, 2, 0, 3, 0x7f };
++	struct wacom_w9000_report report;
++
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, format.length, &format,
++						 &w9019_features, &report),
++			0);
++	KUNIT_EXPECT_TRUE(test, report.proximity);
++	KUNIT_EXPECT_TRUE(test, report.touch);
++	KUNIT_EXPECT_EQ(test, report.distance, 0);
++
++	format.has_distance = true;
++	KUNIT_EXPECT_EQ(test,
++			wacom_w9000_parse_report(data, format.length, &format,
++						 &w9019_features, &report),
++			-EINVAL);
++	format.length = sizeof(data);
++	KUNIT_ASSERT_EQ(test,
++			wacom_w9000_parse_report(data, format.length, &format,
++						 &w9019_features, &report),
++			0);
++	KUNIT_EXPECT_EQ(test, report.distance, 0x7f);
++}
++
++static void wacom_w9000_parser_fuzz_test(struct kunit *test)
++{
++	u8 data[14];
++	struct wacom_w9000_report report;
++	u32 state = 0x9019;
++	int error;
++	int i;
++	int j;
++
++	for (i = 0; i < 4096; i++) {
++		for (j = 0; j < sizeof(data); j++) {
++			state = state * 1664525 + 1013904223;
++			data[j] = state >> 24;
++		}
++
++		error = wacom_w9000_parse_report(data, sizeof(data),
++						 &w9019_format, &w9019_features,
++						 &report);
++		KUNIT_ASSERT_TRUE(test, !error || error == -EINVAL);
++		if (!error && report.proximity) {
++			KUNIT_EXPECT_LE(test, report.x, w9019_features.max_x);
++			KUNIT_EXPECT_LE(test, report.y, w9019_features.max_y);
++			KUNIT_EXPECT_LE(test, report.pressure,
++					w9019_features.max_pressure);
++		}
++	}
++}
++
++static struct kunit_case wacom_w9000_cases[] = {
++	KUNIT_CASE(wacom_w9000_xfer_result_test),
++	KUNIT_CASE(wacom_w9000_query_test),
++	KUNIT_CASE(wacom_w9000_report_test),
++	KUNIT_CASE(wacom_w9000_release_and_bounds_test),
++	KUNIT_CASE(wacom_w9000_existing_variant_test),
++	KUNIT_CASE(wacom_w9000_parser_fuzz_test),
++	{}
++};
++
++static struct kunit_suite wacom_w9000_suite = {
++	.name = "wacom-w9000",
++	.test_cases = wacom_w9000_cases,
++};
++
++kunit_test_suite(wacom_w9000_suite);
++
++MODULE_DESCRIPTION("KUnit tests for Wacom W9000-series protocol");
++MODULE_LICENSE("GPL");
+-- 
+2.56.0
+

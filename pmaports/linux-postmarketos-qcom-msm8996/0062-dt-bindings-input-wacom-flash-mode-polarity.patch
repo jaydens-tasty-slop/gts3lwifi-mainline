@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:49:53 -0600
+Subject: [PATCH] dt-bindings: input: wacom: document flash-mode polarity
+
+Document that flash-mode-gpios is an active-high controller input which
+must remain low during normal operation. The W9019-specific conditional
+requirement was added with the compatible.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../bindings/input/touchscreen/wacom,w9007a-lt03.yaml          | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml b/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
+index 39c0b0dcb535..eee20b8bcea5 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
+@@ -44,6 +44,9 @@ properties:
+ 
+   flash-mode-gpios:
+     maxItems: 1
++    description:
++      Active-high flash-mode input. This line is held low during normal
++      operation.
+ 
+   reset-gpios:
+     maxItems: 1
+-- 
+2.56.0
+

@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 14:11:21 -0600
+Subject: [PATCH] dt-bindings: input: wacom: add W9019 variant
+
+Add the W9019 compatible and require its regulator supply and flash-mode
+GPIO.  The flash-mode line is needed to keep the controller in normal
+operation rather than firmware-update mode.
+
+The supply (a GPIO-switched 3.3 V rail) and the flash-enable line come
+from the board description in Samsung's GPL-2.0 kernel for the Galaxy
+Tab S3 (SM-T820), msm8996-sec-gts3lwifi-r04.dtsi.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../bindings/input/touchscreen/wacom,w9007a-lt03.yaml    | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml b/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
+index 6d1da6a435d3..39c0b0dcb535 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/wacom,w9007a-lt03.yaml
+@@ -17,6 +17,14 @@ description: |
+ 
+ allOf:
+   - $ref: touchscreen.yaml#
++  - if:
++      properties:
++        compatible:
++          const: wacom,w9019
++    then:
++      required:
++        - vdd-supply
++        - flash-mode-gpios
+ 
+ properties:
+   compatible:
+@@ -24,6 +32,7 @@ properties:
+       - wacom,w9002
+       - wacom,w9007a-lt03
+       - wacom,w9007a-v1
++      - wacom,w9019
+ 
+   reg:
+     maxItems: 1
+-- 
+2.56.0
+
