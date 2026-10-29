@@ -33,6 +33,15 @@
 		rmi4-f12@12 {
 			reg = <0x12>;
 			syna,sensor-type = <1>;
+			/*
+			 * The sensor reports 1536 x 2048 in the portrait frame
+			 * (stock Android uses it unflipped). Map it to the
+			 * panel's 2048 x 1536 landscape frame, as DRM expects:
+			 * panel (x, y) = (y, 1535 - x). RMI4 inverts first,
+			 * then swaps. See docs/input.md.
+			 */
+			touchscreen-inverted-x;
+			touchscreen-swapped-x-y;
 		};
 	};
 };
