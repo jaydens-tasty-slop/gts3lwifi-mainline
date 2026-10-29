@@ -25,7 +25,9 @@ RMI4 applies `touchscreen-inverted-x/y` before `touchscreen-swapped-x-y`
     touchscreen-swapped-x-y;
 
 With them the input device reports X 0-2047 and Y 0-1535 (seen with
-`evtest`, 2026-10-29). The mapping is not yet confirmed with a finger.
+`evtest`, 2026-10-29). Confirmed with a finger the same day: five taps
+near the corners and the centre landed within 19 px of the targets
+(mean 13 px).
 
 Test: `evtest` on the touchscreen's event device, then tap near the
 corners of the screen. In the panel frame (the boot logo's top is the
@@ -87,13 +89,16 @@ the pen's x and y are both inverted and not swapped:
     touchscreen-inverted-x;
     touchscreen-inverted-y;
 
-Seen on an SM-T820 (2026-10-29, no pen to hand): the driver probes,
+Seen on an SM-T820 (2026-10-29): the driver probes,
 `wacom_w9000 3-0056: Wacom W9019 Digitizer size X19661Y14746` (the stock
 DT's `max_coords`), firmware 0x0124 in the input id, pressure 0-4095,
 resolution 100, INPUT_PROP_DIRECT; the supply is on only while the
 device is open, and the interrupt stays quiet with no pen near
-(level-low, no storm).  Not yet tested: hover, tip, pressure, side
-button and the axis directions.
+(level-low, no storm).  With the pen, the same day: five tip touches
+near the corners and the centre landed within 19 px of the targets (mean
+10 px) with the flags above; hover, pressure (up to 1721 of 4095 for a
+light tap) and the side button were all reported, and the interrupt took
+1208 interrupts over the test and went quiet afterwards.
 
 Test: `evtest` on "Wacom W9019 Digitizer"; hover the pen (BTN_TOOL_PEN
 1), touch the screen (BTN_TOUCH 1, ABS_PRESSURE rising with force), press
