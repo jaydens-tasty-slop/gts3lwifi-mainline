@@ -27,7 +27,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | TLMM GPIOs | work, 4 TrustZone-owned pins reserved |
 | Display | works with no command-line option (the panel asks for its DSI clock lane to start after the panel reset, patches 0050-0052; before them `msm.defer_hs_clk=1`, patch 0006): both DSI links stream in sync (MDP5 split display, patch 0003), geometry and colours correct, gamma table from the panel's MTP as in stock (patches 0038-0040), checked by webcam against the stock kernel (docs/display.md, round 19). Brightness control through the backlight device, 2 to 360 cd/m2 (patch 0042) and HBM up to 500 cd/m2 as levels 256-263 (patch 0054), with ACL on as in stock (patch 0043); blank then unblank works (patch 0041) |
 | Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts); axes mapped to the panel's frame (DT flags from the vendor source and the panel rotation, waiting for a tap test: docs/input.md) |
-| S-Pen | not started |
+| S-Pen | driver probes (Wacom W9019 with Samsung firmware, patches 0056-0057, dts/test/test-spen.dts; needs `CONFIG_TOUCHSCREEN_WACOM_W9019=m`): firmware 0x0124, 19661 x 14746, pressure 4095; pen events not tested yet (docs/input.md) |
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, main DTS) |
 | Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, main DTS) |
 | Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, main DTS) |

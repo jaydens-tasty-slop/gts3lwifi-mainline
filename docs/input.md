@@ -36,3 +36,60 @@ bottom-left X 0 / Y 1535.
 The input device's resolution (13 and 7 units per mm) comes from
 `rmi_f12`'s own estimate and overrides `touchscreen-x-mm`/`-y-mm`;
 the true value is about 10.4 units per mm on both axes.
+
+## S-Pen (Wacom W9019, Samsung firmware)
+
+Stock DT: `wacom@56` on `i2c_12` (BLSP2 QUP6 at 0x75ba000, GPIO 87/88:
+mainline `blsp2_i2c6`), compatible `wacom,w90xx`, `wacom,ic_type =
+<9019>`, interrupt GPIO 34, pen detect GPIO 117, firmware write enable
+GPIO 24, 3.3 V from a fixed regulator on GPIO 126 (boot-on), boot loader
+at 0x09, `max_coords = <19661 14746>`, `max_pressure = <4095>`,
+`invert = <1 0 1>` (x flipped, then x and y swapped).
+
+Samsung's firmware does not speak the HID-style protocol of mainline's
+`wacom_i2c`. From Samsung's `wacom_tab` driver: command 0x2a returns a
+15-byte query (header 0x0f, then maximum x, y, pressure and the firmware
+version, big endian), and each interrupt has a 14-byte packet to read:
+
+| byte | meaning |
+|---|---|
+| 0 | bit 7 in range, bit 6 eraser, bit 5 side button, bit 4 tip |
+| 1-2, 3-4 | x, y (big endian) |
+| 5-6 | pressure (big endian) |
+| 7 | height |
+| 8, 9 | tilt x, tilt y (signed) |
+| 12 | bit 7: soft key event instead of a pen sample |
+
+Patch 0057 is a new input driver for it (`wacom_w9019`,
+`CONFIG_TOUCHSCREEN_WACOM_W9019`), patch 0056 its binding
+(`wacom,w9019`), and `dts/test/test-spen.dts` the node. It reports a
+direct (on-screen) tablet: ABS_X/Y with 100 units per mm, pressure,
+distance, tilt, BTN_TOOL_PEN or BTN_TOOL_RUBBER, BTN_TOUCH for the tip
+and BTN_STYLUS for the side button. The axes go through the common
+`touchscreen-inverted-x/y` and `touchscreen-swapped-x-y` (applied in
+that order); the tilt follows them.
+
+Axes: stock maps (x, y) to portrait (y, 19661 - x), and the panel's
+frame is portrait turned back by 270 degrees, so in the panel's frame
+the pen's x and y are both inverted and not swapped:
+
+    touchscreen-inverted-x;
+    touchscreen-inverted-y;
+
+Seen on an SM-T820 (2026-10-29, no pen to hand): the driver probes,
+`wacom_w9019 3-0056: firmware 0x0124, 19661 x 14746, pressure 4095`
+(the stock DT's values), the input device has `INPUT_PROP_DIRECT`, and
+the interrupt stays quiet with no pen near (level-low, no storm). Not
+yet tested: hover, tip, pressure, side button and the axis directions.
+
+Test: `evtest` on "Wacom W9019 pen"; hover the pen (BTN_TOOL_PEN 1),
+touch the screen (BTN_TOUCH 1, ABS_PRESSURE rising with force), press
+the side button (BTN_STYLUS), and touch near the corners as for the
+touchscreen: top-left in the panel frame is X 0 / Y 0, top-right X 19661
+/ Y 0. If nothing arrives, `grep w9019 /proc/interrupts` while the pen
+is near: a count stuck at 0 means the interrupt does not fire (try
+`IRQ_TYPE_EDGE_FALLING`, the stock trigger).
+
+Not done: firmware update (the IC keeps its firmware in flash), the pen
+detect line (GPIO 117; stock only logs it), the stock "survey" low-power
+mode.

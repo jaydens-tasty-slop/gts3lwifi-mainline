@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/touchscreen/wacom,w9019.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Wacom W9019 pen digitizer with Samsung firmware
+
+maintainers:
+  - jaydens-tasty-slop <325336397+jaydens-tasty-slop@users.noreply.github.com>
+
+description:
+  An electromagnetic pen digitizer on I2C, as in the Samsung Galaxy Tab S3
+  (SM-T820). Samsung's firmware answers a query command with the
+  digitizer's ranges and sends one coordinate packet per interrupt.
+
+allOf:
+  - $ref: touchscreen.yaml#
+
+properties:
+  compatible:
+    const: wacom,w9019
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  vdd-supply:
+    description: 3.3 V supply
+
+  fwe-gpios:
+    maxItems: 1
+    description:
+      Firmware write enable, held low. High starts the boot loader instead
+      of the firmware.
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - vdd-supply
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        digitizer@56 {
+            compatible = "wacom,w9019";
+            reg = <0x56>;
+            interrupt-parent = <&tlmm>;
+            interrupts = <34 IRQ_TYPE_LEVEL_LOW>;
+            vdd-supply = <&pen_vdd>;
+            fwe-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+            touchscreen-inverted-x;
+            touchscreen-inverted-y;
+        };
+    };
