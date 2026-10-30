@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: BSD-3-Clause
+#include "../apq8096-samsung-gts3lwifi.dts"
+
+/*
+ * Test: the main DTS with the display off, for a tablet without a panel
+ * (the main development tablet has no display ribbon). As before the
+ * display merge: the MDSS IOMMU stays away from the bootloader's display
+ * engine, and the GPU runs as its own DRM device, so boot with
+ * msm.separate_gpu_kms=1.
+ */
+
+&mdss {
+	status = "disabled";
+};
+
+&mdp_smmu {
+	status = "disabled";
+};

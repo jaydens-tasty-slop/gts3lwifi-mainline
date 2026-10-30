@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-30. This file only
+ * keeps old build commands working; the sensor setup is in the main DTS.
+ */
+
+#include "../apq8096-samsung-gts3lwifi.dts"

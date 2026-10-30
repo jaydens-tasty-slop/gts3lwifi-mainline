@@ -10,6 +10,7 @@ arch="aarch64"
 options="!check !archcheck"
 depends="
 	bluez-btmgmt
+	iio-sensor-proxy
 	linux-firmware-ath10k
 	linux-firmware-qca
 	linux-firmware-qcom
@@ -25,6 +26,9 @@ source="
 	modules-load.conf
 	gts3-bdaddr
 	gts3-bdaddr.initd
+	gts3-firmware
+	gts3-firmware.initd
+	gts3-firmware.service
 	gts3-bdaddr.service
 	90-gts3-bdaddr.rules
 	51-gts3lwifi-audio.conf
@@ -46,6 +50,15 @@ package() {
 	install -Dm644 "$srcdir"/90-gts3-bdaddr.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/90-gts3-bdaddr.rules
 
+	# Samsung-signed firmware, Wi-Fi board data and the sensor registry
+	# from the tablet's own partitions (see gts3-firmware)
+	install -Dm755 "$srcdir"/gts3-firmware "$pkgdir"/usr/sbin/gts3-firmware
+	install -Dm644 "$srcdir"/gts3-firmware.service \
+		"$pkgdir"/usr/lib/systemd/system/gts3-firmware.service
+	mkdir -p "$pkgdir"/usr/lib/systemd/system/sysinit.target.wants
+	ln -s ../gts3-firmware.service \
+		"$pkgdir"/usr/lib/systemd/system/sysinit.target.wants/gts3-firmware.service
+
 	# Audio: ALSA UCM profile and WirePlumber tuning (see docs/audio.md)
 	install -Dm644 "$srcdir"/51-gts3lwifi-audio.conf \
 		-t "$pkgdir"/usr/share/wireplumber/wireplumber.conf.d
@@ -62,6 +75,7 @@ openrc() {
 	install_if="$pkgname=$pkgver-r$pkgrel openrc"
 	install="$subpkgname.post-install"
 	install -Dm755 "$srcdir"/gts3-bdaddr.initd "$subpkgdir"/etc/init.d/gts3-bdaddr
+	install -Dm755 "$srcdir"/gts3-firmware.initd "$subpkgdir"/etc/init.d/gts3-firmware
 }
 
 sha512sums="
@@ -69,6 +83,9 @@ sha512sums="
 415c70edb7fc26fe8a4214c454e11b3bee2a26a3d69e5d8833c57d090b7bb780e92ab057763ad28d36084b2c0e958e2f6e3bcc58bafdc426ef3f34ab4c427b98  modules-load.conf
 ee43078064b3827cedac15eb5d47fee2f62b00fb088900e467a80033beb796800bb8f3edd797885a49ce2b8e6b3795f365b859dcee547237edb95f215899414e  gts3-bdaddr
 b66c32dc557b8c7e67c5637e28d5a67a0405bd3abb536132905a7291d920a6436a888f17b9e88e1f659b6e07c785eccdb3c83e77d12388036d93172f635c878c  gts3-bdaddr.initd
+f4d27dd6d77e92fb939fe5fbbae37e108e19551d72b209d68d63c9971fdd48bd5d849f70319ca4c6ddffd6808f92aaf2cf16e91cc3aa3a9b095b22fbdbe02718  gts3-firmware
+b40909ca957e7526f5c32c7114c5b3b11a07fa3b33b7310fd9f7970b213c91ada418f655ad4b51a67cb667db767955d99be3fc404c4f5839763bdcc2b35acf44  gts3-firmware.initd
+2808953122722a2ad3786a34107d2eefd94e88fe0ba08cda30169b9681a61a7e1fd6a1a126af4e5f797d8e8c8470ffc5d7818eb602ae03ca581770c2c9cd8172  gts3-firmware.service
 f53aa7ee30d67e56932d1ff328fa8bc31a90dbbcb9d1cf9bc0856a315fc5f88404913df90893e09ff67e22e8ddaeeadb69a85b3fddca6dcc472c23ea36899e9f  gts3-bdaddr.service
 e084e50c5fea8607b9dd9d9f7d36112883a6fa089b24b8bb760d6367f5a222d00930fb182cb7b970d8b1d31dc71dcf94ac65252b4028d729cc095d947b4b306b  90-gts3-bdaddr.rules
 2dd2b980cc320bc22f6e53a035c8a68390ef40bd13bca5e2c248d974b705ed5b3c68e59f3e398f89553a4551af67fc6f46748fb63354421163d77d207ff7147e  51-gts3lwifi-audio.conf

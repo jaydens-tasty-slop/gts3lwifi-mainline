@@ -1,4 +1,6 @@
 #!/bin/sh
-# Start gts3-bdaddr at boot; under systemd a udev rule starts it with hci0.
+# Start gts3-bdaddr at boot and copy the tablet's own firmware early; under
+# systemd a udev rule and a static sysinit dependency do the same.
 rc-update -q add gts3-bdaddr default
+rc-update -q add gts3-firmware boot
 exit 0

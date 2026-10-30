@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# OpenRC counterpart of gts3-firmware.service.
+description="Copy the tablet's own firmware and sensor registry from its partitions"
+
+depend() {
+	need localmount
+	before bootmisc
+}
+
+start() {
+	ebegin "Checking the tablet's own firmware"
+	/usr/sbin/gts3-firmware
+	eend $?
+}

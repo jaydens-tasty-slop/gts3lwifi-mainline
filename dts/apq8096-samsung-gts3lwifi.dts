@@ -12,13 +12,15 @@
  * Home keys, Wi-Fi and Bluetooth (QCA6174), Venus, audio (ADSP + WCD9335:
  * headphones and microphones; four RT5508 speaker amplifiers), SM5705 fuel
  * gauge, charger, MUIC and flash LED (torch), S2MM005 USB Type-C/PD (sink),
+ * accelerometer, gyroscope and magnetometer (through the SLPI sensor core),
  * CPU/cluster/system idle. The Book Cover Keyboard (no hotplug yet) and the
- * panel's temperature input have test DTs; cameras and sensors are not here
- * yet.
+ * panel's temperature input have test DTs; cameras, the light sensor and
+ * the cover's hall sensor are not here yet.
  *
- * GPU zap shader, Venus and ADSP firmware are Samsung-signed and come from
- * the device (apnhlos and modem partitions), under
- * qcom/apq8096/samsung/gts3lwifi/.
+ * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
+ * from the device (apnhlos and modem partitions), under
+ * qcom/apq8096/samsung/gts3lwifi/; the device package's gts3-firmware copies
+ * them, and the sensor registry from the efs partition, on first boot.
  *
  * Sources (all cross-checked against the live DTB with phandles resolved):
  *   downstream arch/arm64/boot/dts/samsung/msm8996-sec-gts3lwifi-r05.dts{,i}
@@ -543,6 +545,17 @@
 			regulator-max-microvolt = <2150000>;
 		};
 
+		/*
+		 * SSC pad supply (SLPI px) and the sensors' vdd/vddio; stock
+		 * keeps it on (msm8996-sec-common.dtsi).
+		 */
+		vreg_lvs2a_1p8: lvs2 {
+			regulator-name = "vreg_lvs2a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-always-on;
+		};
+
 		/* DSI controller analog (msm8996 "vdda") */
 		vreg_l2a_1p25: l2 {
 			regulator-name = "vreg_l2a_1p25";
@@ -1003,6 +1016,25 @@
 
 &adsp_pil {
 	firmware-name = "qcom/apq8096/samsung/gts3lwifi/adsp.mdt";
+	status = "okay";
+};
+
+/*
+ * Sensors
+ * -------
+ * The motion and light sensors sit on the SLPI's own buses, out of the
+ * AP's reach (stock sensor_def_qcomdev.conf): LSM6DS3 accelerometer and
+ * gyroscope on SSC SPI (interrupt TLMM 122, owned by the SLPI), AK09916C
+ * magnetometer on SSC I2C 3 at 0x0c, CM3323 light sensor on SSC I2C 2 at
+ * 0x10. Linux talks to the SLPI's sensor manager: qcom_sns_reg serves it
+ * the sensor registry (sns.reg, which Samsung keeps on the efs partition
+ * with the factory calibration) and qcom_smgr exposes the sensors as IIO
+ * devices. The driver's default mount matrix gives the right orientation
+ * for iio-sensor-proxy (checked in all four positions).
+ */
+&slpi_pil {
+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/slpi.mdt";
+	px-supply = <&vreg_lvs2a_1p8>;
 	status = "okay";
 };
 

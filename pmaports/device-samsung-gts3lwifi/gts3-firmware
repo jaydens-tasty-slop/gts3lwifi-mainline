@@ -1,0 +1,77 @@
+#!/bin/sh
+# Copy what this tablet needs but nobody may redistribute from its own
+# partitions into /lib/firmware/updates (searched before /lib/firmware):
+#  - apnhlos: Samsung-signed GPU zap shader, Venus and SLPI (sensor core)
+#    firmware
+#  - modem: Samsung-signed ADSP (audio DSP) firmware
+#  - system (Android): the Wi-Fi board data, etc/firmware/bdwlan30.bin ->
+#    ath10k board.bin. apnhlos has a bdwlan30.bin too, but a different one;
+#    Wi-Fi was brought up with this one (docs/wifi.md)
+#  - efs: the sensor registry with this unit's factory calibration
+# Only missing or changed files are written. Remote processors that could
+# not start for lack of firmware are started afterwards; Wi-Fi picks up its
+# board data on the next boot.
+set -eu
+
+DEST=/lib/firmware/updates
+FW=$DEST/qcom/apq8096/samsung/gts3lwifi
+tmp=$(mktemp -d)
+changed=0
+
+cleanup() {
+	for m in "$tmp"/*; do
+		[ -d "$m" ] && umount "$m" 2>/dev/null || true
+	done
+	rm -rf "$tmp"
+}
+trap cleanup EXIT
+
+mount_part() {
+	dev=/dev/disk/by-partlabel/$1
+	[ -e "$dev" ] || { echo "gts3-firmware: no $1 partition" >&2; return 1; }
+	mkdir -p "$tmp/$1"
+	mount -o ro "$dev" "$tmp/$1"
+}
+
+copy() {
+	[ -f "$1" ] || return 0
+	if [ ! -f "$2" ] || ! cmp -s "$1" "$2"; then
+		install -Dm644 "$1" "$2"
+		echo "gts3-firmware: installed $2"
+		changed=1
+	fi
+}
+
+if mount_part apnhlos; then
+	for f in "$tmp"/apnhlos/image/a530_zap.* "$tmp"/apnhlos/image/venus.* \
+		 "$tmp"/apnhlos/image/slpi.*; do
+		copy "$f" "$FW/${f##*/}"
+	done
+fi
+
+if mount_part modem; then
+	for f in "$tmp"/modem/image/adsp.*; do
+		copy "$f" "$FW/${f##*/}"
+	done
+fi
+
+if mount_part system; then
+	for f in "$tmp/system/etc/firmware/bdwlan30.bin" \
+		 "$tmp/system/system/etc/firmware/bdwlan30.bin"; do
+		copy "$f" "$DEST/ath10k/QCA6174/hw3.0/board.bin"
+	done
+fi
+
+if mount_part efs; then
+	copy "$tmp/efs/FactoryApp/sensors/sns.reg" \
+		"$DEST/qcom/sensors/sns.reg-samsung,gts3lwifi"
+fi
+
+[ "$changed" = 1 ] || exit 0
+
+for r in /sys/class/remoteproc/remoteproc*; do
+	[ -e "$r/state" ] || continue
+	if [ "$(cat "$r/state")" = offline ]; then
+		echo start > "$r/state" || echo "gts3-firmware: could not start $(cat "$r/name")" >&2
+	fi
+done
