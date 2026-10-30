@@ -5,8 +5,8 @@
 | Level | Where | State |
 |---|---|---|
 | L1 (hardware) | stock Android, LineageOS (also with an unlocked bootloader and a tripped Knox, as group members report on LineageOS 24) | not on mainline (below) |
-| L3 (software) | Waydroid (Android 13) | Google's Widevine HAL runs and registers (`IDrmFactory/widevine`); playback test pending |
-| L3 (software) | Flatpak Firefox on pmOS | works: the CDM loads and creates media keys (`requestMediaKeySystemAccess` + `createMediaKeys`); playback test pending |
+| L3 (software) | Waydroid (Android 13) | works: Bitmovin's Widevine demo plays in Android's browser |
+| L3 (software) | Flatpak Firefox on pmOS | works: Bitmovin's Widevine demo plays |
 
 **Nothing from Google is in this repository.** These steps fetch Google's
 files from Google's own servers, under Google's licence, for use on your own

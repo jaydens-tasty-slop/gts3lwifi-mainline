@@ -64,7 +64,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Fingerprint (Home key) | Blocked | its pins are owned by Samsung's TrustZone |
 | **Software** | | |
 | postmarketOS with Plasma (Wayland) | Works | installed on the eMMC behind lk2nd ([pmos-install](docs/pmos-install.md)) |
-| Widevine DRM | Partial | L3 in Waydroid and Flatpak Firefox; L1 not on mainline ([widevine](docs/widevine.md)) |
+| Widevine DRM | Partial | L3 plays in Waydroid and Flatpak Firefox; L1 not on mainline ([widevine](docs/widevine.md)) |
 | Waydroid (Android 13) | Works | GPU-accelerated; optional `-waydroid` subpackage; first boot is fragile ([waydroid](docs/waydroid.md)) |
 
 ## Layout
