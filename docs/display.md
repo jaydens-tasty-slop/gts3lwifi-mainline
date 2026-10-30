@@ -480,6 +480,31 @@ Round 20 (2026-10-29, same tablet and webcam):
   maintainers entry dtschema needs and an example; it and the test DTs
   pass `dt_binding_check`/`dt-validate` (docs/dtschema.md).
 
+Round 21 (2026-10-29, the installed postmarketOS system of
+docs/pmos-install.md, X11 and then Plasma on Wayland):
+
+- **Hardware cursor (patch 0068).** A command-mode panel gets a frame
+  each time the CTL is started. The regular commit path waits for the
+  previous transfer's PP_DONE before it flushes and starts again
+  (`mdp5_wait_flush()`). The async plane path, which legacy cursor
+  moves take, writes the pipe, flushes and starts at once, so it can
+  start a transfer while the previous one still runs. Moving the X
+  hardware cursor gave DSI and MDP FIFO underflows (`dsi_err_worker`
+  status 0xc and 0xd), `pp done time out`, a garbled picture and then
+  a dead panel until the next modeset (a DPMS off and on brings it
+  back). Patch 0068 refuses the async path on command-mode CRTCs, so
+  cursor moves take a regular commit: 300 cursor moves across both
+  halves of the panel gave no errors. The price is that each legacy
+  cursor move now waits for the previous transfer, and under X the pen
+  cursor lags; X with `Option "SWcursor"` is smooth. Wayland
+  compositors do not use the async path. A fix without the wait would
+  start a queued async update from the PP_DONE interrupt.
+- Every boot still logs four `pclk0/pclk1_clk_src: rcg didn't update
+  its configuration` WARN traces while the DSI clocks are set up, and
+  `fb0: sys_imageblit: framebuffer is not in virtual address space`
+  (the msm fbdev does not set FBINFO_VIRTFB). Neither has a visible
+  effect.
+
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
 (see docs/lk2nd.md).
