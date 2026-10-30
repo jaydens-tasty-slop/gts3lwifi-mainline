@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 20:25:33 -0600
+Subject: [PATCH] mfd: stmpe: disable the supplies when probe fails
+
+stmpe_probe() enables the optional VCC and VIO supplies, but only
+stmpe_remove() disables them. When probe fails later, for example
+because the chip does not answer the ID read, the supplies stay enabled
+and the devm-managed regulator_put() warns about the enable count.
+
+Disable each supply that was enabled through a devm action instead, so
+it also happens on probe failure, and drop the disables from remove.
+They now run after the children and the interrupt are gone, so the chip
+keeps power until nothing uses it anymore.
+
+Seen on the Samsung Galaxy Tab S3 with the STMPE1801 of its keyboard
+cover probed too early after power-up (-ENXIO on the ID read, then the
+WARN in regulator_put()).
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/mfd/stmpe.c | 26 +++++++++++++++++++-------
+ 1 file changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/mfd/stmpe.c b/drivers/mfd/stmpe.c
+index 46cfabf74f19..2fc28708d2c7 100644
+--- a/drivers/mfd/stmpe.c
++++ b/drivers/mfd/stmpe.c
+@@ -1367,6 +1367,11 @@ static void stmpe_of_probe(struct stmpe_platform_data *pdata,
+ 	}
+ }
+ 
++static void stmpe_disable_regulator(void *regulator)
++{
++	regulator_disable(regulator);
++}
++
+ /* Called from client specific probe routines */
+ int stmpe_probe(struct stmpe_client_info *ci, enum stmpe_partnum partnum)
+ {
+@@ -1413,14 +1418,26 @@ int stmpe_probe(struct stmpe_client_info *ci, enum stmpe_partnum partnum)
+ 	stmpe->vcc = devm_regulator_get_optional(ci->dev, "vcc");
+ 	if (!IS_ERR(stmpe->vcc)) {
+ 		ret = regulator_enable(stmpe->vcc);
+-		if (ret)
++		if (ret) {
+ 			dev_warn(ci->dev, "failed to enable VCC supply\n");
++		} else {
++			ret = devm_add_action_or_reset(ci->dev, stmpe_disable_regulator,
++						       stmpe->vcc);
++			if (ret)
++				return ret;
++		}
+ 	}
+ 	stmpe->vio = devm_regulator_get_optional(ci->dev, "vio");
+ 	if (!IS_ERR(stmpe->vio)) {
+ 		ret = regulator_enable(stmpe->vio);
+-		if (ret)
++		if (ret) {
+ 			dev_warn(ci->dev, "failed to enable VIO supply\n");
++		} else {
++			ret = devm_add_action_or_reset(ci->dev, stmpe_disable_regulator,
++						       stmpe->vio);
++			if (ret)
++				return ret;
++		}
+ 	}
+ 	dev_set_drvdata(stmpe->dev, stmpe);
+ 
+@@ -1494,11 +1511,6 @@ void stmpe_remove(struct stmpe *stmpe)
+ 	if (stmpe->domain)
+ 		irq_domain_remove(stmpe->domain);
+ 
+-	if (!IS_ERR(stmpe->vio) && regulator_is_enabled(stmpe->vio))
+-		regulator_disable(stmpe->vio);
+-	if (!IS_ERR(stmpe->vcc) && regulator_is_enabled(stmpe->vcc))
+-		regulator_disable(stmpe->vcc);
+-
+ 	__stmpe_disable(stmpe, STMPE_BLOCK_ADC);
+ 
+ 	mfd_remove_devices(stmpe->dev);
+-- 
+2.56.0
+

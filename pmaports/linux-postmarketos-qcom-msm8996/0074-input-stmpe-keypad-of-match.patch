@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 20:25:32 -0600
+Subject: [PATCH] Input: stmpe-keypad - add an OF match table
+
+The STMPE MFD core creates the keypad cell with the "st,stmpe-keypad"
+compatible, so the platform device has an OF node and its uevent only
+carries the OF modalias. The driver matches by name and has no module
+aliases at all, so a modular build is never loaded automatically.
+
+Add an OF match table with MODULE_DEVICE_TABLE.
+
+Seen with an STMPE1801 keypad on the Samsung Galaxy Tab S3 keyboard
+cover: the keypad cell appeared, but the input device only after a
+manual modprobe.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/keyboard/stmpe-keypad.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/keyboard/stmpe-keypad.c b/drivers/input/keyboard/stmpe-keypad.c
+index 988fd4045bce..c6f54bf4e3a0 100644
+--- a/drivers/input/keyboard/stmpe-keypad.c
++++ b/drivers/input/keyboard/stmpe-keypad.c
+@@ -724,8 +724,17 @@ static void stmpe_keypad_remove(struct platform_device *pdev)
+ 	stmpe_keypad_stop(&stmpe_keypad_lifecycle_ops, keypad);
+ }
+ 
++static const struct of_device_id stmpe_keypad_of_match[] = {
++	{ .compatible = "st,stmpe-keypad" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, stmpe_keypad_of_match);
++
+ static struct platform_driver stmpe_keypad_driver = {
+-	.driver.name	= "stmpe-keypad",
++	.driver = {
++		.name		= "stmpe-keypad",
++		.of_match_table	= stmpe_keypad_of_match,
++	},
+ 	.probe		= stmpe_keypad_probe,
+ 	.remove		= stmpe_keypad_remove,
+ };
+-- 
+2.56.0
+

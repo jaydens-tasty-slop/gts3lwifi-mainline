@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 19:59:31 -0600
+Subject: [PATCH] dt-bindings: mfd: stmpe: add STMPE1801 keypad limits
+
+The STMPE1801 keypad has eight row inputs, ten column inputs, and a
+debounce range of 10 through 127 ms. The shared binding currently does
+not express those variant limits.
+
+Add the compatible and constrain the common keypad maxima. Describe the
+row and column limits for every keypad-capable STMPE variant so firmware
+accepted by the schema also passes the driver bounds checks.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../devicetree/bindings/mfd/st,stmpe.yaml     | 49 +++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/mfd/st,stmpe.yaml b/Documentation/devicetree/bindings/mfd/st,stmpe.yaml
+index df43878fbe18..76475d96679c 100644
+--- a/Documentation/devicetree/bindings/mfd/st,stmpe.yaml
++++ b/Documentation/devicetree/bindings/mfd/st,stmpe.yaml
+@@ -16,6 +16,46 @@ maintainers:
+ 
+ allOf:
+   - $ref: /schemas/spi/spi-peripheral-props.yaml#
++  - if:
++      properties:
++        compatible:
++          const: st,stmpe1601
++    then:
++      properties:
++        keyboard-controller:
++          properties:
++            keypad,num-rows:
++              maximum: 8
++            keypad,num-columns:
++              maximum: 8
++  - if:
++      properties:
++        compatible:
++          const: st,stmpe1801
++    then:
++      properties:
++        keyboard-controller:
++          properties:
++            debounce-interval:
++              minimum: 10
++            keypad,num-rows:
++              maximum: 8
++            keypad,num-columns:
++              maximum: 10
++  - if:
++      properties:
++        compatible:
++          enum:
++            - st,stmpe2401
++            - st,stmpe2403
++    then:
++      properties:
++        keyboard-controller:
++          properties:
++            keypad,num-rows:
++              maximum: 12
++            keypad,num-columns:
++              maximum: 8
+ 
+ properties:
+   compatible:
+@@ -25,6 +65,7 @@ properties:
+       - st,stmpe811
+       - st,stmpe1600
+       - st,stmpe1601
++      - st,stmpe1801
+       - st,stmpe2401
+       - st,stmpe2403
+ 
+@@ -101,6 +142,13 @@ properties:
+       debounce-interval:
+         description: Debouncing interval in milliseconds
+         $ref: /schemas/types.yaml#/definitions/uint32
++        maximum: 127
++
++      keypad,num-rows:
++        maximum: 12
++
++      keypad,num-columns:
++        maximum: 10
+ 
+       st,no-autorepeat:
+         description: If present, the keys will not autorepeat when pressed
+@@ -109,6 +157,7 @@ properties:
+       st,scan-count:
+         description: Scanning cycles elapsed before key data is updated
+         $ref: /schemas/types.yaml#/definitions/uint32
++        maximum: 15
+ 
+     required:
+       - compatible
+-- 
+2.56.0
+

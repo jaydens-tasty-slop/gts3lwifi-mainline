@@ -1,0 +1,153 @@
+#include "test-keys.dts"
+
+/*
+ * Test: Book Cover Keyboard (EJ-FT820) on the pogo pins, on top of the
+ * keys test.  Needs patches 0069-0075 and CONFIG_MFD_STMPE,
+ * CONFIG_STMPE_I2C and CONFIG_KEYBOARD_STMPE (=m is fine with patch 0074).
+ *
+ * From the stock DT: msm8996-pogo-keyboard-gts3llte-common.dtsi (which
+ * msm8996-sec-gts3lwifi-r05.dts includes): an STMPE1801 key-matrix
+ * controller at 0x40 on a GPIO I2C bus (TLMM 2 SDA, 3 SCL), interrupt on
+ * TLMM 54, supply PM8994 L6 at 1.8 V (pm8994_l6 in
+ * msm8996-sec-gts3lwifi-r05.dtsi); 8 x 10 matrix with the stock key map,
+ * 10 ms keypad debounce, scan count 3.  Pin states from keypad_i2c_active
+ * (no pull) and keypad_int_active (pull-up) in
+ * msm8996-pinctrl-sec-gts3lwifi-r05.dtsi.  The stock map's key 706
+ * (Samsung's soft keyboard on/off) is KEY_ONSCREEN_KEYBOARD here.
+ *
+ * The cover has to be attached at boot: stock powers it when the SM5705
+ * MUIC reports the cover's ID resistor (ADC 0x11), which is not done yet
+ * (docs/input.md).
+ */
+
+/ {
+	i2c-pogo {
+		compatible = "i2c-gpio";
+		sda-gpios = <&tlmm 2 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&tlmm 3 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		pinctrl-0 = <&pogo_i2c_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		keyboard@40 {
+			compatible = "st,stmpe1801";
+			reg = <0x40>;
+			/* stmpe_probe() only looks for "interrupts" */
+			interrupt-parent = <&tlmm>;
+			interrupts = <54 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-0 = <&pogo_kbd_int_default>;
+			pinctrl-names = "default";
+			vcc-supply = <&vreg_l6a_1p8>;
+
+			keyboard-controller {
+				compatible = "st,stmpe-keypad";
+				debounce-interval = <10>;
+				st,scan-count = <3>;
+				keypad,num-rows = <8>;
+				keypad,num-columns = <10>;
+				linux,keymap = <
+					MATRIX_KEY(0, 2, KEY_Z)
+					MATRIX_KEY(0, 3, KEY_102ND)
+					MATRIX_KEY(0, 4, KEY_V)
+					MATRIX_KEY(0, 5, KEY_M)
+					MATRIX_KEY(0, 6, KEY_DOWN)
+					MATRIX_KEY(0, 8, KEY_SPACE)
+					MATRIX_KEY(0, 9, KEY_UP)
+					MATRIX_KEY(1, 0, KEY_ONSCREEN_KEYBOARD)
+					MATRIX_KEY(1, 1, KEY_LEFTMETA)
+					MATRIX_KEY(1, 2, KEY_A)
+					MATRIX_KEY(1, 3, KEY_X)
+					MATRIX_KEY(1, 4, KEY_B)
+					MATRIX_KEY(1, 5, KEY_N)
+					MATRIX_KEY(1, 6, KEY_COMMA)
+					MATRIX_KEY(1, 7, KEY_DOT)
+					MATRIX_KEY(1, 8, KEY_SLASH)
+					MATRIX_KEY(1, 9, KEY_RIGHTBRACE)
+					MATRIX_KEY(2, 1, KEY_HANGEUL)
+					MATRIX_KEY(2, 2, KEY_Q)
+					MATRIX_KEY(2, 3, KEY_S)
+					MATRIX_KEY(2, 4, KEY_F)
+					MATRIX_KEY(2, 5, KEY_J)
+					MATRIX_KEY(2, 6, KEY_K)
+					MATRIX_KEY(2, 7, KEY_L)
+					MATRIX_KEY(2, 8, KEY_SEMICOLON)
+					MATRIX_KEY(2, 9, KEY_ENTER)
+					MATRIX_KEY(3, 1, KEY_LEFTALT)
+					MATRIX_KEY(3, 2, KEY_TAB)
+					MATRIX_KEY(3, 3, KEY_W)
+					MATRIX_KEY(3, 4, KEY_G)
+					MATRIX_KEY(3, 5, KEY_H)
+					MATRIX_KEY(3, 6, KEY_I)
+					MATRIX_KEY(3, 7, KEY_APOSTROPHE)
+					MATRIX_KEY(3, 8, KEY_P)
+					MATRIX_KEY(3, 9, KEY_BACKSLASH)
+					MATRIX_KEY(4, 0, KEY_CAPSLOCK)
+					MATRIX_KEY(4, 1, KEY_RIGHTALT)
+					MATRIX_KEY(4, 2, KEY_1)
+					MATRIX_KEY(4, 3, KEY_2)
+					MATRIX_KEY(4, 4, KEY_R)
+					MATRIX_KEY(4, 5, KEY_U)
+					MATRIX_KEY(4, 6, KEY_8)
+					MATRIX_KEY(4, 7, KEY_O)
+					MATRIX_KEY(4, 8, KEY_0)
+					MATRIX_KEY(4, 9, KEY_BACKSLASH)
+					MATRIX_KEY(5, 1, KEY_LEFTCTRL)
+					MATRIX_KEY(5, 2, KEY_GRAVE)
+					MATRIX_KEY(5, 3, KEY_RIGHT)
+					MATRIX_KEY(5, 4, KEY_T)
+					MATRIX_KEY(5, 5, KEY_Y)
+					MATRIX_KEY(5, 7, KEY_LEFTBRACE)
+					MATRIX_KEY(5, 8, KEY_BACKSPACE)
+					MATRIX_KEY(5, 9, KEY_MINUS)
+					MATRIX_KEY(6, 0, KEY_RIGHTSHIFT)
+					MATRIX_KEY(6, 1, KEY_LEFT)
+					MATRIX_KEY(6, 2, KEY_D)
+					MATRIX_KEY(6, 3, KEY_C)
+					MATRIX_KEY(6, 4, KEY_4)
+					MATRIX_KEY(6, 5, KEY_7)
+					MATRIX_KEY(6, 7, KEY_9)
+					MATRIX_KEY(6, 8, KEY_3)
+					MATRIX_KEY(6, 9, KEY_E)
+					MATRIX_KEY(7, 0, KEY_LEFTSHIFT)
+					MATRIX_KEY(7, 4, KEY_5)
+					MATRIX_KEY(7, 6, KEY_6)
+					MATRIX_KEY(7, 7, KEY_EQUAL)
+				>;
+			};
+		};
+	};
+};
+
+&rpm_requests {
+	regulators-0 {
+		vreg_l6a_1p8: l6 {
+			regulator-name = "vreg_l6a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			/*
+			 * The keyboard's controller did not answer 10 ms after
+			 * power-up; stock retries each transfer 3 times 10 ms
+			 * apart (stmpe1801_pogo_keyboard.c).
+			 */
+			regulator-enable-ramp-delay = <100000>;
+		};
+	};
+};
+
+&tlmm {
+	pogo_i2c_default: pogo-i2c-default-state {
+		pins = "gpio2", "gpio3";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	pogo_kbd_int_default: pogo-kbd-int-default-state {
+		pins = "gpio54";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+};

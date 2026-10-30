@@ -1,0 +1,359 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 19:59:32 -0600
+Subject: [PATCH] mfd: stmpe: normalize block read results
+
+The STMPE SPI callback returns zero after filling the requested buffer,
+while the I2C callback currently returns the transferred byte count. The
+common API therefore cannot distinguish I2C zero-byte and short
+transfers from SPI success.
+
+Normalize I2C full-length success to zero and reject every nonnegative
+short transfer with -EIO. Preserve negative errors and the existing SPI
+convention, document the common zero-success contract, and avoid dumping
+or consuming buffers after a failed read. Update the two existing
+consumers which ignored block-read failures.
+
+Add transport-level KUnit coverage for I2C counts zero through four,
+exact-length success, negative error propagation, and a zero-returning
+SPI callback which fills the complete buffer.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/iio/adc/stmpe-adc.c          |  12 ++-
+ drivers/input/touchscreen/stmpe-ts.c |   6 +-
+ drivers/mfd/Kconfig                  |  11 +++
+ drivers/mfd/Makefile                 |   1 +
+ drivers/mfd/stmpe-i2c.c              |   6 +-
+ drivers/mfd/stmpe-i2c.h              |  17 ++++
+ drivers/mfd/stmpe-test.c             | 140 +++++++++++++++++++++++++++
+ drivers/mfd/stmpe.c                  |   5 +-
+ 8 files changed, 191 insertions(+), 7 deletions(-)
+ create mode 100644 drivers/mfd/stmpe-i2c.h
+ create mode 100644 drivers/mfd/stmpe-test.c
+
+diff --git a/drivers/iio/adc/stmpe-adc.c b/drivers/iio/adc/stmpe-adc.c
+index 8e26c47edc08..1f43c90927d9 100644
+--- a/drivers/iio/adc/stmpe-adc.c
++++ b/drivers/iio/adc/stmpe-adc.c
+@@ -176,6 +176,7 @@ static irqreturn_t stmpe_adc_isr(int irq, void *dev_id)
+ {
+ 	struct stmpe_adc *info = (struct stmpe_adc *)dev_id;
+ 	__be16 data;
++	int ret;
+ 
+ 	if (info->channel <= STMPE_ADC_LAST_NR) {
+ 		int int_sta;
+@@ -187,17 +188,20 @@ static irqreturn_t stmpe_adc_isr(int irq, void *dev_id)
+ 			return IRQ_NONE;
+ 
+ 		/* Read value */
+-		stmpe_block_read(info->stmpe,
+-			STMPE_REG_ADC_DATA_CH(info->channel), 2, (u8 *) &data);
++		ret = stmpe_block_read(info->stmpe,
++				       STMPE_REG_ADC_DATA_CH(info->channel), 2,
++				       (u8 *)&data);
+ 
+ 		stmpe_reg_write(info->stmpe, STMPE_REG_ADC_INT_STA, int_sta);
+ 	} else if (info->channel == STMPE_TEMP_CHANNEL) {
+ 		/* Read value */
+-		stmpe_block_read(info->stmpe, STMPE_REG_TEMP_DATA, 2,
+-				(u8 *) &data);
++		ret = stmpe_block_read(info->stmpe, STMPE_REG_TEMP_DATA, 2,
++				       (u8 *)&data);
+ 	} else {
+ 		return IRQ_NONE;
+ 	}
++	if (ret < 0)
++		return IRQ_NONE;
+ 
+ 	info->value = (u32) be16_to_cpu(data);
+ 	complete(&info->completion);
+diff --git a/drivers/input/touchscreen/stmpe-ts.c b/drivers/input/touchscreen/stmpe-ts.c
+index af0fb38bcfdc..55ce0a856281 100644
+--- a/drivers/input/touchscreen/stmpe-ts.c
++++ b/drivers/input/touchscreen/stmpe-ts.c
+@@ -129,6 +129,7 @@ static void stmpe_work(struct work_struct *work)
+ static irqreturn_t stmpe_ts_handler(int irq, void *data)
+ {
+ 	u8 data_set[4];
++	int ret;
+ 	int x, y, z;
+ 	struct stmpe_touch *ts = data;
+ 
+@@ -147,7 +148,9 @@ static irqreturn_t stmpe_ts_handler(int irq, void *data)
+ 	stmpe_set_bits(ts->stmpe, STMPE_REG_TSC_CTRL,
+ 				STMPE_TSC_CTRL_TSC_EN, 0);
+ 
+-	stmpe_block_read(ts->stmpe, STMPE_REG_TSC_DATA_XYZ, 4, data_set);
++	ret = stmpe_block_read(ts->stmpe, STMPE_REG_TSC_DATA_XYZ, 4, data_set);
++	if (ret < 0)
++		goto out_restore;
+ 
+ 	x = (data_set[0] << 4) | (data_set[1] >> 4);
+ 	y = ((data_set[1] & 0xf) << 8) | data_set[2];
+@@ -158,6 +161,7 @@ static irqreturn_t stmpe_ts_handler(int irq, void *data)
+ 	input_report_key(ts->idev, BTN_TOUCH, 1);
+ 	input_sync(ts->idev);
+ 
++out_restore:
+        /* flush the FIFO after we have read out our values. */
+ 	__stmpe_reset_fifo(ts->stmpe);
+ 
+diff --git a/drivers/mfd/Kconfig b/drivers/mfd/Kconfig
+index f7f12a0428aa..edada6572e6f 100644
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -1636,6 +1636,17 @@ config STMPE_SPI
+ 	depends on SPI_MASTER
+ 	help
+ 	  This is used to enable SPI interface of STMPE
++
++config MFD_STMPE_KUNIT_TEST
++	tristate "KUnit tests for STMPE transport contracts" if !KUNIT_ALL_TESTS
++	depends on KUNIT
++	depends on MFD_STMPE
++	default KUNIT_ALL_TESTS
++	help
++	  Tests transport return-value normalization in the STMPE MFD core,
++	  including exact-length I2C reads, short reads, negative errors, and
++	  the zero-success convention used after SPI has filled the complete
++	  requested buffer.
+ endmenu
+ 
+ config MFD_SUN6I_PRCM
+diff --git a/drivers/mfd/Makefile b/drivers/mfd/Makefile
+index e75e8045c28a..dabbda160e0a 100644
+--- a/drivers/mfd/Makefile
++++ b/drivers/mfd/Makefile
+@@ -31,6 +31,7 @@ obj-$(CONFIG_MFD_TI_AM335X_TSCADC)	+= ti_am335x_tscadc.o
+ obj-$(CONFIG_MFD_STMPE)		+= stmpe.o
+ obj-$(CONFIG_STMPE_I2C)		+= stmpe-i2c.o
+ obj-$(CONFIG_STMPE_SPI)		+= stmpe-spi.o
++obj-$(CONFIG_MFD_STMPE_KUNIT_TEST)	+= stmpe-test.o
+ obj-$(CONFIG_MFD_SUN6I_PRCM)	+= sun6i-prcm.o
+ obj-$(CONFIG_MFD_TC3589X)	+= tc3589x.o
+ obj-$(CONFIG_MFD_TQMX86)	+= tqmx86.o
+diff --git a/drivers/mfd/stmpe-i2c.c b/drivers/mfd/stmpe-i2c.c
+index 943fa363efc3..c95295f44d19 100644
+--- a/drivers/mfd/stmpe-i2c.c
++++ b/drivers/mfd/stmpe-i2c.c
+@@ -15,6 +15,7 @@
+ #include <linux/module.h>
+ #include <linux/types.h>
+ #include <linux/of_device.h>
++#include "stmpe-i2c.h"
+ #include "stmpe.h"
+ 
+ static int i2c_reg_read(struct stmpe *stmpe, u8 reg)
+@@ -34,8 +35,11 @@ static int i2c_reg_write(struct stmpe *stmpe, u8 reg, u8 val)
+ static int i2c_block_read(struct stmpe *stmpe, u8 reg, u8 length, u8 *values)
+ {
+ 	struct i2c_client *i2c = stmpe->client;
++	int ret;
+ 
+-	return i2c_smbus_read_i2c_block_data(i2c, reg, length, values);
++	ret = i2c_smbus_read_i2c_block_data(i2c, reg, length, values);
++
++	return stmpe_i2c_block_read_status(ret, length);
+ }
+ 
+ static int i2c_block_write(struct stmpe *stmpe, u8 reg, u8 length,
+diff --git a/drivers/mfd/stmpe-i2c.h b/drivers/mfd/stmpe-i2c.h
+new file mode 100644
+index 000000000000..0d6c42d29316
+--- /dev/null
++++ b/drivers/mfd/stmpe-i2c.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __STMPE_I2C_H
++#define __STMPE_I2C_H
++
++#include <linux/errno.h>
++#include <linux/types.h>
++
++static inline int stmpe_i2c_block_read_status(int ret, u8 length)
++{
++	if (ret < 0)
++		return ret;
++
++	return ret == length ? 0 : -EIO;
++}
++
++#endif
+diff --git a/drivers/mfd/stmpe-test.c b/drivers/mfd/stmpe-test.c
+new file mode 100644
+index 000000000000..ab65ecc9e812
+--- /dev/null
++++ b/drivers/mfd/stmpe-test.c
+@@ -0,0 +1,140 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <kunit/device.h>
++#include <kunit/test.h>
++#include <linux/errno.h>
++#include <linux/mfd/stmpe.h>
++#include <linux/mutex.h>
++#include <linux/string.h>
++
++#include "stmpe-i2c.h"
++#include "stmpe.h"
++
++#define STMPE_TEST_READ_LENGTH	5
++
++struct stmpe_transport_test_context {
++	int transfer_result;
++	u8 fill;
++	unsigned int consumers;
++};
++
++static int stmpe_test_i2c_read(struct stmpe *stmpe, u8 reg, u8 length,
++			       u8 *values)
++{
++	struct stmpe_transport_test_context *ctx = stmpe->client;
++
++	(void)reg;
++	if (ctx->transfer_result == length)
++		memset(values, ctx->fill, length);
++
++	return stmpe_i2c_block_read_status(ctx->transfer_result, length);
++}
++
++static int stmpe_test_spi_read(struct stmpe *stmpe, u8 reg, u8 length,
++			       u8 *values)
++{
++	struct stmpe_transport_test_context *ctx = stmpe->client;
++
++	(void)reg;
++	memset(values, ctx->fill, length);
++
++	return 0;
++}
++
++static void stmpe_test_init(struct kunit *test, struct stmpe *stmpe,
++			    struct stmpe_client_info *ci,
++			    struct stmpe_transport_test_context *ctx,
++			    int (*read_block)(struct stmpe *, u8, u8, u8 *))
++{
++	stmpe->dev = kunit_device_register(test, "stmpe-transport-test");
++	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, stmpe->dev);
++	mutex_init(&stmpe->lock);
++	stmpe->client = ctx;
++	stmpe->ci = ci;
++	ci->read_block = read_block;
++}
++
++static int stmpe_test_consume_block(struct stmpe *stmpe,
++				    struct stmpe_transport_test_context *ctx,
++				    u8 *values)
++{
++	int ret;
++
++	ret = stmpe_block_read(stmpe, 0, STMPE_TEST_READ_LENGTH, values);
++	if (!ret)
++		ctx->consumers++;
++
++	return ret;
++}
++
++static void stmpe_test_i2c_block_read_results(struct kunit *test)
++{
++	struct stmpe_transport_test_context ctx = {
++		.fill = 0x5a,
++	};
++	struct stmpe_client_info ci = {};
++	struct stmpe stmpe = {};
++	u8 values[STMPE_TEST_READ_LENGTH];
++	int ret;
++	int result;
++	int i;
++
++	stmpe_test_init(test, &stmpe, &ci, &ctx, stmpe_test_i2c_read);
++
++	for (result = 0; result < STMPE_TEST_READ_LENGTH; result++) {
++		memset(values, 0xa5, sizeof(values));
++		ctx.transfer_result = result;
++
++		ret = stmpe_test_consume_block(&stmpe, &ctx, values);
++		KUNIT_EXPECT_EQ(test, ret, -EIO);
++		for (i = 0; i < ARRAY_SIZE(values); i++)
++			KUNIT_EXPECT_EQ(test, values[i], (u8)0xa5);
++	}
++	KUNIT_EXPECT_EQ(test, ctx.consumers, 0U);
++
++	ctx.transfer_result = STMPE_TEST_READ_LENGTH;
++	KUNIT_EXPECT_EQ(test, stmpe_test_consume_block(&stmpe, &ctx, values), 0);
++	KUNIT_EXPECT_EQ(test, ctx.consumers, 1U);
++	for (i = 0; i < ARRAY_SIZE(values); i++)
++		KUNIT_EXPECT_EQ(test, values[i], ctx.fill);
++
++	memset(values, 0xa5, sizeof(values));
++	ctx.transfer_result = -EREMOTEIO;
++	KUNIT_EXPECT_EQ(test, stmpe_test_consume_block(&stmpe, &ctx, values),
++			-EREMOTEIO);
++	KUNIT_EXPECT_EQ(test, ctx.consumers, 1U);
++}
++
++static void stmpe_test_spi_zero_fills_block(struct kunit *test)
++{
++	struct stmpe_transport_test_context ctx = {
++		.fill = 0x3c,
++	};
++	struct stmpe_client_info ci = {};
++	struct stmpe stmpe = {};
++	u8 values[STMPE_TEST_READ_LENGTH] = {};
++	int i;
++
++	stmpe_test_init(test, &stmpe, &ci, &ctx, stmpe_test_spi_read);
++
++	KUNIT_EXPECT_EQ(test, stmpe_test_consume_block(&stmpe, &ctx, values), 0);
++	KUNIT_EXPECT_EQ(test, ctx.consumers, 1U);
++	for (i = 0; i < ARRAY_SIZE(values); i++)
++		KUNIT_EXPECT_EQ(test, values[i], ctx.fill);
++}
++
++static struct kunit_case stmpe_transport_test_cases[] = {
++	KUNIT_CASE(stmpe_test_i2c_block_read_results),
++	KUNIT_CASE(stmpe_test_spi_zero_fills_block),
++	{}
++};
++
++static struct kunit_suite stmpe_transport_test_suite = {
++	.name = "stmpe-transport",
++	.test_cases = stmpe_transport_test_cases,
++};
++
++kunit_test_suite(stmpe_transport_test_suite);
++
++MODULE_DESCRIPTION("KUnit tests for STMPE transport contracts");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/mfd/stmpe.c b/drivers/mfd/stmpe.c
+index 362471de3be4..46cfabf74f19 100644
+--- a/drivers/mfd/stmpe.c
++++ b/drivers/mfd/stmpe.c
+@@ -96,9 +96,10 @@ static int __stmpe_block_read(struct stmpe *stmpe, u8 reg, u8 length,
+ 	ret = stmpe->ci->read_block(stmpe, reg, length, values);
+ 	if (ret < 0)
+ 		dev_err(stmpe->dev, "failed to read regs %#x: %d\n", reg, ret);
++	else
++		stmpe_dump_bytes("stmpe rd: ", values, length);
+ 
+ 	dev_vdbg(stmpe->dev, "rd: reg %#x (%d) => ret %#x\n", reg, length, ret);
+-	stmpe_dump_bytes("stmpe rd: ", values, length);
+ 
+ 	return ret;
+ }
+@@ -212,6 +213,8 @@ EXPORT_SYMBOL_GPL(stmpe_set_bits);
+  * @reg:	First register
+  * @length:	Number of registers
+  * @values:	Buffer to write to
++ *
++ * Return: zero on success, a negative error code on failure
+  */
+ int stmpe_block_read(struct stmpe *stmpe, u8 reg, u8 length, u8 *values)
+ {
+-- 
+2.56.0
+

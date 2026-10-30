@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 19:59:32 -0600
+Subject: [PATCH] Input: stmpe-keypad: add event parser KUnit tests
+
+Exercise every coordinate in the STMPE1801 8-by-10 matrix, the existing
+12-by-8 event layout, release and no-key markers, coordinate bounds,
+exact ten-entry FIFO exhaustion, a later all-idle interrupt, and first
+and later FIFO read errors.
+
+Cover successful start and remove ordering, failed start with
+stop-before-disable unwind while preserving the original error, and a
+failed remove-time stop attempt followed by disable.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/keyboard/Kconfig             |  14 +
+ drivers/input/keyboard/Makefile            |   1 +
+ drivers/input/keyboard/stmpe-keypad-test.c | 329 +++++++++++++++++++++
+ 3 files changed, 344 insertions(+)
+ create mode 100644 drivers/input/keyboard/stmpe-keypad-test.c
+
+diff --git a/drivers/input/keyboard/Kconfig b/drivers/input/keyboard/Kconfig
+index 2ff4fef322c2..aadc9d021a98 100644
+--- a/drivers/input/keyboard/Kconfig
++++ b/drivers/input/keyboard/Kconfig
+@@ -621,6 +621,20 @@ config KEYBOARD_STMPE
+ 	  To compile this driver as a module, choose M here: the module will be
+ 	  called stmpe-keypad.
+ 
++config KEYBOARD_STMPE_KUNIT_TEST
++	tristate "KUnit tests for the STMPE keypad" if !KUNIT_ALL_TESTS
++	depends on KUNIT
++	depends on KEYBOARD_STMPE
++	default KUNIT_ALL_TESTS
++	help
++	  Builds unit tests for STMPE keypad FIFO draining and event decoding,
++	  matrix bounds, scan-code generation, lifecycle ordering, and
++	  transport return conventions.
++	  The tests exercise STMPE1801 and existing STMPE keypad event
++	  formats without requiring hardware.
++
++	  If in doubt, say "N".
++
+ config KEYBOARD_SUN4I_LRADC
+ 	tristate "Allwinner sun4i low res adc attached tablet keys support"
+ 	depends on ARCH_SUNXI
+diff --git a/drivers/input/keyboard/Makefile b/drivers/input/keyboard/Makefile
+index 2d906e14f3e2..62abc470330a 100644
+--- a/drivers/input/keyboard/Makefile
++++ b/drivers/input/keyboard/Makefile
+@@ -61,6 +61,7 @@ obj-$(CONFIG_KEYBOARD_SH_KEYSC)		+= sh_keysc.o
+ obj-$(CONFIG_KEYBOARD_SNVS_PWRKEY)	+= snvs_pwrkey.o
+ obj-$(CONFIG_KEYBOARD_SPEAR)		+= spear-keyboard.o
+ obj-$(CONFIG_KEYBOARD_STMPE)		+= stmpe-keypad.o
++obj-$(CONFIG_KEYBOARD_STMPE_KUNIT_TEST)	+= stmpe-keypad-test.o
+ obj-$(CONFIG_KEYBOARD_STOWAWAY)		+= stowaway.o
+ obj-$(CONFIG_KEYBOARD_ST_KEYSCAN)	+= st-keyscan.o
+ obj-$(CONFIG_KEYBOARD_SUN4I_LRADC)	+= sun4i-lradc-keys.o
+diff --git a/drivers/input/keyboard/stmpe-keypad-test.c b/drivers/input/keyboard/stmpe-keypad-test.c
+new file mode 100644
+index 000000000000..89a482e76895
+--- /dev/null
++++ b/drivers/input/keyboard/stmpe-keypad-test.c
+@@ -0,0 +1,329 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <kunit/test.h>
++#include <linux/bitops.h>
++#include <linux/errno.h>
++#include <linux/input/matrix_keypad.h>
++#include <linux/log2.h>
++#include <linux/string.h>
++
++#include "stmpe-keypad.h"
++
++#define STMPE_KEYPAD_DATA_UP	BIT(7)
++#define STMPE_KEYPAD_NOKEY	GENMASK(6, 3)
++
++enum stmpe_keypad_lifecycle_event {
++	STMPE_KEYPAD_START,
++	STMPE_KEYPAD_STOP,
++	STMPE_KEYPAD_STOP_ERROR,
++	STMPE_KEYPAD_DISABLE,
++};
++
++struct stmpe_keypad_fifo_test_context {
++	u8 entries[11][STMPE_KEYPAD_MAX_DATA];
++	unsigned int next_entry;
++	unsigned int read_count;
++	unsigned int report_count;
++	unsigned int error_at_read;
++	int error;
++};
++
++struct stmpe_keypad_lifecycle_test_context {
++	enum stmpe_keypad_lifecycle_event events[8];
++	unsigned int event_count;
++	unsigned int scan_count;
++	int scan_results[3];
++	int stop_error;
++};
++
++static const struct stmpe_keypad_event_format stmpe1801_format = {
++	.row_mask = GENMASK(2, 0),
++	.col_mask = GENMASK(6, 3),
++	.col_shift = 3,
++	.no_key_mask = STMPE_KEYPAD_NOKEY,
++};
++
++static const struct stmpe_keypad_event_format stmpe_default_format = {
++	.row_mask = GENMASK(6, 3),
++	.row_shift = 3,
++	.col_mask = GENMASK(2, 0),
++	.no_key_mask = STMPE_KEYPAD_NOKEY,
++};
++
++static void stmpe_keypad_test_1801_matrix(struct kunit *test)
++{
++	const unsigned int row_shift = get_count_order(10);
++	struct stmpe_keypad_event event;
++	unsigned int row;
++	unsigned int col;
++	int ret;
++	u8 data;
++
++	KUNIT_ASSERT_EQ(test, row_shift, 4U);
++
++	for (row = 0; row < 8; row++) {
++		for (col = 0; col < 10; col++) {
++			data = (col << 3) | row;
++			ret = stmpe_keypad_decode_event(data, &stmpe1801_format,
++							8, 10, row_shift, &event);
++			KUNIT_ASSERT_EQ(test, ret, 0);
++			KUNIT_EXPECT_EQ(test, event.row, row);
++			KUNIT_EXPECT_EQ(test, event.col, col);
++			KUNIT_EXPECT_EQ(test, event.scan_code,
++					MATRIX_SCAN_CODE(row, col, row_shift));
++			KUNIT_EXPECT_TRUE(test, event.pressed);
++			KUNIT_EXPECT_LT(test, event.scan_code, 128U);
++		}
++	}
++
++	KUNIT_EXPECT_EQ(test, event.scan_code, 121U);
++}
++
++static void stmpe_keypad_test_existing_matrix(struct kunit *test)
++{
++	const unsigned int row_shift = get_count_order(8);
++	struct stmpe_keypad_event event;
++	unsigned int row;
++	unsigned int col;
++	int ret;
++	u8 data;
++
++	for (row = 0; row < 12; row++) {
++		for (col = 0; col < 8; col++) {
++			data = (row << 3) | col;
++			ret = stmpe_keypad_decode_event(data, &stmpe_default_format,
++							12, 8, row_shift, &event);
++			KUNIT_ASSERT_EQ(test, ret, 0);
++			KUNIT_EXPECT_EQ(test, event.row, row);
++			KUNIT_EXPECT_EQ(test, event.col, col);
++			KUNIT_EXPECT_EQ(test, event.scan_code,
++					MATRIX_SCAN_CODE(row, col, row_shift));
++		}
++	}
++}
++
++static void stmpe_keypad_test_release_and_no_key(struct kunit *test)
++{
++	struct stmpe_keypad_event event;
++	u8 data = STMPE_KEYPAD_DATA_UP | (9 << 3) | 7;
++	int ret;
++
++	ret = stmpe_keypad_decode_event(data, &stmpe1801_format,
++					8, 10, 4, &event);
++	KUNIT_ASSERT_EQ(test, ret, 0);
++	KUNIT_EXPECT_FALSE(test, event.pressed);
++	KUNIT_EXPECT_EQ(test, event.scan_code, 121U);
++
++	ret = stmpe_keypad_decode_event(0xf8, &stmpe1801_format,
++					8, 10, 4, &event);
++	KUNIT_EXPECT_EQ(test, ret, -ENODATA);
++}
++
++static void stmpe_keypad_test_rejects_out_of_range(struct kunit *test)
++{
++	struct stmpe_keypad_event event;
++	int ret;
++
++	ret = stmpe_keypad_decode_event(10 << 3, &stmpe1801_format,
++					8, 10, 4, &event);
++	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
++
++	ret = stmpe_keypad_decode_event(7, &stmpe1801_format,
++					7, 10, 4, &event);
++	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
++}
++
++static int stmpe_keypad_fifo_test_read(void *context, u8 *data)
++{
++	struct stmpe_keypad_fifo_test_context *ctx = context;
++
++	ctx->read_count++;
++	if (ctx->error_at_read == ctx->read_count)
++		return ctx->error;
++
++	memcpy(data, ctx->entries[ctx->next_entry], STMPE_KEYPAD_MAX_DATA);
++	ctx->next_entry++;
++
++	return 0;
++}
++
++static void stmpe_keypad_fifo_test_report(void *context, const u8 *data)
++{
++	struct stmpe_keypad_fifo_test_context *ctx = context;
++
++	(void)data;
++	ctx->report_count++;
++}
++
++static void stmpe_keypad_test_fifo_depth_and_later_empty_irq(struct kunit *test)
++{
++	static const struct stmpe_keypad_fifo_ops ops = {
++		.read = stmpe_keypad_fifo_test_read,
++		.report = stmpe_keypad_fifo_test_report,
++	};
++	struct stmpe_keypad_fifo_test_context ctx = {};
++	int ret;
++	int i;
++
++	for (i = 0; i < 10; i++) {
++		memset(ctx.entries[i], 0xf8, 3);
++		ctx.entries[i][0] = 0;
++		ctx.entries[i][3] = 0xff;
++		ctx.entries[i][4] = 0x0f;
++	}
++	memset(ctx.entries[10], 0xf8, 3);
++	ctx.entries[10][3] = 0xff;
++	ctx.entries[10][4] = 0x0f;
++
++	ret = stmpe_keypad_drain_fifo(&ops, &ctx, 10, true);
++	KUNIT_EXPECT_EQ(test, ret, 10);
++	KUNIT_EXPECT_EQ(test, ctx.read_count, 10U);
++	KUNIT_EXPECT_EQ(test, ctx.report_count, 10U);
++
++	ret = stmpe_keypad_drain_fifo(&ops, &ctx, 10, true);
++	KUNIT_EXPECT_EQ(test, ret, 0);
++	KUNIT_EXPECT_EQ(test, ctx.read_count, 11U);
++	KUNIT_EXPECT_EQ(test, ctx.report_count, 10U);
++}
++
++static void stmpe_keypad_test_fifo_read_errors(struct kunit *test)
++{
++	static const struct stmpe_keypad_fifo_ops ops = {
++		.read = stmpe_keypad_fifo_test_read,
++		.report = stmpe_keypad_fifo_test_report,
++	};
++	struct stmpe_keypad_fifo_test_context ctx = {
++		.error_at_read = 1,
++		.error = -EREMOTEIO,
++	};
++	int ret;
++
++	ret = stmpe_keypad_drain_fifo(&ops, &ctx, 10, true);
++	KUNIT_EXPECT_EQ(test, ret, -EREMOTEIO);
++	KUNIT_EXPECT_EQ(test, ctx.read_count, 1U);
++	KUNIT_EXPECT_EQ(test, ctx.report_count, 0U);
++
++	memset(&ctx, 0, sizeof(ctx));
++	ctx.entries[0][0] = 0;
++	ctx.entries[0][1] = 0xf8;
++	ctx.entries[0][2] = 0xf8;
++	ctx.entries[0][3] = 0xff;
++	ctx.entries[0][4] = 0x0f;
++	ctx.error_at_read = 2;
++	ctx.error = -EREMOTEIO;
++
++	ret = stmpe_keypad_drain_fifo(&ops, &ctx, 10, true);
++	KUNIT_EXPECT_EQ(test, ret, 1);
++	KUNIT_EXPECT_EQ(test, ctx.read_count, 2U);
++	KUNIT_EXPECT_EQ(test, ctx.report_count, 1U);
++}
++
++static int stmpe_keypad_lifecycle_test_set_scan(void *context, bool enable)
++{
++	struct stmpe_keypad_lifecycle_test_context *ctx = context;
++	int result = ctx->scan_results[ctx->scan_count];
++
++	ctx->events[ctx->event_count++] = enable ? STMPE_KEYPAD_START :
++						       STMPE_KEYPAD_STOP;
++	ctx->scan_count++;
++
++	return result;
++}
++
++static void stmpe_keypad_lifecycle_test_disable(void *context)
++{
++	struct stmpe_keypad_lifecycle_test_context *ctx = context;
++
++	ctx->events[ctx->event_count++] = STMPE_KEYPAD_DISABLE;
++}
++
++static void
++stmpe_keypad_lifecycle_test_report_stop_error(void *context, int error)
++{
++	struct stmpe_keypad_lifecycle_test_context *ctx = context;
++
++	ctx->events[ctx->event_count++] = STMPE_KEYPAD_STOP_ERROR;
++	ctx->stop_error = error;
++}
++
++static const struct stmpe_keypad_lifecycle_ops stmpe_keypad_test_lifecycle_ops = {
++	.set_scan = stmpe_keypad_lifecycle_test_set_scan,
++	.disable = stmpe_keypad_lifecycle_test_disable,
++	.report_stop_error = stmpe_keypad_lifecycle_test_report_stop_error,
++};
++
++static void stmpe_keypad_test_successful_start_and_remove(struct kunit *test)
++{
++	struct stmpe_keypad_lifecycle_test_context ctx = {};
++	int ret;
++
++	ret = stmpe_keypad_start(&stmpe_keypad_test_lifecycle_ops, &ctx);
++	KUNIT_ASSERT_EQ(test, ret, 0);
++	stmpe_keypad_stop(&stmpe_keypad_test_lifecycle_ops, &ctx);
++
++	KUNIT_ASSERT_EQ(test, ctx.event_count, 3U);
++	KUNIT_EXPECT_EQ(test, ctx.events[0], STMPE_KEYPAD_START);
++	KUNIT_EXPECT_EQ(test, ctx.events[1], STMPE_KEYPAD_STOP);
++	KUNIT_EXPECT_EQ(test, ctx.events[2], STMPE_KEYPAD_DISABLE);
++}
++
++static void stmpe_keypad_test_failed_start_unwinds(struct kunit *test)
++{
++	struct stmpe_keypad_lifecycle_test_context ctx = {
++		.scan_results = { -EREMOTEIO, -EIO },
++	};
++	int ret;
++
++	ret = stmpe_keypad_start(&stmpe_keypad_test_lifecycle_ops, &ctx);
++
++	KUNIT_EXPECT_EQ(test, ret, -EREMOTEIO);
++	KUNIT_ASSERT_EQ(test, ctx.event_count, 4U);
++	KUNIT_EXPECT_EQ(test, ctx.events[0], STMPE_KEYPAD_START);
++	KUNIT_EXPECT_EQ(test, ctx.events[1], STMPE_KEYPAD_STOP);
++	KUNIT_EXPECT_EQ(test, ctx.events[2], STMPE_KEYPAD_STOP_ERROR);
++	KUNIT_EXPECT_EQ(test, ctx.events[3], STMPE_KEYPAD_DISABLE);
++	KUNIT_EXPECT_EQ(test, ctx.stop_error, -EIO);
++}
++
++static void stmpe_keypad_test_failed_remove_stop(struct kunit *test)
++{
++	struct stmpe_keypad_lifecycle_test_context ctx = {
++		.scan_results = { 0, -EIO },
++	};
++	int ret;
++
++	ret = stmpe_keypad_start(&stmpe_keypad_test_lifecycle_ops, &ctx);
++	KUNIT_ASSERT_EQ(test, ret, 0);
++	stmpe_keypad_stop(&stmpe_keypad_test_lifecycle_ops, &ctx);
++
++	KUNIT_ASSERT_EQ(test, ctx.event_count, 4U);
++	KUNIT_EXPECT_EQ(test, ctx.events[0], STMPE_KEYPAD_START);
++	KUNIT_EXPECT_EQ(test, ctx.events[1], STMPE_KEYPAD_STOP);
++	KUNIT_EXPECT_EQ(test, ctx.events[2], STMPE_KEYPAD_STOP_ERROR);
++	KUNIT_EXPECT_EQ(test, ctx.events[3], STMPE_KEYPAD_DISABLE);
++	KUNIT_EXPECT_EQ(test, ctx.stop_error, -EIO);
++}
++
++static struct kunit_case stmpe_keypad_test_cases[] = {
++	KUNIT_CASE(stmpe_keypad_test_1801_matrix),
++	KUNIT_CASE(stmpe_keypad_test_existing_matrix),
++	KUNIT_CASE(stmpe_keypad_test_release_and_no_key),
++	KUNIT_CASE(stmpe_keypad_test_rejects_out_of_range),
++	KUNIT_CASE(stmpe_keypad_test_fifo_depth_and_later_empty_irq),
++	KUNIT_CASE(stmpe_keypad_test_fifo_read_errors),
++	KUNIT_CASE(stmpe_keypad_test_successful_start_and_remove),
++	KUNIT_CASE(stmpe_keypad_test_failed_start_unwinds),
++	KUNIT_CASE(stmpe_keypad_test_failed_remove_stop),
++	{}
++};
++
++static struct kunit_suite stmpe_keypad_test_suite = {
++	.name = "stmpe-keypad",
++	.test_cases = stmpe_keypad_test_cases,
++};
++
++kunit_test_suite(stmpe_keypad_test_suite);
++
++MODULE_IMPORT_NS("EXPORTED_FOR_KUNIT_TESTING");
++MODULE_DESCRIPTION("KUnit tests for STMPE keypad event decoding");
++MODULE_LICENSE("GPL");
+-- 
+2.56.0
+

@@ -1,0 +1,707 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 19:59:32 -0600
+Subject: [PATCH] Input: stmpe-keypad: add STMPE1801 support
+
+STMPE1801 uses different keypad register addresses and swaps the row and
+column fields in FIFO events. Its 8-by-10 matrix also needs a four-bit
+row shift, so the old fixed 64-entry keymap is too small.
+
+Describe the register and event layout per variant, allocate the matrix
+keymap from the firmware dimensions, validate decoded coordinates before
+indexing it, and drain the ten-entry STMPE1801 FIFO. Keep scan disabled
+until IRQ and input registration have succeeded, and unwind the block
+enable vote on every initialization fault.
+
+On a failed scan-start transaction, make a best-effort stop attempt
+before disabling the keypad block and preserve the original start error.
+Report stop failures during both probe unwind and remove. Factor the
+bounded FIFO drain and scan lifecycle ordering into internal helpers
+shared with KUnit only when KUnit is enabled.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/input/keyboard/stmpe-keypad.c | 417 ++++++++++++++++++++++----
+ drivers/input/keyboard/stmpe-keypad.h |  54 ++++
+ 2 files changed, 419 insertions(+), 52 deletions(-)
+ create mode 100644 drivers/input/keyboard/stmpe-keypad.h
+
+diff --git a/drivers/input/keyboard/stmpe-keypad.c b/drivers/input/keyboard/stmpe-keypad.c
+index 0acded4fb9c9..988fd4045bce 100644
+--- a/drivers/input/keyboard/stmpe-keypad.c
++++ b/drivers/input/keyboard/stmpe-keypad.c
+@@ -13,8 +13,11 @@
+ #include <linux/platform_device.h>
+ #include <linux/input/matrix_keypad.h>
+ #include <linux/mfd/stmpe.h>
++#include <kunit/visibility.h>
+ 
+-/* These are at the same addresses in all STMPE variants */
++#include "stmpe-keypad.h"
++
++/* These addresses are shared by all keypad variants except STMPE1801. */
+ #define STMPE_KPC_COL			0x60
+ #define STMPE_KPC_ROW_MSB		0x61
+ #define STMPE_KPC_ROW_LSB		0x62
+@@ -43,19 +46,24 @@
+ #define STMPE_KEYPAD_MAX_DEBOUNCE	127
+ #define STMPE_KEYPAD_MAX_SCAN_COUNT	15
+ 
+-#define STMPE_KEYPAD_MAX_ROWS		8
+-#define STMPE_KEYPAD_MAX_COLS		8
+-#define STMPE_KEYPAD_ROW_SHIFT		3
+-#define STMPE_KEYPAD_KEYMAP_MAX_SIZE \
+-	(STMPE_KEYPAD_MAX_ROWS * STMPE_KEYPAD_MAX_COLS)
+-
+-
+ #define STMPE1601_NUM_DATA	5
++#define STMPE1801_NUM_DATA	5
+ #define STMPE2401_NUM_DATA	3
+ #define STMPE2403_NUM_DATA	5
+ 
+-/* Make sure it covers all cases above */
+-#define MAX_NUM_DATA		5
++#define STMPE1801_KPC_ROW		0x30
++#define STMPE1801_KPC_COL_LOW		0x31
++#define STMPE1801_KPC_COL_HIGH		0x32
++#define STMPE1801_KPC_CTRL_LOW		0x33
++#define STMPE1801_KPC_CTRL_MID		0x34
++#define STMPE1801_KPC_CMD		0x36
++#define STMPE1801_KPC_DATA_BYTE0	0x3a
++
++#define STMPE1801_KPC_DATA_ROW		GENMASK(2, 0)
++#define STMPE1801_KPC_DATA_COL		GENMASK(6, 3)
++#define STMPE1801_KPC_FIFO_DEPTH	10
++#define STMPE1801_KPC_DEFAULT_DEBOUNCE	50
++#define STMPE1801_KPC_MIN_DEBOUNCE	10
+ 
+ /**
+  * struct stmpe_keypad_variant - model-specific attributes
+@@ -68,6 +76,19 @@
+  * @max_rows: maximum number of rows supported
+  * @col_gpios: bitmask of gpios which can be used for columns
+  * @row_gpios: bitmask of gpios which can be used for rows
++ * @col_lsb_reg: register controlling columns 0 through 7
++ * @col_msb_reg: register controlling columns 8 and above, or zero
++ * @row_lsb_reg: register controlling rows 0 through 7
++ * @row_msb_reg: register controlling rows 8 and above, or zero
++ * @scan_count_reg: register containing the scan count field
++ * @debounce_reg: register containing the debounce field
++ * @command_reg: register containing the scan enable bit
++ * @data_reg: first keypad FIFO data register
++ * @event_format: normal FIFO data byte format
++ * @min_debounce: minimum supported debounce interval
++ * @default_debounce: debounce interval used when firmware omits the property
++ * @debounce_subtract_one: encode debounce as interval minus one
++ * @fifo_depth: number of FIFO entries to drain per interrupt, or one
+  */
+ struct stmpe_keypad_variant {
+ 	bool		auto_increment;
+@@ -78,6 +99,19 @@ struct stmpe_keypad_variant {
+ 	int		max_rows;
+ 	unsigned int	col_gpios;
+ 	unsigned int	row_gpios;
++	u8		col_lsb_reg;
++	u8		col_msb_reg;
++	u8		row_lsb_reg;
++	u8		row_msb_reg;
++	u8		scan_count_reg;
++	u8		debounce_reg;
++	u8		command_reg;
++	u8		data_reg;
++	struct stmpe_keypad_event_format event_format;
++	u8		min_debounce;
++	u8		default_debounce;
++	bool		debounce_subtract_one;
++	u8		fifo_depth;
+ };
+ 
+ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
+@@ -89,6 +123,46 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
+ 		.max_rows		= 8,
+ 		.col_gpios		= 0x000ff,	/* GPIO 0 - 7 */
+ 		.row_gpios		= 0x0ff00,	/* GPIO 8 - 15 */
++		.col_lsb_reg		= STMPE_KPC_COL,
++		.row_lsb_reg		= STMPE_KPC_ROW_LSB,
++		.row_msb_reg		= STMPE_KPC_ROW_MSB,
++		.scan_count_reg		= STMPE_KPC_CTRL_MSB,
++		.debounce_reg		= STMPE_KPC_CTRL_LSB,
++		.command_reg		= STMPE_KPC_CTRL_LSB,
++		.data_reg		= STMPE_KPC_DATA_BYTE0,
++		.event_format = {
++			.row_mask	= STMPE_KPC_DATA_ROW,
++			.row_shift	= 3,
++			.col_mask	= STMPE_KPC_DATA_COL,
++			.no_key_mask	= STMPE_KPC_DATA_NOKEY_MASK,
++		},
++		.fifo_depth		= 1,
++	},
++	[STMPE1801] = {
++		.auto_increment		= true,
++		.num_data		= STMPE1801_NUM_DATA,
++		.num_normal_data	= 3,
++		.max_cols		= 10,
++		.max_rows		= 8,
++		.col_gpios		= 0x3ff00,	/* GPIO 8 - 17 */
++		.row_gpios		= 0x000ff,	/* GPIO 0 - 7 */
++		.col_lsb_reg		= STMPE1801_KPC_COL_LOW,
++		.col_msb_reg		= STMPE1801_KPC_COL_HIGH,
++		.row_lsb_reg		= STMPE1801_KPC_ROW,
++		.scan_count_reg		= STMPE1801_KPC_CTRL_LOW,
++		.debounce_reg		= STMPE1801_KPC_CTRL_MID,
++		.command_reg		= STMPE1801_KPC_CMD,
++		.data_reg		= STMPE1801_KPC_DATA_BYTE0,
++		.event_format = {
++			.row_mask	= STMPE1801_KPC_DATA_ROW,
++			.col_mask	= STMPE1801_KPC_DATA_COL,
++			.col_shift	= 3,
++			.no_key_mask	= STMPE_KPC_DATA_NOKEY_MASK,
++		},
++		.min_debounce		= STMPE1801_KPC_MIN_DEBOUNCE,
++		.default_debounce	= STMPE1801_KPC_DEFAULT_DEBOUNCE,
++		.debounce_subtract_one	= true,
++		.fifo_depth		= STMPE1801_KPC_FIFO_DEPTH,
+ 	},
+ 	[STMPE2401] = {
+ 		.auto_increment		= false,
+@@ -99,6 +173,20 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
+ 		.max_rows		= 12,
+ 		.col_gpios		= 0x0000ff,	/* GPIO 0 - 7*/
+ 		.row_gpios		= 0x1f7f00,	/* GPIO 8-14, 16-20 */
++		.col_lsb_reg		= STMPE_KPC_COL,
++		.row_lsb_reg		= STMPE_KPC_ROW_LSB,
++		.row_msb_reg		= STMPE_KPC_ROW_MSB,
++		.scan_count_reg		= STMPE_KPC_CTRL_MSB,
++		.debounce_reg		= STMPE_KPC_CTRL_LSB,
++		.command_reg		= STMPE_KPC_CTRL_LSB,
++		.data_reg		= STMPE_KPC_DATA_BYTE0,
++		.event_format = {
++			.row_mask	= STMPE_KPC_DATA_ROW,
++			.row_shift	= 3,
++			.col_mask	= STMPE_KPC_DATA_COL,
++			.no_key_mask	= STMPE_KPC_DATA_NOKEY_MASK,
++		},
++		.fifo_depth		= 1,
+ 	},
+ 	[STMPE2403] = {
+ 		.auto_increment		= true,
+@@ -109,6 +197,20 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
+ 		.max_rows		= 12,
+ 		.col_gpios		= 0x0000ff,	/* GPIO 0 - 7*/
+ 		.row_gpios		= 0x1fef00,	/* GPIO 8-14, 16-20 */
++		.col_lsb_reg		= STMPE_KPC_COL,
++		.row_lsb_reg		= STMPE_KPC_ROW_LSB,
++		.row_msb_reg		= STMPE_KPC_ROW_MSB,
++		.scan_count_reg		= STMPE_KPC_CTRL_MSB,
++		.debounce_reg		= STMPE_KPC_CTRL_LSB,
++		.command_reg		= STMPE_KPC_CTRL_LSB,
++		.data_reg		= STMPE_KPC_DATA_BYTE0,
++		.event_format = {
++			.row_mask	= STMPE_KPC_DATA_ROW,
++			.row_shift	= 3,
++			.col_mask	= STMPE_KPC_DATA_COL,
++			.no_key_mask	= STMPE_KPC_DATA_NOKEY_MASK,
++		},
++		.fifo_depth		= 1,
+ 	},
+ };
+ 
+@@ -124,6 +226,10 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
+  * @no_autorepeat: disable key autorepeat
+  * @rows: bitmask for the rows
+  * @cols: bitmask for the columns
++ * @num_rows: number of matrix rows
++ * @num_cols: number of matrix columns
++ * @row_shift: row stride used by the matrix keymap
++ * @overflow_irq: FIFO overflow interrupt
+  * @keymap: the keymap
+  */
+ struct stmpe_keypad {
+@@ -135,9 +241,48 @@ struct stmpe_keypad {
+ 	bool no_autorepeat;
+ 	unsigned int rows;
+ 	unsigned int cols;
+-	unsigned short keymap[STMPE_KEYPAD_KEYMAP_MAX_SIZE];
++	unsigned int num_rows;
++	unsigned int num_cols;
++	unsigned int row_shift;
++	int overflow_irq;
++	unsigned short *keymap;
+ };
+ 
++VISIBLE_IF_KUNIT
++int stmpe_keypad_decode_event(u8 data,
++			      const struct stmpe_keypad_event_format *format,
++			      unsigned int rows, unsigned int cols,
++			      unsigned int scan_code_row_shift,
++			      struct stmpe_keypad_event *event)
++{
++	unsigned int row;
++	unsigned int col;
++
++	if ((data & format->no_key_mask) == format->no_key_mask)
++		return -ENODATA;
++
++	row = (data & format->row_mask) >> format->row_shift;
++	col = (data & format->col_mask) >> format->col_shift;
++	if (row >= rows || col >= cols)
++		return -EINVAL;
++
++	event->row = row;
++	event->col = col;
++	event->scan_code = MATRIX_SCAN_CODE(row, col, scan_code_row_shift);
++	event->pressed = !(data & STMPE_KPC_DATA_UP);
++
++	return 0;
++}
++EXPORT_SYMBOL_IF_KUNIT(stmpe_keypad_decode_event);
++
++static int stmpe_keypad_parse_event(struct stmpe_keypad *keypad, u8 data,
++				    struct stmpe_keypad_event *event)
++{
++	return stmpe_keypad_decode_event(data, &keypad->variant->event_format,
++					 keypad->num_rows, keypad->num_cols,
++					 keypad->row_shift, event);
++}
++
+ static int stmpe_keypad_read_data(struct stmpe_keypad *keypad, u8 *data)
+ {
+ 	const struct stmpe_keypad_variant *variant = keypad->variant;
+@@ -145,12 +290,13 @@ static int stmpe_keypad_read_data(struct stmpe_keypad *keypad, u8 *data)
+ 	int ret;
+ 	int i;
+ 
+-	if (variant->auto_increment)
+-		return stmpe_block_read(stmpe, STMPE_KPC_DATA_BYTE0,
++	if (variant->auto_increment) {
++		return stmpe_block_read(stmpe, variant->data_reg,
+ 					variant->num_data, data);
++	}
+ 
+ 	for (i = 0; i < variant->num_data; i++) {
+-		ret = stmpe_reg_read(stmpe, STMPE_KPC_DATA_BYTE0 + i);
++		ret = stmpe_reg_read(stmpe, variant->data_reg + i);
+ 		if (ret < 0)
+ 			return ret;
+ 
+@@ -160,34 +306,90 @@ static int stmpe_keypad_read_data(struct stmpe_keypad *keypad, u8 *data)
+ 	return 0;
+ }
+ 
+-static irqreturn_t stmpe_keypad_irq(int irq, void *dev)
++static bool stmpe1801_keypad_fifo_empty(const u8 *fifo)
+ {
+-	struct stmpe_keypad *keypad = dev;
++	int i;
++
++	for (i = 0; i < 3; i++)
++		if ((fifo[i] & STMPE_KPC_DATA_NOKEY_MASK) !=
++		    STMPE_KPC_DATA_NOKEY_MASK)
++			return false;
++
++	/* STMPE1801 special-function and dedicated-key idle values. */
++	return fifo[3] == 0xff && fifo[4] == 0x0f;
++}
++
++VISIBLE_IF_KUNIT
++int stmpe_keypad_drain_fifo(const struct stmpe_keypad_fifo_ops *ops,
++			    void *context, unsigned int fifo_depth,
++			    bool stop_on_idle)
++{
++	u8 fifo[STMPE_KEYPAD_MAX_DATA];
++	int ret;
++	int entry;
++
++	for (entry = 0; entry < fifo_depth; entry++) {
++		ret = ops->read(context, fifo);
++		if (ret < 0)
++			return entry ? entry : ret;
++
++		if (stop_on_idle && stmpe1801_keypad_fifo_empty(fifo))
++			break;
++
++		ops->report(context, fifo);
++	}
++
++	return entry;
++}
++EXPORT_SYMBOL_IF_KUNIT(stmpe_keypad_drain_fifo);
++
++static int stmpe_keypad_fifo_read(void *context, u8 *data)
++{
++	return stmpe_keypad_read_data(context, data);
++}
++
++static void stmpe_keypad_fifo_report(void *context, const u8 *fifo)
++{
++	struct stmpe_keypad *keypad = context;
+ 	struct input_dev *input = keypad->input;
+ 	const struct stmpe_keypad_variant *variant = keypad->variant;
+-	u8 fifo[MAX_NUM_DATA];
+ 	int ret;
+ 	int i;
+ 
+-	ret = stmpe_keypad_read_data(keypad, fifo);
+-	if (ret < 0)
+-		return IRQ_NONE;
+-
+ 	for (i = 0; i < variant->num_normal_data; i++) {
+-		u8 data = fifo[i];
+-		int row = (data & STMPE_KPC_DATA_ROW) >> 3;
+-		int col = data & STMPE_KPC_DATA_COL;
+-		int code = MATRIX_SCAN_CODE(row, col, STMPE_KEYPAD_ROW_SHIFT);
+-		bool up = data & STMPE_KPC_DATA_UP;
+-
+-		if ((data & STMPE_KPC_DATA_NOKEY_MASK)
+-			== STMPE_KPC_DATA_NOKEY_MASK)
++		struct stmpe_keypad_event event;
++
++		ret = stmpe_keypad_parse_event(keypad, fifo[i], &event);
++		if (ret)
+ 			continue;
+ 
+-		input_event(input, EV_MSC, MSC_SCAN, code);
+-		input_report_key(input, keypad->keymap[code], !up);
++		input_event(input, EV_MSC, MSC_SCAN, event.scan_code);
++		input_report_key(input, keypad->keymap[event.scan_code],
++				 event.pressed);
+ 		input_sync(input);
+ 	}
++}
++
++static const struct stmpe_keypad_fifo_ops stmpe_keypad_fifo_ops = {
++	.read = stmpe_keypad_fifo_read,
++	.report = stmpe_keypad_fifo_report,
++};
++
++static irqreturn_t stmpe_keypad_irq(int irq, void *dev)
++{
++	struct stmpe_keypad *keypad = dev;
++	struct input_dev *input = keypad->input;
++	const struct stmpe_keypad_variant *variant = keypad->variant;
++	int ret;
++
++	if (irq == keypad->overflow_irq)
++		dev_warn_ratelimited(&input->dev, "keypad FIFO overflow\n");
++
++	ret = stmpe_keypad_drain_fifo(&stmpe_keypad_fifo_ops, keypad,
++				      variant->fifo_depth,
++				      keypad->stmpe->partnum == STMPE1801);
++	if (ret < 0)
++		return IRQ_NONE;
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -262,6 +464,68 @@ static int stmpe_keypad_altfunc_init(struct stmpe_keypad *keypad)
+ 	return 0;
+ }
+ 
++static void stmpe_keypad_disable(void *context)
++{
++	struct stmpe_keypad *keypad = context;
++
++	stmpe_disable(keypad->stmpe, STMPE_BLOCK_KEYPAD);
++}
++
++static int stmpe_keypad_set_scan(void *context, bool enable)
++{
++	struct stmpe_keypad *keypad = context;
++
++	return stmpe_set_bits(keypad->stmpe, keypad->variant->command_reg,
++			      STMPE_KPC_CTRL_LSB_SCAN,
++			      enable ? STMPE_KPC_CTRL_LSB_SCAN : 0);
++}
++
++static void stmpe_keypad_report_stop_error(void *context, int error)
++{
++	struct stmpe_keypad *keypad = context;
++
++	dev_warn(&keypad->input->dev, "failed to stop keypad scan: %d\n", error);
++}
++
++static const struct stmpe_keypad_lifecycle_ops stmpe_keypad_lifecycle_ops = {
++	.set_scan = stmpe_keypad_set_scan,
++	.disable = stmpe_keypad_disable,
++	.report_stop_error = stmpe_keypad_report_stop_error,
++};
++
++VISIBLE_IF_KUNIT
++int stmpe_keypad_start(const struct stmpe_keypad_lifecycle_ops *ops,
++		       void *context)
++{
++	int cleanup_error;
++	int error;
++
++	error = ops->set_scan(context, true);
++	if (!error)
++		return 0;
++
++	cleanup_error = ops->set_scan(context, false);
++	if (cleanup_error)
++		ops->report_stop_error(context, cleanup_error);
++	ops->disable(context);
++
++	return error;
++}
++EXPORT_SYMBOL_IF_KUNIT(stmpe_keypad_start);
++
++VISIBLE_IF_KUNIT
++void stmpe_keypad_stop(const struct stmpe_keypad_lifecycle_ops *ops,
++		       void *context)
++{
++	int error;
++
++	error = ops->set_scan(context, false);
++	if (error)
++		ops->report_stop_error(context, error);
++	ops->disable(context);
++}
++EXPORT_SYMBOL_IF_KUNIT(stmpe_keypad_stop);
++
+ static int stmpe_keypad_chip_init(struct stmpe_keypad *keypad)
+ {
+ 	const struct stmpe_keypad_variant *variant = keypad->variant;
+@@ -270,6 +534,8 @@ static int stmpe_keypad_chip_init(struct stmpe_keypad *keypad)
+ 
+ 	if (keypad->debounce_ms > STMPE_KEYPAD_MAX_DEBOUNCE)
+ 		return -EINVAL;
++	if (keypad->debounce_ms < variant->min_debounce)
++		return -EINVAL;
+ 
+ 	if (keypad->scan_count > STMPE_KEYPAD_MAX_SCAN_COUNT)
+ 		return -EINVAL;
+@@ -280,35 +546,49 @@ static int stmpe_keypad_chip_init(struct stmpe_keypad *keypad)
+ 
+ 	ret = stmpe_keypad_altfunc_init(keypad);
+ 	if (ret < 0)
+-		return ret;
++		goto err_disable;
+ 
+-	ret = stmpe_reg_write(stmpe, STMPE_KPC_COL, keypad->cols);
++	ret = stmpe_reg_write(stmpe, variant->col_lsb_reg, keypad->cols);
+ 	if (ret < 0)
+-		return ret;
++		goto err_disable;
++
++	if (variant->col_msb_reg) {
++		ret = stmpe_reg_write(stmpe, variant->col_msb_reg,
++				      keypad->cols >> 8);
++		if (ret < 0)
++			goto err_disable;
++	}
+ 
+-	ret = stmpe_reg_write(stmpe, STMPE_KPC_ROW_LSB, keypad->rows);
++	ret = stmpe_reg_write(stmpe, variant->row_lsb_reg, keypad->rows);
+ 	if (ret < 0)
+-		return ret;
++		goto err_disable;
+ 
+-	if (variant->max_rows > 8) {
+-		ret = stmpe_set_bits(stmpe, STMPE_KPC_ROW_MSB,
++	if (variant->row_msb_reg) {
++		ret = stmpe_set_bits(stmpe, variant->row_msb_reg,
+ 				     STMPE_KPC_ROW_MSB_ROWS,
+ 				     keypad->rows >> 8);
+ 		if (ret < 0)
+-			return ret;
++			goto err_disable;
+ 	}
+ 
+-	ret = stmpe_set_bits(stmpe, STMPE_KPC_CTRL_MSB,
++	ret = stmpe_set_bits(stmpe, variant->scan_count_reg,
+ 			     STMPE_KPC_CTRL_MSB_SCAN_COUNT,
+ 			     keypad->scan_count << 4);
+ 	if (ret < 0)
+-		return ret;
++		goto err_disable;
++
++	ret = stmpe_set_bits(stmpe, variant->debounce_reg,
++			     STMPE_KPC_CTRL_LSB_DEBOUNCE,
++			     (keypad->debounce_ms -
++			      variant->debounce_subtract_one) << 1);
++	if (ret < 0)
++		goto err_disable;
+ 
+-	return stmpe_set_bits(stmpe, STMPE_KPC_CTRL_LSB,
+-			      STMPE_KPC_CTRL_LSB_SCAN |
+-			      STMPE_KPC_CTRL_LSB_DEBOUNCE,
+-			      STMPE_KPC_CTRL_LSB_SCAN |
+-			      (keypad->debounce_ms << 1));
++	return 0;
++
++err_disable:
++	stmpe_keypad_disable(keypad);
++	return ret;
+ }
+ 
+ static void stmpe_keypad_fill_used_pins(struct stmpe_keypad *keypad,
+@@ -318,8 +598,7 @@ static void stmpe_keypad_fill_used_pins(struct stmpe_keypad *keypad,
+ 
+ 	for (row = 0; row < used_rows; row++) {
+ 		for (col = 0; col < used_cols; col++) {
+-			int code = MATRIX_SCAN_CODE(row, col,
+-						    STMPE_KEYPAD_ROW_SHIFT);
++			int code = MATRIX_SCAN_CODE(row, col, keypad->row_shift);
+ 			if (keypad->keymap[code] != KEY_RESERVED) {
+ 				keypad->rows |= 1 << row;
+ 				keypad->cols |= 1 << col;
+@@ -337,11 +616,15 @@ static int stmpe_keypad_probe(struct platform_device *pdev)
+ 	u32 rows;
+ 	u32 cols;
+ 	int error;
++	int overflow_irq;
+ 	int irq;
+ 
+ 	irq = platform_get_irq(pdev, 0);
+ 	if (irq < 0)
+ 		return irq;
++	overflow_irq = platform_get_irq_byname(pdev, "KEYPAD_OVER");
++	if (overflow_irq < 0)
++		return overflow_irq;
+ 
+ 	keypad = devm_kzalloc(&pdev->dev, sizeof(struct stmpe_keypad),
+ 			      GFP_KERNEL);
+@@ -350,6 +633,8 @@ static int stmpe_keypad_probe(struct platform_device *pdev)
+ 
+ 	keypad->stmpe = stmpe;
+ 	keypad->variant = &stmpe_keypad_variants[stmpe->partnum];
++	keypad->overflow_irq = overflow_irq;
++	keypad->debounce_ms = keypad->variant->default_debounce;
+ 
+ 	of_property_read_u32(np, "debounce-interval", &keypad->debounce_ms);
+ 	of_property_read_u32(np, "st,scan-count", &keypad->scan_count);
+@@ -366,11 +651,22 @@ static int stmpe_keypad_probe(struct platform_device *pdev)
+ 	error = matrix_keypad_parse_properties(&pdev->dev, &rows, &cols);
+ 	if (error)
+ 		return error;
++	if (rows > keypad->variant->max_rows ||
++	    cols > keypad->variant->max_cols)
++		return dev_err_probe(&pdev->dev, -EINVAL,
++				     "matrix dimensions %ux%u exceed %dx%d\n",
++				     rows, cols, keypad->variant->max_rows,
++				     keypad->variant->max_cols);
++
++	keypad->num_rows = rows;
++	keypad->num_cols = cols;
++	keypad->row_shift = get_count_order(cols);
+ 
+ 	error = matrix_keypad_build_keymap(NULL, NULL, rows, cols,
+-					   keypad->keymap, input);
++					   NULL, input);
+ 	if (error)
+ 		return error;
++	keypad->keymap = input->keycode;
+ 
+ 	input_set_capability(input, EV_MSC, MSC_SCAN);
+ 	if (!keypad->no_autorepeat)
+@@ -389,26 +685,43 @@ static int stmpe_keypad_probe(struct platform_device *pdev)
+ 					  IRQF_ONESHOT, "stmpe-keypad", keypad);
+ 	if (error) {
+ 		dev_err(&pdev->dev, "unable to get irq: %d\n", error);
+-		return error;
++		goto err_disable;
++	}
++
++	error = devm_request_threaded_irq(&pdev->dev, overflow_irq,
++					  NULL, stmpe_keypad_irq,
++					  IRQF_ONESHOT, "stmpe-keypad-overflow",
++					  keypad);
++	if (error) {
++		dev_err(&pdev->dev, "unable to get overflow irq: %d\n", error);
++		goto err_disable;
+ 	}
+ 
+ 	error = input_register_device(input);
+ 	if (error) {
+ 		dev_err(&pdev->dev,
+ 			"unable to register input device: %d\n", error);
+-		return error;
++		goto err_disable;
+ 	}
+ 
++	error = stmpe_keypad_start(&stmpe_keypad_lifecycle_ops, keypad);
++	if (error)
++		return error;
++
+ 	platform_set_drvdata(pdev, keypad);
+ 
+ 	return 0;
++
++err_disable:
++	stmpe_keypad_disable(keypad);
++	return error;
+ }
+ 
+ static void stmpe_keypad_remove(struct platform_device *pdev)
+ {
+ 	struct stmpe_keypad *keypad = platform_get_drvdata(pdev);
+ 
+-	stmpe_disable(keypad->stmpe, STMPE_BLOCK_KEYPAD);
++	stmpe_keypad_stop(&stmpe_keypad_lifecycle_ops, keypad);
+ }
+ 
+ static struct platform_driver stmpe_keypad_driver = {
+diff --git a/drivers/input/keyboard/stmpe-keypad.h b/drivers/input/keyboard/stmpe-keypad.h
+new file mode 100644
+index 000000000000..ed73f12e7f0a
+--- /dev/null
++++ b/drivers/input/keyboard/stmpe-keypad.h
+@@ -0,0 +1,54 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef _STMPE_KEYPAD_H
++#define _STMPE_KEYPAD_H
++
++#include <linux/types.h>
++
++#define STMPE_KEYPAD_MAX_DATA 5
++
++struct stmpe_keypad_event {
++	unsigned int row;
++	unsigned int col;
++	unsigned int scan_code;
++	bool pressed;
++};
++
++struct stmpe_keypad_event_format {
++	u8 row_mask;
++	u8 row_shift;
++	u8 col_mask;
++	u8 col_shift;
++	u8 no_key_mask;
++};
++
++struct stmpe_keypad_fifo_ops {
++	int (*read)(void *context, u8 *data);
++	void (*report)(void *context, const u8 *data);
++};
++
++struct stmpe_keypad_lifecycle_ops {
++	int (*set_scan)(void *context, bool enable);
++	void (*disable)(void *context);
++	void (*report_stop_error)(void *context, int error);
++};
++
++#if IS_ENABLED(CONFIG_KUNIT)
++int stmpe_keypad_decode_event(u8 data,
++			      const struct stmpe_keypad_event_format *format,
++			      unsigned int rows, unsigned int cols,
++			      unsigned int scan_code_row_shift,
++			      struct stmpe_keypad_event *event);
++
++int stmpe_keypad_drain_fifo(const struct stmpe_keypad_fifo_ops *ops,
++			    void *context, unsigned int fifo_depth,
++			    bool stop_on_idle);
++
++int stmpe_keypad_start(const struct stmpe_keypad_lifecycle_ops *ops,
++		       void *context);
++
++void stmpe_keypad_stop(const struct stmpe_keypad_lifecycle_ops *ops,
++		       void *context);
++#endif
++
++#endif
+-- 
+2.56.0
+

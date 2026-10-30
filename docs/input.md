@@ -160,3 +160,61 @@ Not done:
   `msm8996-sec-gts3lwifi-r05.dtsi`, driver
   `drivers/input/keyboard/tc3xxk.c`). Upstream `tm2-touchkey` drives a
   Coreriver TC360; its protocol needs comparing with `tc3xxk.c` first.
+
+## Keyboard cover (Book Cover Keyboard, STMPE1801)
+
+The Book Cover Keyboard (EJ-FT820) connects through the pogo pins. Stock
+DT (`msm8996-pogo-keyboard-gts3llte-common.dtsi`, which the gts3lwifi
+DTs include): an ST STMPE1801 key-matrix controller at 0x40 on a GPIO
+I2C bus (TLMM 2 SDA, 3 SCL), interrupt TLMM 54, supply PM8994 L6 at
+1.8 V, an 8 x 10 matrix, 10 ms keypad debounce, scan count 3. Stock
+drives it with Samsung's own `stmpe1801_pogo_keyboard.c`.
+
+Mainline's STMPE MFD core already knows the STMPE1801 and creates its
+keypad cell, but the keypad driver only handles the STMPE1601 and
+STMPE24xx, and the binding has no `st,stmpe1801`. Patches 0069-0075 add
+the STMPE1801 keypad:
+
+| Patch | Change |
+|---|---|
+| 0069 | binding: `st,stmpe1801`, and row, column and debounce limits per variant |
+| 0070 | MFD core: the STMPE1801 interrupt status is read-to-clear; no write-back |
+| 0071 | MFD core: one block-read result for I2C and SPI (0 = full buffer), KUnit tests |
+| 0072 | keypad: STMPE1801 registers and FIFO event layout, keymap sized from the DT, bounded FIFO drain (ten entries), scan started only after the IRQ and input device are registered |
+| 0073 | keypad: KUnit tests for the event parser and the start/stop ordering |
+| 0074 | keypad: an OF match table, so a modular build loads by itself |
+| 0075 | MFD core: VCC/VIO disabled again when probe fails |
+
+The register facts come from ST's public STMPE1801 datasheet (chip ID
+0xc110, read-to-clear interrupt status at 0x08, keypad configuration at
+0x30-0x36, a ten-entry FIFO read as five bytes from 0x3a); Samsung's GPL
+driver was only used to cross-check the addresses and the I2C transfers.
+
+`dts/test/test-keyboard.dts` describes the cover on top of the keys test,
+with the stock key map (stock key 706, Samsung's soft keyboard toggle,
+is KEY_ONSCREEN_KEYBOARD). Two things beyond the stock values were
+needed: the controller does not answer 10 ms after L6 comes up (the
+chip ID read failed with -ENXIO), so L6 has a 100 ms
+`regulator-enable-ramp-delay` (stock retries each transfer three times,
+10 ms apart); and the node uses plain `interrupts`, which is what
+`stmpe_probe()` reads. Kernel config: `CONFIG_MFD_STMPE`,
+`CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE` (all three =m on our
+install; off in the package config).
+
+Seen on an SM-T820 (2026-10-29): with the cover attached at boot the
+STMPE1801 probes, the keypad registers as an input device, and typing
+works. Patch 0075 came from a probe that ran too early (before the ramp
+delay): the ID read failed and the supply stayed enabled, with a WARN in
+`regulator_put()`.
+
+Not done: hotplug. The STMPE1801 only probes when the cover is attached
+at boot, and stays gone after a detach. Stock detects the cover through
+the SM5705 MUIC: an ID ADC reading of 0x11 (49.9 kOhm, `ADC_KEYBOARDDOCK`
+in the Samsung kernel's `include/linux/muic/muic.h`;
+`drivers/muic/universal/muic_vps.c`) means attached, and
+`drivers/muic/keyboard_notifier.c` then powers L6 and starts the
+keyboard. Plan: `extcon-sm5705` reads the ADC register (0x09) on its
+ADC-change interrupt and reports EXTCON_DOCK; a small glue driver (or
+the STMPE node with a supply switched by that event) enables L6 and
+binds or unbinds the 0x40 client. Check first that a plain USB cable
+never reads 0x11.

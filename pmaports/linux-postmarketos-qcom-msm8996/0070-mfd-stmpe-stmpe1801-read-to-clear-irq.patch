@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 19:59:32 -0600
+Subject: [PATCH] mfd: stmpe: handle STMPE1801 read-to-clear interrupts
+
+The STMPE1801 interrupt status register is read-only and clears when
+read. Writing handled bits back is both unnecessary and contrary to its
+register definition.
+
+Retain write-one-to-clear handling for the other variants and skip the
+status write for STMPE1801.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/mfd/stmpe.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mfd/stmpe.c b/drivers/mfd/stmpe.c
+index 3c5c2f157f52..362471de3be4 100644
+--- a/drivers/mfd/stmpe.c
++++ b/drivers/mfd/stmpe.c
+@@ -327,7 +327,7 @@ static const struct mfd_cell stmpe_gpio_cell_noirq = {
+ };
+ 
+ /*
+- * Keypad (1601, 2401, 2403)
++ * Keypad (1601, 1801, 2401, 2403)
+  */
+ 
+ static struct resource stmpe_keypad_resources[] = {
+@@ -1123,7 +1123,9 @@ static irqreturn_t stmpe_irq(int irq, void *data)
+ 			status &= ~(1 << bit);
+ 		}
+ 
+-		stmpe_reg_write(stmpe, israddr + i, clear);
++		/* STMPE1801 interrupt status is read-only and read-to-clear. */
++		if (variant->id_val != STMPE1801_ID)
++			stmpe_reg_write(stmpe, israddr + i, clear);
+ 	}
+ 
+ 	return IRQ_HANDLED;
+-- 
+2.56.0
+
