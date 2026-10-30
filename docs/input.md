@@ -119,3 +119,44 @@ An earlier version of this branch had a standalone `wacom_w9019` driver
 Not done: firmware update (the IC keeps its firmware in flash), the pen
 detect line (GPIO 117; stock only logs it), the stock "survey" low-power
 mode.
+
+## Keys
+
+| Key | Line | Driver, code |
+|---|---|---|
+| Power | PM8994 PON KPDPWR | `pm8941-pwrkey` (pm8994.dtsi, main DTS), KEY_POWER |
+| Volume Down | PM8994 PON RESIN | `pm8941-pwrkey` (`&pm8994_resin`), KEY_VOLUMEDOWN |
+| Volume Up | PM8994 GPIO 3, active low, 30 uA pull-up | `gpio-keys`, KEY_VOLUMEUP |
+| Home | PM8994 GPIO 2, active low, external pull-up | `gpio-keys`, KEY_HOMEPAGE, wakeup source |
+
+From the stock DT: `gpio_keys` in `msm8996-sec-common.dtsi` (15 ms
+debounce), `qcom,pon_2` and the PMIC GPIO nodes `gpio@c100`/`gpio@c200`
+in `msm8996-sec-gts3lwifi-r05.dtsi` (digital inputs at 1.8 V).
+`dts/test/test-keys.dts` describes the three keys on top of the microSD
+test.
+
+Home keeps the stock code, KEY_HOMEPAGE, as the other Samsung DTs upstream
+do. Plasma desktop does nothing with KEY_HOMEPAGE, so on our install a
+udev hwdb entry turns Home into Meta, and a lone Meta tap opens the Plasma
+launcher:
+
+    # /etc/udev/hwdb.d/61-gts3-home-key.hwdb
+    evdev:name:gpio-keys:*
+     KEYBOARD_KEY_1=leftmeta
+
+then `systemd-hwdb update` (or `udevadm hwdb --update`) and a reboot.
+`gpio-keys` uses each button's index as its scan code, so 1 is Home, the
+second button in `test-keys.dts`. Seen on an SM-T820 (2026-10-29): with
+the entry, a Home tap opens the launcher.
+
+Not done:
+
+- the hall sensor of the cover (stock `hall_flip`, PM8994 GPIO 7), which
+  would be SW_LID: left out until suspend works, since logind suspends on
+  SW_LID;
+- the capacitive Back and Recent keys: a Coreriver TC305K at 0x20 on a
+  GPIO I2C bus (TLMM 21 SDA, 22 SCL), interrupt TLMM 64, supply PM8994
+  L19, key LEDs on TLMM 118 (stock `tc305k@20` in
+  `msm8996-sec-gts3lwifi-r05.dtsi`, driver
+  `drivers/input/keyboard/tc3xxk.c`). Upstream `tm2-touchkey` drives a
+  Coreriver TC360; its protocol needs comparing with `tc3xxk.c` first.

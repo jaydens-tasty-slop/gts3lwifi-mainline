@@ -1,0 +1,67 @@
+#include "test-sdcard.dts"
+#include <dt-bindings/input/input.h>
+
+/*
+ * Test: Volume Up, Volume Down and Home keys, on top of the microSD test.
+ * Power is pm8994.dtsi's PON power key and already works.
+ *
+ * From the stock DT: gpio_keys in msm8996-sec-common.dtsi (home_key on
+ * PM8994 GPIO 2, code 172 = KEY_HOMEPAGE; vol_up on PM8994 GPIO 3, code
+ * 115; both active low, 15 ms debounce, Home a wakeup source), qcom,pon_2
+ * in msm8996-sec-gts3lwifi-r05.dtsi (the PON RESIN input, code 114 =
+ * Volume Down) and its gpio@c100 / gpio@c200 (GPIO 2: digital input, no
+ * pull, external pull-up; GPIO 3: digital input, 30 uA pull-up; both 1.8 V).
+ *
+ * Home keeps the stock KEY_HOMEPAGE, as other Samsung DTs upstream do;
+ * user space can remap it (docs/input.md).  The hall sensor for the
+ * cover (stock hall_flip, PM8994 GPIO 7 in msm8996-sec-gts3lwifi-r05.dtsi,
+ * code 21 = Samsung's SW_FLIP switch; SW_LID in mainline terms) is left out
+ * until suspend works: logind suspends on SW_LID.
+ */
+
+/ {
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&vol_up_default>, <&home_key_default>;
+		pinctrl-names = "default";
+
+		key-volume-up {
+			label = "Volume Up";
+			gpios = <&pm8994_gpios 3 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <15>;
+		};
+
+		key-home {
+			label = "Home";
+			gpios = <&pm8994_gpios 2 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_HOMEPAGE>;
+			wakeup-source;
+			debounce-interval = <15>;
+		};
+	};
+};
+
+&pm8994_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&pm8994_gpios {
+	home_key_default: home-key-default-state {
+		pins = "gpio2";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-disable;
+		power-source = <PM8994_GPIO_S4>;
+	};
+
+	vol_up_default: vol-up-default-state {
+		pins = "gpio3";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-pull-up;
+		qcom,pull-up-strength = <PMIC_GPIO_PULL_UP_30>;
+		power-source = <PM8994_GPIO_S4>;
+	};
+};
