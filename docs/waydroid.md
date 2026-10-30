@@ -26,12 +26,20 @@ Android off ends the session. The session also sets this tablet's defaults:
 |---|---|
 | Density 320, as stock Android on the Tab S3 (Waydroid picks 213 by itself) | `GRID_UNIT_PX=16` (Waydroid uses it x 20) when the session starts; set it yourself to override |
 | Android's timezone follows the host's (it otherwise stays on UTC) | `waydroid prop set persist.sys.timezone <zone>` once Android has booted |
-| The container may freeze while no Android app is in use (saves power) | `waydroid prop set persist.waydroid.suspend true` |
 
-The two properties persist in Android's data, so they are set once and again
-only when the host timezone changes (state in
+The timezone persists in Android's data, so it is set once and again only
+when the host timezone changes (state in
 `~/.local/share/waydroid/gts3-props`). For a Waydroid session started another
-way, e.g. in windows on Plasma, run `gts3-waydroid-session --sync-props`. Then run `waydroid init` once (or use the local
+way, e.g. in windows on Plasma, run `gts3-waydroid-session --sync-props`.
+
+Not used: `persist.waydroid.suspend` (freeze the container while no Android
+app is in use). On this tablet the container came back from it with its
+window gone and Android's network without a default route ("Networks
+unavailable"); with it off, Android stays usable when idle.
+
+App store: the vanilla image has none. F-Droid (`https://f-droid.org/F-Droid.apk`,
+installed with `waydroid app install`) works; Aurora Store for Play apps
+without a Google account is available in F-Droid. Then run `waydroid init` once (or use the local
 images, below). If the rule was added by hand before, remove that file first.
 
 ## Fixes needed

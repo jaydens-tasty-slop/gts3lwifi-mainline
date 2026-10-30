@@ -8,10 +8,11 @@
 # Defaults for this tablet:
 #  - density 320, as stock Android on the Tab S3 (Waydroid reads it from
 #    GRID_UNIT_PX x 20; set GRID_UNIT_PX yourself to override)
-#  - Android's timezone follows the host's, and Waydroid may freeze the
-#    container while no app is in use (persist.waydroid.suspend). Both are
-#    Android properties that persist in its data, so they are set once after
+#  - Android's timezone follows the host's (it otherwise stays on UTC). It is
+#    an Android property that persists in its data, so it is set once after
 #    Android has booted, and again only when the host timezone changes.
+#    (persist.waydroid.suspend is left off: on this tablet the container came
+#    back from it with its window gone and no default route.)
 #    `gts3-waydroid-session --sync-props` does just that, for a Waydroid
 #    session started some other way (e.g. in windows on Plasma).
 
@@ -19,7 +20,7 @@ state=${XDG_DATA_HOME:-$HOME/.local/share}/waydroid/gts3-props
 
 sync_props() {
 	tz=$(readlink /etc/localtime 2>/dev/null | sed -n 's|.*/zoneinfo/||p')
-	want="tz=$tz suspend=true"
+	want="tz=$tz"
 	[ "$(cat "$state" 2>/dev/null)" = "$want" ] && return 0
 	# Wait for Android to boot, checking rarely: the first boot is heavy
 	i=0
@@ -29,7 +30,6 @@ sync_props() {
 		sleep 20
 	done
 	[ -n "$tz" ] && waydroid prop set persist.sys.timezone "$tz"
-	waydroid prop set persist.waydroid.suspend true
 	mkdir -p "$(dirname "$state")" && echo "$want" > "$state"
 }
 
