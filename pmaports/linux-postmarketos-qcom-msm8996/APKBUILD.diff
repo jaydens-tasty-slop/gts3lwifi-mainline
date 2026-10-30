@@ -1,5 +1,5 @@
 diff --git a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
-index 601fa9f44e..f5af7a4520 100644
+index 601fa9f44e..dbfcd7bbe5 100644
 --- a/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 +++ b/device/testing/linux-postmarketos-qcom-msm8996/APKBUILD
 @@ -3,7 +3,7 @@ maintainer="Yassine Oudjana (Tooniis) <y.oudjana@protonmail.com>"
@@ -7,11 +7,11 @@ index 601fa9f44e..f5af7a4520 100644
  pkgname=linux-$_flavor
  pkgver=6.19.5
 -pkgrel=0
-+pkgrel=6
++pkgrel=7
  pkgdesc="Kernel close to mainline with extra patches for Qualcomm MSM8996 devices"
  arch="aarch64"
  _carch="arm64"
-@@ -32,6 +32,49 @@ _tag=v${pkgver//_/-}-msm8996
+@@ -32,6 +32,75 @@ _tag=v${pkgver//_/-}-msm8996
  source="
  	linux-$_tag.tar.gz::$url/-/archive/$_tag/linux-$_tag.tar.gz
  	config-$_flavor.$arch
@@ -58,16 +58,42 @@ index 601fa9f44e..f5af7a4520 100644
 +	0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 +	0042-drm-panel-ams968hh01-brightness.patch
 +	0043-drm-panel-ams968hh01-acl.patch
++	0050-drm-mipi-dsi-clock-deferred-hs.patch
++	0051-drm-msm-dsi-clock-deferred-hs.patch
++	0052-drm-panel-ams968hh01-clock-deferred-hs.patch
++	0053-drm-msm-mdp5-no-pp-done-wait-when-disabled.patch
++	0054-drm-panel-ams968hh01-hbm.patch
++	0055-drm-panel-ams968hh01-orientation.patch
++	0056-dt-bindings-input-wacom-w9000.patch
++	0057-input-wacom-w9000.patch
++	0058-dt-bindings-input-wacom-w9019.patch
++	0059-input-wacom-w9000-w9019.patch
++	0060-input-wacom-w9000-kunit.patch
++	0061-input-wacom-w9000-w9019-state.patch
++	0062-dt-bindings-input-wacom-flash-mode-polarity.patch
++	0063-input-wacom-w9000-direct.patch
++	0064-input-rmi4-platform-data-size.patch
++	0065-dt-bindings-display-panel-samsung-ams968hh01.patch
++	0066-dt-bindings-display-panel-ams968hh01-temperature.patch
++	0067-drm-panel-ams968hh01-temperature-elvss.patch
++	0068-drm-msm-mdp5-no-async-cmd-mode.patch
++	0069-dt-bindings-mfd-stmpe-stmpe1801.patch
++	0070-mfd-stmpe-stmpe1801-read-to-clear-irq.patch
++	0071-mfd-stmpe-block-read-results.patch
++	0072-input-stmpe-keypad-stmpe1801.patch
++	0073-input-stmpe-keypad-kunit.patch
++	0074-input-stmpe-keypad-of-match.patch
++	0075-mfd-stmpe-supplies-on-probe-failure.patch
  "
  builddir="$srcdir/linux-$_tag"
  
-@@ -62,5 +105,48 @@ package() {
+@@ -62,5 +131,74 @@ package() {
  }
  sha512sums="
  dd30dd113ad9f0b4ab3771ea655de2becce7ddaf5066d2f860b7bb1eb78573137313191d9da740b152348f9f89894ace2bb94fb195e340f7b6dabedeebbc929f  linux-v6.19.5-msm8996.tar.gz
 -6a1e3a18fb454378ef5569a6951426d118144985c9028e663f46d28cde6784723296601d3756176045e22d706a9195938804c6a82f02fcf548e18d2e66c35b27  config-postmarketos-qcom-msm8996.aarch64
-+21ee67058a875d562d0a307c2b9fe3aaef7deb0c160927dad86a5a44ff68159bd8b3629f757014d1bda60d42552caa4d68e40dabace2dd725075fd20fc118928  config-postmarketos-qcom-msm8996.aarch64
-+049dd70d9db2270794bf42927db6b380e51d776eda2cd4c93780cf845f6660d098a8e270e5d4fe289e42457bb0962893233afcc3e123a641a936528773f227d7  0001-add-samsung-gts3lwifi-dts.patch
++4dd67100d5179675f57ed4acf1de0166ab2973ad0b9c7bb110b5f14c2a656a7bc97b8c4dcd053b8a5a87fd32a8871834f3d9bec6d1f75655cfcc45540e326ea7  config-postmarketos-qcom-msm8996.aarch64
++316c3fbc74cab409a7eb7764918e7cdf17245f54d7b2510c2d5c71077dfebf029bbd8c6e942f7f6eb809d0b789139b8c128683c7e3d58501bc401a7c1606f25a  0001-add-samsung-gts3lwifi-dts.patch
 +feede8e07c71e0b9faaac14a97baebcd9ff347f9e6288ca3690bfcf4331b12788167dd69079fedf7856fa3b28494d19b397f8a69c01d00008544aa20785d0064  0002-drm-panel-add-samsung-ams968hh01.patch
 +71cef6df692ccaeb8575bce830b32bbf4c11debdda209b7ac3f7a19dee9395f88d0981f46b72534d1d9a2f3cd742e721167afaff91ed7b0ce92c5b481ce05787  0003-drm-msm-mdp5-split-display-bonded-dsi.patch
 +81ef96ef5e975c6c7b1249ea37b02f8a69154a399cd1426f234a0e44a8f5e4e9357da99dcd64629da0c7922678c0bb3e42dc8b05e53a72449dc8328c7c3655cb  0004-drm-msm-dpu-msm8996-split-display-ctls.patch
@@ -110,4 +136,30 @@ index 601fa9f44e..f5af7a4520 100644
 +36e7e88dd2ebf50a06fe431863695afbfb6c9d7cafdb575a12cfe8d8a4a285dd76785738b504e897c34f358a35139730372fca7abaca121d60ce91203781a5de  0041-drm-msm-dsi-defer-hs-clk-clear-stale-request.patch
 +3bc8a9bad50a32688f8f7b1585dab652524b02a735ddb310e9929e2390ad05625bb1517c17d3514aadb0dd9855bc3086e9e3e2f744f8b0a2ec99443a11a6ea30  0042-drm-panel-ams968hh01-brightness.patch
 +52d2a7cadb562393c4fbe34026a631388e9b98828e3c870c9e12c42eefa990108c53a178b5900ee1426bec4a564944e542072415de9ed1babf2b43264e4fa786  0043-drm-panel-ams968hh01-acl.patch
++08d256a6fd56fb1f7774c5c2a64814b44f9e94d0059f63bae2a4e60914e2c19aa5665e0d69b1b15162b988f51ce8e03134559df0fcdb2cc42020298d9d372fa0  0050-drm-mipi-dsi-clock-deferred-hs.patch
++cdab3bd4b90d1c07607b87880b820daf7b5d5d27bea8ffe0bd617a3b4a2ccf256e0ebfb72d204a594d7db0859eef1507605d98b7ed486665c6043905c5e2ab87  0051-drm-msm-dsi-clock-deferred-hs.patch
++c27c97d361d2f2d59cef444df04d7ea6a9448b8553df5f11e1e7c1e7335452ac01acb3910d13c913a6e957e9e6f34e305196fb634f1c158686a58cd60e126680  0052-drm-panel-ams968hh01-clock-deferred-hs.patch
++fe7707cfff0ead46ad4da26ac367ee0fced806307349bbf7bf352acad8dcc1866c1c7d9fb276595ad242398e48d464ed0f3e4a568b3693e988f24be7b8f15b33  0053-drm-msm-mdp5-no-pp-done-wait-when-disabled.patch
++8866afcc645e81197099e753593e48fdf9bee04ebc490e48cc2f36b52ae20b02ec20fbc40d9cd2c2a0234949dc88c8324179d74840b8d3bc54582a9d67d6bb3a  0054-drm-panel-ams968hh01-hbm.patch
++4ab97bfd1e5eaf2f0f05f9c53701680291c4418cbd78d988a54deed9fbee6196d3dc5056b22316d7edac69218e88562507cf6c8637b8532cc3cd7d7aa0c7ee3d  0055-drm-panel-ams968hh01-orientation.patch
++14f826e0fb34124c84188aa97d677bfd9b86a57a08e5b8074914fbe9785667482dc98a5c21887ad3a75d497c2fad271416769075a687752665ac73985cc5e3a1  0056-dt-bindings-input-wacom-w9000.patch
++253cd9e0da296ba2287dd40448e7a58c8cec6e1df6ad4f635c6b45f571f23a07a3d58f82838bf2fa55ac316cab958e7bb0b3a715e4c978ccb81e235e2ea49985  0057-input-wacom-w9000.patch
++76ee0a81896686151e7a809365af59aa49a07a49e0f79d8aa68ea0b91236878bee5523ea2aa75cd09f5d65076c2b1eeee74bddccebe4c3a1f213f1a894ae41df  0058-dt-bindings-input-wacom-w9019.patch
++3cc320cebd10fbdf086d83b081cf68442cfc1e483d854431c935177614cf7134af05bced7fe998d074dbb4699db38b7a4dcf93ba9f2fcabcfbfe5637323faf8f  0059-input-wacom-w9000-w9019.patch
++24dee6d195141a9f161e85202364511c63b2a7ba4ad198badbbc5ac9a4a69d7a9ba98456aa47c3eb9eddfbbcd4e8b346a11694f07463ee6bcfc5468a82e45197  0060-input-wacom-w9000-kunit.patch
++4e75eb9c47b75a449511a81b4f384211eb49495b42b793482c92a2803dd944c886a49c302dd78dcd53915612d71788a73ff7d0fc9892a6d3940a29e851c3897c  0061-input-wacom-w9000-w9019-state.patch
++fa85a4f136e523bec6ab2db47d374cd9212529c996917eebf7921a5c25d217c024d3e8cc47584a0afa84f9ef7224b0703746cc6434d6fdaed15e1fc14dc4034d  0062-dt-bindings-input-wacom-flash-mode-polarity.patch
++96e0d8754cb80960e893995a57282783f623dd35c7167662b69d361f1e92152cb3567954f8eb0a65a1e935816e06409f5ceeb37ee68217794f9ae1b045ccc1dd  0063-input-wacom-w9000-direct.patch
++9259ab3c8b894f905859a83ae17a41a697d0f44e01be7b20b1fd8ea34409b4d7ba1ca06e0f38c68334956348218ced84a38f4d53b896d14269bdb6ea7e47c6cb  0064-input-rmi4-platform-data-size.patch
++fe303775a0ee5a609c6fed2e54fe4e57e19836fb94ef4f23402901d84f02f5cf79a35f91c71bb303fe2d46b5eca0f5ec0797888f152de3d42b931e6aaacf512a  0065-dt-bindings-display-panel-samsung-ams968hh01.patch
++872395ca1eb07e97f6d0aa155fc5183cea7afbfb354203eb0b0070db804fd18739539b5e2f24c37d5392bcc3dea63d166a50c6dedc89e99dbfe996497f4f5ca0  0066-dt-bindings-display-panel-ams968hh01-temperature.patch
++2fe077c39a122135853d43516e4b52e421cfc50c1bf892ed8fd17ba9cb04affe9190a0489888e46698a255b4a73acbeb9ef38098635421e2d32e1839a07f9d0e  0067-drm-panel-ams968hh01-temperature-elvss.patch
++6351d51745b5b92dccbef1cfb209e873f4b41e0170b67298d5254c495015220a289bd59d02aef5b9fc24e1fe1efeec167002625284422a3988e9c13502c90547  0068-drm-msm-mdp5-no-async-cmd-mode.patch
++3088008584a9f5d0ee121a63f82b77d7a1ab1b6c01f08eff86ed537587f98862ef4b88203f7940a7e3f55b1dac080f811bd1402755ddedcfbfd9f6e4ea856f82  0069-dt-bindings-mfd-stmpe-stmpe1801.patch
++978ca71779d5ae7d8b1c8c8ba2c50e110b7f2e2f8df176e31961e648dc8b1dd05bb61f5f4b8165ca7458a31a053d68056e0ead754965d0c79502e1196c69f8c0  0070-mfd-stmpe-stmpe1801-read-to-clear-irq.patch
++e5c452ad14096b6cae7413579d09eb6ffd1bba4ce896726bc236f4b11b595d5e433d9fc7c1c9f430efcf9b4da50c5887b0148a9f145747a2022cd9bea9922216  0071-mfd-stmpe-block-read-results.patch
++428be79df2035a2becd543c1f3955a5230297dfc31eadfbb7b79f13464b8a84bf27782563c9479a075e95d0d75e1f886477d6a11ab8ca48087adef9a8385ffd6  0072-input-stmpe-keypad-stmpe1801.patch
++3d1b923e2058730ed1a31de7eec268ec4acdd3e85ba5a2a53182a17a2a0740e30382c732b79f2989592c58ef6b930cde028021a2808d90996c5a4c2ba0420006  0073-input-stmpe-keypad-kunit.patch
++c0b6270992e036039c11778b2f278a721b0c5582d09dc098d00e9d66e4a1bb6e6470fc97d04e7f46e6e0d675089d383468419a1953fc2b10d5b6a2121ed080f9  0074-input-stmpe-keypad-of-match.patch
++b97689a75b337df2295c6c75dc7922273644e6704d0f1ef60c182966c33f1579aca25aa14ede0d9d0570329d2cd8d8a8430508fd8d43ea045f6c216fa59a81ca  0075-mfd-stmpe-supplies-on-probe-failure.patch
  "

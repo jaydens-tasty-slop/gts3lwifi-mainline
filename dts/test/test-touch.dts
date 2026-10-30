@@ -1,65 +1,8 @@
-#include "test-display.dts"
-#include <dt-bindings/interrupt-controller/irq.h>
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-30. This file only
+ * keeps old build commands and the test DTs that include it working; the
+ * touchscreen setup is in the main DTS.
+ */
 
-/* Test: Synaptics S5807 (RMI4) touchscreen on BLSP2 I2C3, on top of the display test. */
-
-/* vreg_l18a_3p3 (touch analog supply, downstream tsp_avdd) is in the main DTS. */
-
-&blsp2_i2c3 {
-	status = "okay";
-
-	touchscreen@20 {
-		compatible = "syna,rmi4-i2c";
-		reg = <0x20>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		interrupt-parent = <&tlmm>;
-		interrupts = <123 IRQ_TYPE_LEVEL_LOW>;
-
-		vdd-supply = <&vreg_l18a_3p3>;
-		vio-supply = <&vreg_l14a_1p8>;
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&ts_int_default>;
-
-		syna,startup-delay-ms = <100>;
-
-		rmi4-f01@1 {
-			reg = <0x1>;
-			syna,nosleep-mode = <1>;
-		};
-
-		rmi4-f12@12 {
-			reg = <0x12>;
-			syna,sensor-type = <1>;
-			/*
-			 * The sensor reports 1536 x 2048 in the portrait frame
-			 * (stock Android uses it unflipped). Map it to the
-			 * panel's 2048 x 1536 landscape frame, as DRM expects:
-			 * panel (x, y) = (y, 1535 - x). RMI4 inverts first,
-			 * then swaps. See docs/input.md.
-			 */
-			touchscreen-inverted-x;
-			touchscreen-swapped-x-y;
-			/*
-			 * The panel's active area in the sensor's own frame.
-			 * Without it F12 estimates 196 x 148 mm (it pairs
-			 * the 49 RX electrodes with x) and reports 13 and
-			 * 7 units/mm; needs patch 0064.
-			 */
-			touchscreen-x-mm = <147>;
-			touchscreen-y-mm = <196>;
-		};
-	};
-};
-
-&tlmm {
-	/* downstream tsp_int_active: gpio123 */
-	ts_int_default: ts-int-default-state {
-		pins = "gpio123";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-	};
-};
+#include "../apq8096-samsung-gts3lwifi.dts"

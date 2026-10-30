@@ -1,79 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
-#include "test-touch.dts"
-
 /*
- * Test: S-Pen digitizer (Wacom W9019, Samsung firmware; upstream
- * wacom_w9000 driver, patches 0056-0063) on BLSP2 I2C6, on top of the
- * display and touch tests.
- *
- * From the stock DT (msm8996-sec-gts3lwifi-r04.dtsi, wacom@56 on i2c_12):
- * interrupt GPIO 34 (falling there; the line stays low until the packet
- * is read, so level-low here), flash mode (firmware write enable) GPIO 24
- * (held low = run the firmware), 3.3 V from a GPIO 126 switch (boot-on),
- * I2C at 400 kHz.  The size in mm is the panel's active area, as in the
- * panel driver: 100 units per mm.
- * Stock flips x and then swaps x/y into portrait, so in the panel's
- * landscape frame both axes are inverted and nothing is swapped
- * (docs/input.md).
+ * Merged into ../apq8096-samsung-gts3lwifi.dts on 2026-10-30. This file only
+ * keeps old build commands and the test DTs that include it working; the
+ * S-Pen setup is in the main DTS.
  */
 
-/ {
-	pen_vdd: regulator-pen-vdd {
-		compatible = "regulator-fixed";
-		regulator-name = "pen_vdd_3p3";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		gpio = <&tlmm 126 GPIO_ACTIVE_HIGH>;
-		enable-active-high;
-		regulator-boot-on;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pen_vdd_default>;
-	};
-};
-
-&blsp2_i2c6 {
-	clock-frequency = <400000>;
-	status = "okay";
-
-	digitizer@56 {
-		compatible = "wacom,w9019";
-		reg = <0x56>;
-
-		interrupt-parent = <&tlmm>;
-		interrupts = <34 IRQ_TYPE_LEVEL_LOW>;
-
-		vdd-supply = <&pen_vdd>;
-		flash-mode-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&pen_int_default &pen_flash_default>;
-
-		touchscreen-x-mm = <196>;
-		touchscreen-y-mm = <147>;
-		touchscreen-inverted-x;
-		touchscreen-inverted-y;
-	};
-};
-
-&tlmm {
-	pen_int_default: pen-int-default-state {
-		pins = "gpio34";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-	};
-
-	pen_flash_default: pen-flash-default-state {
-		pins = "gpio24";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-pull-down;
-	};
-
-	pen_vdd_default: pen-vdd-default-state {
-		pins = "gpio126";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
-	};
-};
+#include "../apq8096-samsung-gts3lwifi.dts"

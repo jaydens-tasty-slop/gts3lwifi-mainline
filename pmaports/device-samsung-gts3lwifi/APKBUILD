@@ -3,7 +3,7 @@ maintainer="psigod <psigod@example.com>"
 pkgname=device-samsung-gts3lwifi
 pkgdesc="Samsung Galaxy Tab S3 (Wi-Fi)"
 pkgver=1
-pkgrel=3
+pkgrel=4
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -60,12 +60,13 @@ package() {
 
 openrc() {
 	install_if="$pkgname=$pkgver-r$pkgrel openrc"
+	install="$subpkgname.post-install"
 	install -Dm755 "$srcdir"/gts3-bdaddr.initd "$subpkgdir"/etc/init.d/gts3-bdaddr
 }
 
 sha512sums="
-d194f0e790e12b842c3f7a43fbd37579ff64de0476f0f31734b82f390a674a32f7bfae6b4d528f575cc1007657b946e7ed2d6c62179a830f72dbdd25ae57c287  deviceinfo
-7436ebca050cf8609cfb71a3e1e070d4606018127b0860fa5ef7112ba64f501348020a20e892a446f072c143c37255357dfb09bde4f3406bfd35770c7bd9c4f7  modules-load.conf
+2d80d6767f6de6861696dfed8a4dc3d494f000ee435607a7cbc684ddd559709b011cc47d893fd43b161530826d8c360f453e7b12c81032e8a82c61d830ac2183  deviceinfo
+415c70edb7fc26fe8a4214c454e11b3bee2a26a3d69e5d8833c57d090b7bb780e92ab057763ad28d36084b2c0e958e2f6e3bcc58bafdc426ef3f34ab4c427b98  modules-load.conf
 ee43078064b3827cedac15eb5d47fee2f62b00fb088900e467a80033beb796800bb8f3edd797885a49ce2b8e6b3795f365b859dcee547237edb95f215899414e  gts3-bdaddr
 b66c32dc557b8c7e67c5637e28d5a67a0405bd3abb536132905a7291d920a6436a888f17b9e88e1f659b6e07c785eccdb3c83e77d12388036d93172f635c878c  gts3-bdaddr.initd
 f53aa7ee30d67e56932d1ff328fa8bc31a90dbbcb9d1cf9bc0856a315fc5f88404913df90893e09ff67e22e8ddaeeadb69a85b3fddca6dcc472c23ea36899e9f  gts3-bdaddr.service

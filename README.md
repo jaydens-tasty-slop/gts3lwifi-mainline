@@ -18,7 +18,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 |---|---|
 | Boots, 4 CPU cores | works |
 | eMMC (HS400) | works |
-| microSD (SDHC2) | works: a UHS-I SDXC card runs at SDR104 with the generic `sdhci-msm` driver (dts/test/test-sdcard.dts: PM8994 L21 card supply, L13 signal supply, card detect on TLMM 95); inserting and removing a card while running not tested yet |
+| microSD (SDHC2) | works: a UHS-I SDXC card runs at SDR104 with the generic `sdhci-msm` driver (main DTS: PM8994 L21 card supply, L13 signal supply, card detect on TLMM 95); inserting and removing a card while running not tested yet |
 | USB peripheral (NCM network, ACM serial, mass storage) | works |
 | PM8994 regulators via RPM | works (only the rails needed so far) |
 | postmarketOS initramfs + debug shell over USB | works |
@@ -27,10 +27,10 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 | Suspend (s2idle) | works with the Wi-Fi driver unloaded; with Wi-Fi the PCIe link dies when its power domain switches off and the tablet resets. Fix (PCIe power domains in retention, patch 0037) written, not tested yet; the SoC does not reach its deepest sleep yet (docs/suspend.md) |
 | TLMM GPIOs | work, 4 TrustZone-owned pins reserved |
 | Display | works with no command-line option (the panel asks for its DSI clock lane to start after the panel reset, patches 0050-0052; before them `msm.defer_hs_clk=1`, patch 0006): both DSI links stream in sync (MDP5 split display, patch 0003), geometry and colours correct, gamma table from the panel's MTP as in stock (patches 0038-0040), checked by webcam against the stock kernel (docs/display.md, round 19). Brightness control through the backlight device, 2 to 360 cd/m2 (patch 0042) and HBM up to 500 cd/m2 as levels 256-263 (patch 0054), with ACL on as in stock (patch 0043), and the vendor's cold ELVSS tables with an optional temperature channel (patches 0066-0067, dts/test/test-display-temp.dts, needs `CONFIG_QCOM_SPMI_VADC`); blank then unblank works (patch 0041); the X hardware cursor needs patch 0068 (docs/display.md, round 21) |
-| Touch | works (Synaptics S5807 RMI4, dts/test/test-touch.dts); axes mapped to the panel's frame (DT flags from the vendor source and the panel rotation, confirmed with finger taps: docs/input.md); 10 units/mm with patch 0064 (upstream) and the size in the DT |
-| S-Pen | works (Wacom W9019: Linux 7.3's `wacom_w9000` plus its W9019 support, patches 0056-0063, dts/test/test-spen.dts; needs `CONFIG_TOUCHSCREEN_WACOM_W9000=m`): 19661 x 14746 at 100 units/mm, pressure 4095, firmware 0x0124; tip, hover, pressure, side button and axes confirmed with the pen (docs/input.md) |
-| Keys | Power (main DTS); Volume Down (PM8994 RESIN), Volume Up and Home (PM8994 GPIO 3 and 2, `gpio-keys`) in dts/test/test-keys.dts; Home sends KEY_HOMEPAGE, which Plasma ignores, so a hwdb entry makes it Meta (docs/input.md). Hall sensor and the Back/Recent touch keys not yet |
-| Keyboard cover (Book Cover Keyboard) | works when attached at boot: STMPE1801 keypad support for the upstream `stmpe-keypad` driver, patches 0069-0075, dts/test/test-keyboard.dts; needs `CONFIG_MFD_STMPE`, `CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE`. No hotplug yet (SM5705 MUIC ID ADC 0x11, docs/input.md) |
+| Touch | works (Synaptics S5807 RMI4, main DTS); axes mapped to the panel's frame (DT flags from the vendor source and the panel rotation, confirmed with finger taps: docs/input.md); 10 units/mm with patch 0064 (upstream) and the size in the DT |
+| S-Pen | works (Wacom W9019: Linux 7.3's `wacom_w9000` plus its W9019 support, patches 0056-0063, main DTS, `CONFIG_TOUCHSCREEN_WACOM_W9000=m`): 19661 x 14746 at 100 units/mm, pressure 4095, firmware 0x0124; tip, hover, pressure, side button and axes confirmed with the pen (docs/input.md) |
+| Keys | Power (main DTS); Volume Down (PM8994 RESIN), Volume Up and Home (PM8994 GPIO 3 and 2, `gpio-keys`), all in the main DTS; Home sends KEY_HOMEPAGE, which Plasma ignores, so a hwdb entry makes it Meta (docs/input.md). Hall sensor and the Back/Recent touch keys not yet |
+| Keyboard cover (Book Cover Keyboard) | works when attached at boot: STMPE1801 keypad support for the upstream `stmpe-keypad` driver, patches 0069-0075, dts/test/test-keyboard.dts (stays a test DT until hotplug works); `CONFIG_MFD_STMPE`, `CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE` are in the package config. No hotplug yet (SM5705 MUIC ID ADC 0x11, docs/input.md) |
 | GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, main DTS) |
 | Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, main DTS) |
 | Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, main DTS) |
@@ -52,7 +52,7 @@ but on the Wi-Fi model they are free and carry the top speakers' TDM bus.
 
 ## Layout
 
-- `dts/` - board device tree with everything that works on hardware, plus test variants that `#include` it (display and touch are still test-only; the merged tests are include-only stubs)
+- `dts/` - board device tree with everything that works on hardware, plus test variants that `#include` it (the keyboard cover and the panel temperature channel are still test-only; the merged tests are include-only stubs)
 - `pmaports/` - postmarketOS device package and the kernel patch
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages

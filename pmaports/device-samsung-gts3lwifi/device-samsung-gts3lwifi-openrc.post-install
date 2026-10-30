@@ -1,0 +1,4 @@
+#!/bin/sh
+# Start gts3-bdaddr at boot; under systemd a udev rule starts it with hci0.
+rc-update -q add gts3-bdaddr default
+exit 0

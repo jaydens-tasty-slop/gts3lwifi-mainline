@@ -7,13 +7,14 @@
  * Internal storage: eMMC on SDHC1 (cmdline: androidboot.bootdevice=7464900.sdhci).
  *   UFS silicon is present but unpopulated; ufshc/ufsphy stay disabled.
  *
- * Working: eMMC, USB peripheral, reboot, GPU (headless, boot with
- * msm.separate_gpu_kms=1), Wi-Fi and Bluetooth (QCA6174), Venus, audio
- * (ADSP + WCD9335: headphones and microphones; four RT5508 speaker
- * amplifiers), SM5705 fuel gauge, charger, MUIC and flash LED (torch),
- * S2MM005 USB Type-C/PD (sink), CPU/cluster/system idle. The panel, touch,
- * cameras, sensors and S-Pen are not here yet; the panel and touch have
- * test DTs.
+ * Working: eMMC, microSD, USB peripheral, reboot and power-off, display
+ * (AMS968HH01 dual-DSI command-mode panel), GPU, touch, S-Pen, Volume and
+ * Home keys, Wi-Fi and Bluetooth (QCA6174), Venus, audio (ADSP + WCD9335:
+ * headphones and microphones; four RT5508 speaker amplifiers), SM5705 fuel
+ * gauge, charger, MUIC and flash LED (torch), S2MM005 USB Type-C/PD (sink),
+ * CPU/cluster/system idle. The Book Cover Keyboard (no hotplug yet) and the
+ * panel's temperature input have test DTs; cameras and sensors are not here
+ * yet.
  *
  * GPU zap shader, Venus and ADSP firmware are Samsung-signed and come from
  * the device (apnhlos and modem partitions), under
@@ -29,7 +30,9 @@
 
 /dts-v1/;
 
+#include <dt-bindings/clock/qcom,dsi-phy-28nm.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
@@ -55,6 +58,7 @@
 
 	aliases {
 		mmc0 = &sdhc1;
+		mmc1 = &sdhc2;
 	};
 
 	/*
@@ -330,6 +334,49 @@
 		pinctrl-0 = <&lcd_ldo_en_default>;
 	};
 
+	/* S-Pen digitizer 3.3 V, a switch on TLMM 126 (downstream wacom@56) */
+	pen_vdd: regulator-pen-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "pen_vdd_3p3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&tlmm 126 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pen_vdd_default>;
+	};
+
+	/*
+	 * Volume Up and Home (downstream gpio_keys in msm8996-sec-common.dtsi:
+	 * PM8994 GPIO 3 and 2, active low, 15 ms debounce, Home a wakeup
+	 * source). Volume Down is the PON RESIN input below, Power the PON
+	 * power key. Home keeps the stock KEY_HOMEPAGE, as other Samsung DTs
+	 * upstream do. The cover's hall sensor (stock hall_flip, PM8994
+	 * GPIO 7) is left out until suspend is settled: logind suspends on
+	 * SW_LID.
+	 */
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&vol_up_default>, <&home_key_default>;
+		pinctrl-names = "default";
+
+		key-volume-up {
+			label = "Volume Up";
+			gpios = <&pm8994_gpios 3 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_VOLUMEUP>;
+			debounce-interval = <15>;
+		};
+
+		key-home {
+			label = "Home";
+			gpios = <&pm8994_gpios 2 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_HOMEPAGE>;
+			wakeup-source;
+			debounce-interval = <15>;
+		};
+	};
+
 	/*
 	 * QCA6174 ("Rome") Wi-Fi/BT power, from the downstream qcom,cnss
 	 * node (cnss_wlan_en_vreg / rome_vreg), wired like the Xiaomi MSM8996
@@ -434,6 +481,12 @@
 	mode-normal = <0x14>;
 };
 
+/* Volume Down (downstream qcom,pon_2) */
+&pm8994_resin {
+	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
 /*
  * PM8994 rails via RPM. Only the rails consumed below are declared; the
  * parent-supply map follows apq8096-db820c.dts (PM8994 + no PMI8994 boost
@@ -461,6 +514,7 @@
 		vdd_l8_l16_l30-supply = <&vph_pwr>;
 		vdd_l9_l10_l18_l22-supply = <&vph_pwr>;
 		vdd_l13_l19_l23_l24-supply = <&vph_pwr>;
+		vdd_l14_l15-supply = <&vreg_s5a_2p15>;
 		vdd_l20_l21-supply = <&vph_pwr>;
 		vdd_lvs1_2-supply = <&vreg_s4a_1p8>;
 
@@ -489,9 +543,34 @@
 			regulator-max-microvolt = <2150000>;
 		};
 
+		/* DSI controller analog (msm8996 "vdda") */
+		vreg_l2a_1p25: l2 {
+			regulator-name = "vreg_l2a_1p25";
+			regulator-min-microvolt = <1250000>;
+			regulator-max-microvolt = <1250000>;
+			regulator-allow-set-load;
+		};
+
 		/* USB PHY PLL / core 1.8 V (downstream vdda18 / core-supply) */
 		vreg_l12a_1p8: l12 {
 			regulator-name = "vreg_l12a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-allow-set-load;
+		};
+
+		/* microSD I/O, 1.8-2.95 V (downstream sdhc_2 vdd-io) */
+		vreg_l13a_2p95: l13 {
+			regulator-name = "vreg_l13a_2p95";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <2950000>;
+			regulator-allow-set-load;
+			regulator-system-load = <22000>;
+		};
+
+		/* DSI controller I/O (msm8996 "vddio"), touch controller I/O */
+		vreg_l14a_1p8: l14 {
+			regulator-name = "vreg_l14a_1p8";
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-allow-set-load;
@@ -516,6 +595,15 @@
 			regulator-max-microvolt = <2950000>;
 			regulator-allow-set-load;
 			regulator-always-on;
+		};
+
+		/* microSD card supply (downstream sdhc_2 vdd, up to 800 mA) */
+		vreg_l21a_2p95: l21 {
+			regulator-name = "vreg_l21a_2p95";
+			regulator-min-microvolt = <2950000>;
+			regulator-max-microvolt = <2950000>;
+			regulator-allow-set-load;
+			regulator-system-load = <800000>;
 		};
 
 		/* USB2 PHY D+/D- 3.075 V (downstream vdda33) */
@@ -610,14 +698,118 @@
 };
 
 /*
- * Until the panel driver works, the display is driven by lk2nd's framebuffer
- * (lk2nd.pass-simplefb=autorefresh). The MDSS IOMMU driver gates its clock
- * after probing while the display engine still fetches through it, which
- * makes the firmware reset the tablet, so keep the kernel away from it.
- * TODO: re-enable together with the panel driver.
+ * microSD (downstream sdhc_2 in msm8996-mtp.dtsi, which the board DT
+ * includes): vdd = PM8994 L21, vdd-io = PM8994 L13, card detect on TLMM 95,
+ * active low, no internal pull. The bus pins are msm8996.dtsi's sdc2 states.
  */
+&sdhc2 {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_state_on &sdc2_cd_default>;
+	pinctrl-1 = <&sdc2_state_off &sdc2_cd_default>;
+	cd-gpios = <&tlmm 95 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&vreg_l21a_2p95>;
+	vqmmc-supply = <&vreg_l13a_2p95>;
+	status = "okay";
+};
+
+/*
+ * Display
+ * -------
+ * AMS968HH01 AMOLED (Anapass ANA38401 DDI), 2048x1536, command mode over
+ * two DSI links: DSI0 is the master, DSI1 the slave clocked from the DSI0
+ * PHY, and MDP5 splits each frame between them. Panel VDD 3.3 V is the
+ * LCD LDO above; reset TLMM 143, TCON_RDY TLMM 45, TE TLMM 10. The panel
+ * is landscape in a portrait tablet: its left edge is the top, as with
+ * the boot logo and stock Android (rotation 270).
+ */
+&mdss {
+	status = "okay";
+};
+
+/* The msm DRM driver needs the MDSS IOMMU. */
 &mdp_smmu {
-	status = "disabled";
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l2a_1p25>;
+	vcca-supply = <&vreg_l28a_0p925>;
+	vddio-supply = <&vreg_l14a_1p8>;
+
+	qcom,dual-dsi-mode;
+	qcom,master-dsi;
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&mdss_te_default>;
+	pinctrl-1 = <&mdss_te_sleep>;
+
+	status = "okay";
+
+	panel: panel@0 {
+		compatible = "samsung,ams968hh01";
+		reg = <0>;
+
+		vdd-supply = <&vreg_lcd_vdd_3p3>;
+		/* TLMM 143 high = panel running, so "active" (in reset) is low */
+		reset-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
+		tcon-ready-gpios = <&tlmm 45 GPIO_ACTIVE_HIGH>;
+		rotation = <270>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_default>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				panel_in0: endpoint {
+					remote-endpoint = <&mdss_dsi0_out>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				panel_in1: endpoint {
+					remote-endpoint = <&mdss_dsi1_out>;
+				};
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	remote-endpoint = <&panel_in0>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi0_phy {
+	vcca-supply = <&vreg_l28a_0p925>;
+	status = "okay";
+};
+
+&mdss_dsi1 {
+	vdda-supply = <&vreg_l2a_1p25>;
+	vcca-supply = <&vreg_l28a_0p925>;
+	vddio-supply = <&vreg_l14a_1p8>;
+
+	qcom,dual-dsi-mode;
+	/* DSI1 is the slave link, clock it from the DSI0 PHY */
+	assigned-clock-parents = <&mdss_dsi0_phy DSI_BYTE_PLL_CLK>,
+				 <&mdss_dsi0_phy DSI_PIXEL_PLL_CLK>;
+
+	status = "okay";
+};
+
+&mdss_dsi1_out {
+	remote-endpoint = <&panel_in1>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi1_phy {
+	vcca-supply = <&vreg_l28a_0p925>;
+	status = "okay";
 };
 
 /*
@@ -1057,7 +1249,102 @@
 	};
 };
 
+/* Touchscreen: Synaptics S5807 (RMI4), downstream tsp on i2c_9 */
+&blsp2_i2c3 {
+	status = "okay";
+
+	touchscreen@20 {
+		compatible = "syna,rmi4-i2c";
+		reg = <0x20>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <123 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&vreg_l18a_3p3>;
+		vio-supply = <&vreg_l14a_1p8>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_int_default>;
+
+		syna,startup-delay-ms = <100>;
+
+		rmi4-f01@1 {
+			reg = <0x1>;
+			syna,nosleep-mode = <1>;
+		};
+
+		rmi4-f12@12 {
+			reg = <0x12>;
+			syna,sensor-type = <1>;
+			/*
+			 * The sensor reports 1536 x 2048 in the portrait frame.
+			 * Map it to the panel's 2048 x 1536 landscape frame, as
+			 * DRM expects: panel (x, y) = (y, 1535 - x). RMI4 inverts
+			 * first, then swaps (docs/input.md).
+			 */
+			touchscreen-inverted-x;
+			touchscreen-swapped-x-y;
+			/* The panel's active area in the sensor's own frame */
+			touchscreen-x-mm = <147>;
+			touchscreen-y-mm = <196>;
+		};
+	};
+};
+
+/*
+ * S-Pen: Wacom W9019 with Samsung firmware, downstream wacom@56 on i2c_12.
+ * The interrupt (TLMM 34) is falling-edge in stock, but the line stays low
+ * until the packet is read, so level-low here. Flash mode (TLMM 24) is held
+ * low to run the firmware. Stock flips x and then swaps x/y into portrait,
+ * so in the panel's landscape frame both axes are inverted and nothing is
+ * swapped.
+ */
+&blsp2_i2c6 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	digitizer@56 {
+		compatible = "wacom,w9019";
+		reg = <0x56>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <34 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&pen_vdd>;
+		flash-mode-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pen_int_default &pen_flash_default>;
+
+		touchscreen-x-mm = <196>;
+		touchscreen-y-mm = <147>;
+		touchscreen-inverted-x;
+		touchscreen-inverted-y;
+	};
+};
+
 &pm8994_gpios {
+	/* Home: digital input, no pull (external pull-up), 1.8 V */
+	home_key_default: home-key-default-state {
+		pins = "gpio2";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-disable;
+		power-source = <PM8994_GPIO_S4>;
+	};
+
+	/* Volume Up: digital input, 30 uA pull-up, 1.8 V */
+	vol_up_default: vol-up-default-state {
+		pins = "gpio3";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-pull-up;
+		qcom,pull-up-strength = <PMIC_GPIO_PULL_UP_30>;
+		power-source = <PM8994_GPIO_S4>;
+	};
+
 	/* MUIC interrupt: push-pull 1.8 V output, idle high */
 	muic_int_default: muic-int-default-state {
 		pins = "gpio4";
@@ -1204,6 +1491,75 @@
 
 	blsp1_i2c5_sleep: blsp1-i2c5-sleep-state {
 		pins = "gpio83", "gpio84";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	/* Panel TE, downstream mdss_te_active */
+	mdss_te_default: mdss-te-default-state {
+		pins = "gpio10";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	mdss_te_sleep: mdss-te-sleep-state {
+		pins = "gpio10";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	/* Panel reset (143) and TCON_RDY (45), downstream mdss_dsi_active / tcon_rdy_active */
+	panel_default: panel-default-state {
+		reset-pins {
+			pins = "gpio143";
+			function = "gpio";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		tcon-ready-pins {
+			pins = "gpio45";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	/* Touch interrupt, downstream tsp_int_active */
+	ts_int_default: ts-int-default-state {
+		pins = "gpio123";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	pen_int_default: pen-int-default-state {
+		pins = "gpio34";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	pen_flash_default: pen-flash-default-state {
+		pins = "gpio24";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	pen_vdd_default: pen-vdd-default-state {
+		pins = "gpio126";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	/* microSD card detect, downstream sdc2_cd_on */
+	sdc2_cd_default: sdc2-cd-default-state {
+		pins = "gpio95";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;

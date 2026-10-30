@@ -2,6 +2,15 @@
 
 ## Status (2026-10-29): installed, boots to Plasma (Wayland)
 
+**Packaged since 2026-10-30.** The pmaports packages in this repository now
+carry what this install needed: the kernel (pkgrel 7) has patches 0001-0075
+and the options below (`CONFIG_QCOM_SPMI_VADC=m`, which is enough), the main
+DTS has the display, touch, S-Pen, microSD and keys, and the deviceinfo has
+the command line below. Only the keyboard cover (`dts/test/test-keyboard.dts`,
+until hotplug works) and the panel temperature channel
+(`dts/test/test-display-temp.dts`) are still test DTs. The rest of this page
+records the original install.
+
 postmarketOS edge with systemd and KDE Plasma on Wayland is installed on
 the eMMC of an SM-T820, behind lk2nd, and boots to the desktop with
 autologin. A first install with OpenRC and XFCE (X11) found the cursor
