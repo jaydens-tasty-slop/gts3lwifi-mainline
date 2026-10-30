@@ -18,6 +18,7 @@ The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825,
 |---|---|
 | Boots, 4 CPU cores | works |
 | eMMC (HS400) | works |
+| microSD (SDHC2) | works: a UHS-I SDXC card runs at SDR104 with the generic `sdhci-msm` driver (dts/test/test-sdcard.dts: PM8994 L21 card supply, L13 signal supply, card detect on TLMM 95); inserting and removing a card while running not tested yet |
 | USB peripheral (NCM network, ACM serial, mass storage) | works |
 | PM8994 regulators via RPM | works (only the rails needed so far) |
 | postmarketOS initramfs + debug shell over USB | works |

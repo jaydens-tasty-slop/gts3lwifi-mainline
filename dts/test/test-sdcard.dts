@@ -1,0 +1,52 @@
+#include "test-spen.dts"
+
+/*
+ * Test: microSD slot (SDHC2, generic sdhci-msm driver), on top of the
+ * display, touch and S-Pen tests.
+ *
+ * From the stock DT (msm8996-mtp.dtsi, which msm8996-sec-gts3lwifi-r05.dts
+ * includes, and msm8996-sec-gts3lwifi-r05.dtsi): sdhc_2 with vdd = PM8994
+ * L21 at 2.95 V (up to 800 mA), vdd-io = PM8994 L13 at 1.8-2.95 V (up to
+ * 22 mA), card detect on GPIO 95, active low, no internal pull (sdc2_cd_on
+ * in msm8996-pinctrl-sec-gts3lwifi-r05.dtsi).  The bus pins are
+ * msm8996.dtsi's sdc2 states.
+ */
+
+&rpm_requests {
+	regulators-0 {
+		vreg_l13a_2p95: l13 {
+			regulator-name = "vreg_l13a_2p95";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <2950000>;
+			regulator-allow-set-load;
+			regulator-system-load = <22000>;
+		};
+
+		vreg_l21a_2p95: l21 {
+			regulator-name = "vreg_l21a_2p95";
+			regulator-min-microvolt = <2950000>;
+			regulator-max-microvolt = <2950000>;
+			regulator-allow-set-load;
+			regulator-system-load = <800000>;
+		};
+	};
+};
+
+&sdhc2 {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_state_on &sdc2_cd_default>;
+	pinctrl-1 = <&sdc2_state_off &sdc2_cd_default>;
+	cd-gpios = <&tlmm 95 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&vreg_l21a_2p95>;
+	vqmmc-supply = <&vreg_l13a_2p95>;
+	status = "okay";
+};
+
+&tlmm {
+	sdc2_cd_default: sdc2-cd-default-state {
+		pins = "gpio95";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
