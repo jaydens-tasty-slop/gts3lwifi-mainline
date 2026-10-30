@@ -1,9 +1,10 @@
-From 199dda4732ebe08dfb8b304f508bdaaf1944e821 Mon Sep 17 00:00:00 2001
+From b0b20d813b87ba55d5b8d564295cc9fc3daf5e1b Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Fri, 30 Oct 2026 07:46:24 +0000
-Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 Wi-Fi (gts3lwifi)
+Date: Fri, 30 Oct 2026 09:04:28 +0000
+Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 (gts3lwifi,
+ gts3llte)
 
-Device tree for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
+Device trees for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
 tablet with PM8994 + PM8004 and eMMC storage, booted via lk2nd:
 reserved memory matching the Samsung firmware layout, PM8994 RPM
 regulators, eMMC and microSD, dwc3 USB in peripheral mode, PS_HOLD
@@ -16,16 +17,23 @@ amplifiers on two TDM buses), the SM5705 fuel gauge, charger and MUIC,
 the S2MM005 USB Type-C/PD controller, the rear flash LED as a torch, and
 CPU, cluster and system idle (hierarchical PSCI, OSI).
 
+The LTE model (SM-T825, MSM8996) shares the board: its device tree includes
+the Wi-Fi one and changes the SoC ID, reserves the modem's shared memory
+and leaves out the pins TrustZone may own on that model. The modem itself
+is not supported yet.
+
 Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1599 +++++++++++++++++
- 2 files changed, 1600 insertions(+)
+ arch/arm64/boot/dts/qcom/Makefile             |    2 +
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1603 +++++++++++++++++
+ .../dts/qcom/msm8996-samsung-gts3llte.dts     |   45 +
+ 3 files changed, 1650 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
-index 821146b..15f2e50 100644
+index 821146b..39b7195 100644
 --- a/arch/arm64/boot/dts/qcom/Makefile
 +++ b/arch/arm64/boot/dts/qcom/Makefile
 @@ -13,6 +13,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= apq8039-t2.dtb
@@ -36,12 +44,20 @@ index 821146b..15f2e50 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-iot-evk.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-rdp432-c2.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= ipq5018-tplink-archer-ax55-v1.dtb
+@@ -105,6 +106,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= msm8994-sony-xperia-kitakami-sumire.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8994-sony-xperia-kitakami-suzuran.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-mtp.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-oneplus3.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-samsung-gts3llte.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-sony-xperia-tone-dora.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-sony-xperia-tone-kagura.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-sony-xperia-tone-keyaki.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..d42fc4e
+index 0000000..5d966bc
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,1599 @@
+@@ -0,0 +1,1603 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -63,8 +79,12 @@ index 0000000..d42fc4e
 + *
 + * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
 + * from the device (apnhlos and modem partitions), under
-+ * qcom/apq8096/samsung/gts3lwifi/; the device package's gts3-firmware copies
++ * qcom/msm8996/samsung/gts3/; the device package's gts3-firmware copies
 + * them, and the sensor registry from the efs partition, on first boot.
++ *
++ * The LTE model (SM-T825) uses this file too: msm8996-samsung-gts3llte.dts
++ * includes it and changes the SoC ID, the modem memory and the pins it may
++ * not touch. One kernel and one device package boot both models.
 + *
 + * Sources (all cross-checked against the live DTB with phandles resolved):
 + *   downstream arch/arm64/boot/dts/samsung/msm8996-sec-gts3lwifi-r05.dts{,i}
@@ -973,7 +993,7 @@ index 0000000..d42fc4e
 +};
 +
 +&gpu_zap_shader {
-+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/a530_zap.mdt";
++	firmware-name = "qcom/msm8996/samsung/gts3/a530_zap.mdt";
 +};
 +
 +/*
@@ -1015,7 +1035,7 @@ index 0000000..d42fc4e
 + * segments fit msm8996.dtsi's venus_mem.
 + */
 +&venus {
-+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/venus.mdt";
++	firmware-name = "qcom/msm8996/samsung/gts3/venus.mdt";
 +	status = "okay";
 +};
 +
@@ -1059,7 +1079,7 @@ index 0000000..d42fc4e
 +};
 +
 +&adsp_pil {
-+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/adsp.mdt";
++	firmware-name = "qcom/msm8996/samsung/gts3/adsp.mdt";
 +	status = "okay";
 +};
 +
@@ -1077,7 +1097,7 @@ index 0000000..d42fc4e
 + * for iio-sensor-proxy (checked in all four positions).
 + */
 +&slpi_pil {
-+	firmware-name = "qcom/apq8096/samsung/gts3lwifi/slpi.mdt";
++	firmware-name = "qcom/msm8996/samsung/gts3/slpi.mdt";
 +	px-supply = <&vreg_lvs2a_1p8>;
 +	status = "okay";
 +};
@@ -1640,4 +1660,55 @@ index 0000000..d42fc4e
 +		drive-strength = <2>;
 +		bias-disable;
 +	};
++};
+diff --git a/arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts b/arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts
+new file mode 100644
+index 0000000..23cc797
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Samsung Galaxy Tab S3 LTE (SM-T825), codename gts3llte: the Wi-Fi model's
++ * board with an MSM8996 (msm-id 246) instead of the APQ8096, plus the modem.
++ * Everything else is shared with apq8096-samsung-gts3lwifi.dts; one kernel
++ * and one device package boot both, lk2nd picks the device tree by its
++ * compatible.
++ *
++ * Not here yet: the modem (LTE, SIM, GPS) - only its shared memory region is
++ * reserved. TLMM 58-61 stay reserved: stock comments out the eSE SPI on both
++ * models and they are free on the Wi-Fi model, but which pins TrustZone owns
++ * is set by its firmware and an owned pin resets the tablet about 9 s into
++ * boot. So the top speaker pair (quaternary TDM on those pins) is left out
++ * until it is checked on an SM-T825; the bottom pair, headphones and
++ * microphones stay.
++ */
++
++#include "apq8096-samsung-gts3lwifi.dts"
++
++/ {
++	model = "Samsung Galaxy Tab S3 LTE";
++	compatible = "samsung,gts3llte", "qcom,msm8996";
++
++	qcom,msm-id = <246 0x30001>;
++	qcom,board-id = <8 5>;
++
++	reserved-memory {
++		/* Downstream modem_shared_mem_region@0x93000000, LTE model only */
++		memory@93000000 {
++			reg = <0x0 0x93000000 0x0 0x6000000>;
++			no-map;
++		};
++	};
++};
++
++&tlmm {
++	/delete-property/ gpio-reserved-ranges;
++	gpio-reserved-ranges = <25 4>, <58 4>;
++};
++
++&sound {
++	pinctrl-0 = <&pri_tdm_clk_default>, <&pri_tdm_data_default>;
++
++	/delete-node/ spk-top-dai-link;
 +};

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Load the Waydroid firewall rule now if the pmOS firewall is active (it is
+# read from /etc/nftables.d at every boot), and start the Waydroid
+# container at boot under OpenRC (the systemd unit comes enabled).
+if nft list table inet filter >/dev/null 2>&1; then
+	nft -f /etc/nftables.d/52_waydroid.nft || true
+fi
+if [ -x /etc/init.d/waydroid-container ]; then
+	rc-update -q add waydroid-container default
+fi
+exit 0

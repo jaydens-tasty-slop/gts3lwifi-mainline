@@ -1,0 +1,14 @@
+#!/usr/sbin/nft -f
+# Waydroid: let Android on the waydroid0 bridge get its address and DNS from
+# Waydroid's dnsmasq and forward its traffic; Waydroid adds the NAT itself.
+# The default pmOS policy drops all of this.
+table inet filter {
+	chain input {
+		iifname "waydroid0" udp dport { 53, 67 } accept comment "Waydroid DHCP and DNS"
+		iifname "waydroid0" tcp dport 53 accept comment "Waydroid DNS over TCP"
+	}
+	chain forward {
+		iifname "waydroid0" accept comment "Waydroid outgoing traffic"
+		oifname "waydroid0" ct state { established, related } accept comment "Waydroid replies"
+	}
+}

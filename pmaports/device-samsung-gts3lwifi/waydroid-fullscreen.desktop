@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Android (Waydroid)
+Comment=Android 13 full screen, in Waydroid
+Exec=/usr/bin/gts3-waydroid-session
+Type=Application
+DesktopNames=Waydroid

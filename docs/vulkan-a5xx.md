@@ -295,7 +295,7 @@ Rough sketch; the regulator values are not validated on this hardware:
 
 ```dts
 &gpu { status = "okay"; };
-&gpu_zap_shader { firmware-name = "qcom/apq8096/samsung/gts3lwifi/a530_zap.mdt"; };
+&gpu_zap_shader { firmware-name = "qcom/msm8996/samsung/gts3/a530_zap.mdt"; };
 &pm8004_spmi_regulators {
 	vdd_s2-supply = <&vph_pwr>;          /* parent supply not verified */
 	vdd_gfx: s2 {

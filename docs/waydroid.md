@@ -14,6 +14,15 @@ Tested on the headless SM-T820 (r5 kernel, pmOS edge, systemd) with Waydroid
 | Battery | Android shows the real charge (from the SM5705 fuel gauge through the host) |
 | Not available inside Android | sensors, camera, direct Wi-Fi/Bluetooth control (Android sees Ethernet; Bluetooth audio works through the host), hardware video decode |
 
+## Package
+
+`device-samsung-gts3lwifi-waydroid` (optional) installs `waydroid` and `cage`,
+the firewall rule below as `/etc/nftables.d/52_waydroid.nft` (loaded right
+away if the firewall is active), and an "Android (Waydroid)" login session
+that runs Android full screen in cage (`gts3-waydroid-session`); powering
+Android off ends the session. Then run `waydroid init` once (or use the local
+images, below). If the rule was added by hand before, remove that file first.
+
 ## Fixes needed
 
 **Firewall.** pmOS's nftables policy drops input and forwarding on unknown
@@ -41,6 +50,10 @@ Android frame copied). Set `WLR_RENDERER=gles2` and
 A session on the real display does not need this.
 
 ## First boot
+
+Known issue: right after a boot, a "System UI isn't responding" dialog can
+appear while the tablet is still busy; the stack dump Android then takes is
+what can kill `vold` (below).
 
 Android's first boot compiles every app and takes about 5.5 minutes on this
 SoC. If the tablet is busy with other work at the same time (another desktop

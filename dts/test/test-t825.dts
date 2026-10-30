@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Became ../msm8996-samsung-gts3llte.dts on 2026-10-30 (the LTE model's
+ * device tree is now part of the kernel package). This file only keeps old
+ * build commands working.
+ */
+
+#include "../msm8996-samsung-gts3llte.dts"

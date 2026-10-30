@@ -1,75 +1,87 @@
-# Mainline Linux on the Samsung Galaxy Tab S3 Wi-Fi (SM-T820, gts3lwifi)
+# Mainline Linux on the Samsung Galaxy Tab S3 (SM-T820, SM-T825)
 
-Early bring-up of mainline Linux / postmarketOS on the Galaxy Tab S3 Wi-Fi.
+Mainline Linux / postmarketOS on the Galaxy Tab S3, Wi-Fi and LTE models.
 
-- SoC: Qualcomm APQ8096 (Snapdragon 820), PMICs PM8994 + PM8004
+- SoC: Qualcomm APQ8096 (SM-T820) / MSM8996 (SM-T825), Snapdragon 820; PMICs PM8994 + PM8004
 - Storage: eMMC (not UFS)
-- Bootloader chain: Samsung S-Boot -> lk2nd -> Linux
+- Boot chain: Samsung S-Boot -> lk2nd -> Linux
 - Kernel: [msm8996-mainline/linux](https://gitlab.com/msm8996-mainline/linux) `v6.19.5-msm8996`,
-  packaged as postmarketOS `linux-postmarketos-qcom-msm8996`
+  packaged as postmarketOS `linux-postmarketos-qcom-msm8996` with our patches (`pmaports/`)
 
-## Variants
+## Models
 
-The work targets the Wi-Fi model (SM-T820, `gts3lwifi`). The LTE model (SM-T825, `gts3llte`) shares the board apart from the modem; a device tree (`dts/msm8996-samsung-gts3llte.dts`) and an lk2nd build for it exist but are untested so far (docs/TESTING-t825-round1.md).
+One kernel and one device package boot both models: the package carries both
+device trees and lk2nd picks the one that matches the tablet. The SM-T825
+device tree (`dts/msm8996-samsung-gts3llte.dts`) includes the SM-T820 one and
+only changes the SoC ID, the modem memory and the pins TrustZone may own.
+
+| Model | State |
+|---|---|
+| SM-T820 (Wi-Fi, `gts3lwifi`) | main target, everything below is tested on it |
+| SM-T825 (LTE, `gts3llte`) | lk2nd boots on it; Linux not confirmed yet; modem (LTE, SIM, GPS) not supported; top speakers left out until checked |
 
 ## Status
 
-| Feature | Status |
-|---|---|
-| Boots, 4 CPU cores | works |
-| eMMC (HS400) | works |
-| microSD (SDHC2) | works: a UHS-I SDXC card runs at SDR104 with the generic `sdhci-msm` driver (main DTS: PM8994 L21 card supply, L13 signal supply, card detect on TLMM 95); inserting and removing a card while running not tested yet |
-| USB peripheral (NCM network, ACM serial, mass storage) | works |
-| PM8994 regulators via RPM | works (only the rails needed so far) |
-| postmarketOS initramfs + debug shell over USB | works |
-| Full rootfs boot | works (ssh over USB, rootfs resized to the full eMMC) |
-| Reboot, power-off | work: PS_HOLD through syscon-reboot and syscon-poweroff, because PSCI SYSTEM_RESET hangs and SYSTEM_OFF does nothing in Samsung's TrustZone (docs/reboot.md) |
-| Suspend (s2idle) | works with the Wi-Fi driver unloaded; with Wi-Fi the PCIe link dies when its power domain switches off and the tablet resets. Fix (PCIe power domains in retention, patch 0037) written, not tested yet; the SoC does not reach its deepest sleep yet (docs/suspend.md) |
-| TLMM GPIOs | work, 4 TrustZone-owned pins reserved |
-| Display | works with no command-line option (the panel asks for its DSI clock lane to start after the panel reset, patches 0050-0052; before them `msm.defer_hs_clk=1`, patch 0006): both DSI links stream in sync (MDP5 split display, patch 0003), geometry and colours correct, gamma table from the panel's MTP as in stock (patches 0038-0040), checked by webcam against the stock kernel (docs/display.md, round 19). Brightness control through the backlight device, 2 to 360 cd/m2 (patch 0042) and HBM up to 500 cd/m2 as levels 256-263 (patch 0054), with ACL on as in stock (patch 0043), and the vendor's cold ELVSS tables with an optional temperature channel (patches 0066-0067, dts/test/test-display-temp.dts, needs `CONFIG_QCOM_SPMI_VADC`); blank then unblank works (patch 0041); the X hardware cursor needs patch 0068 (docs/display.md, round 21) |
-| Touch | works (Synaptics S5807 RMI4, main DTS); axes mapped to the panel's frame (DT flags from the vendor source and the panel rotation, confirmed with finger taps: docs/input.md); 10 units/mm with patch 0064 (upstream) and the size in the DT |
-| S-Pen | works (Wacom W9019: Linux 7.3's `wacom_w9000` plus its W9019 support, patches 0056-0063, main DTS, `CONFIG_TOUCHSCREEN_WACOM_W9000=m`): 19661 x 14746 at 100 units/mm, pressure 4095, firmware 0x0124; tip, hover, pressure, side button and axes confirmed with the pen (docs/input.md) |
-| Keys | Power (main DTS); Volume Down (PM8994 RESIN), Volume Up and Home (PM8994 GPIO 3 and 2, `gpio-keys`), all in the main DTS; Home sends KEY_HOMEPAGE, which Plasma ignores, so a hwdb entry makes it Meta (docs/input.md). Hall sensor and the Back/Recent touch keys not yet |
-| Keyboard cover (Book Cover Keyboard) | works when attached at boot: STMPE1801 keypad support for the upstream `stmpe-keypad` driver, patches 0069-0075, dts/test/test-keyboard.dts (stays a test DT until hotplug works); `CONFIG_MFD_STMPE`, `CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE` are in the package config. No hotplug yet (SM5705 MUIC ID ADC 0x11, docs/input.md) |
-| GPU (Adreno 530) | works headless: freedreno OpenGL ES 3.1, Samsung zap shader accepted, test render correct (docs/gpu.md, main DTS) |
-| Wi-Fi (QCA6174, PCIe) | works: ath10k with linux-firmware and Samsung's board data, scans on 2.4 and 5 GHz. Needs BT_EN low while the chip's 3.3 V rail comes up (docs/wifi.md, main DTS) |
-| Bluetooth (QCA6174, UART) | works: hci_qca with linux-firmware, address from the efs partition at boot (docs/bluetooth.md, main DTS) |
-| Video codec (Venus) | decoding works and is bit-exact (H.264, VP8, VP9) with Samsung's firmware; H.264 encoding works via v4l2-ctl. Kernel patches 0008-0009 fix EOS and H.264 encoding on HFI v3. HEVC decode and GStreamer encoding still fail (docs/venus.md, main DTS) |
-| Sensors (SLPI) | accelerometer, gyroscope and magnetometer work through Qualcomm's sensor core with Samsung's firmware and the unit's own sensor registry from the efs partition; auto-rotate works with iio-sensor-proxy, orientation checked in all four positions. Light sensor and the cover's hall sensor not yet. Patch 0076 fixes a kCFI oops in qcom_smgr (docs/sensors.md, main DTS) |
-| Thermal (TSENS) | works once enabled: the msm8996 kernel config had it off, so nothing throttled (docs/thermal.md) |
-| CPU idle | works once enabled: the msm8996 kernel config had `ARM_PSCI_CPUIDLE` off, so the cores never left WFI. With the CPU state plus L2 GDHS per cluster and system retention (OSI hierarchy, main DTS), idle power drops by a third (about 200 -> 135 mA). The firmware is OSI from boot but refuses the mode switch; kernel patch 0018 accepts that. CPU and L2 power collapse are refused by the firmware (docs/cpuidle.md) |
-| Audio | headphones and the main/sub mics work, through ALSA and PipeWire (ADSP + WCD9335 on SLIMbus; patches 0010-0011, UCM profile and WirePlumber config in the device package). All four speakers work (4 Richtek RT5508 amps on two TDM buses; new driver, q6routing/q6afe fixes and TDM in the machine driver, patches 0022-0027, UCM "Speaker" device; docs/audio.md, main DTS) |
-| Battery (SM5705 fuel gauge) | works: percentage, voltage, current and temperature in sysfs and UPower. New driver, patches 0012-0013 (docs/battery.md, main DTS) |
-| Charger (SM5705) | works: USB power, charger type and charging state in sysfs and UPower, charge voltage set to Samsung's 4.30 V (without a driver the charger used 4.38 V), input current limit from the detected charger type (MUIC, BC1.2: PC port 500 mA, wall charger 1.8 A). New drivers, patches 0014-0017 (docs/battery.md, main DTS). Opt-in 9 V fast charging with Samsung AFC / QC 2.0 chargers, kept at 5 V for USB-C sources and while the torch is on, as in stock (patches 0019-0020, 0035-0036, tested with AFC). Battery temperature guard with Samsung's limits: no charging below 0 / above 50 C, reduced voltage and current when warm or cool (patch 0021). Charges at 2.7 A from 15 W sources (patch 0028). USB-C: input limit from the Type-C controller, 3 A at 5 V with a PD charger (patch 0032) |
-| Flash LED | works as a torch: `white:torch`, 10-180 mA, from USB power or the battery; a 9 V AFC charger drops to 5 V while it is on (charger driver, patches 0033-0036, docs/battery.md); the camera flash strobe is not used |
-| Type-C controller (S2MM005) | works as a sink: new driver, Type-C port and a power supply with the PD contract or Type-C current for the charger (5 V / 3 A with Samsung's 25 W PD charger). 9 V over PD fails during the voltage transition (docs/battery.md); OTG and role swaps not yet. Patches 0029-0032, main DTS |
-| Waydroid (Android 13) | runs with GPU acceleration (Android renders with freedreno, FD530, GLES 3.1); network after a firewall rule pmOS lacks; first boot about 5.5 min and must not be disturbed (docs/waydroid.md) |
-| postmarketOS desktop | installed on the eMMC with systemd and KDE Plasma (Wayland), autologin, behind lk2nd; kernel with patches 0001-0075, the test DTs up to dts/test/test-keyboard.dts plus the panel temperature channel, and the extra kernel options listed in docs/pmos-install.md. No energy model yet, so the scheduler is not energy aware |
+Works = tested on hardware. Details and test notes are in `docs/`.
 
-Solved: Samsung's TrustZone owns the fingerprint SPI pins (TLMM 25-28). If
-Linux reads them, the firmware resets the tablet about 9 s into boot. The
-board DTS lists them in `gpio-reserved-ranges`; found by bisecting on hardware
-(`dts/test/`). The secure-element SPI pins (TLMM 58-61) were reserved too,
-but on the Wi-Fi model they are free and carry the top speakers' TDM bus.
+| Area | Status | Notes |
+|---|---|---|
+| **System** | | |
+| Boot, CPU (4 cores), cpufreq | Works | |
+| CPU idle | Works | cluster and system retention; deeper states refused by the firmware ([cpuidle](docs/cpuidle.md)) |
+| Thermal | Works | [thermal](docs/thermal.md) |
+| eMMC | Works | HS400 |
+| microSD | Works | UHS-I (SDR104); hot-plug not tested |
+| Reboot, power-off | Works | through PS_HOLD, PSCI hangs in Samsung's TrustZone ([reboot](docs/reboot.md)) |
+| Suspend | Partial | s2idle; the Wi-Fi fix (patch 0037) is untested; no deep sleep yet ([suspend](docs/suspend.md)) |
+| **Display and input** | | |
+| Display | Works | colours, brightness, blank/unblank; HBM sits at the top of the brightness range for now ([display](docs/display.md)) |
+| GPU (Adreno 530) | Works | freedreno, OpenGL ES 3.1 ([gpu](docs/gpu.md)) |
+| Touchscreen | Works | [input](docs/input.md) |
+| S-Pen | Works | pressure, hover, side button ([input](docs/input.md)) |
+| Power, Volume, Home keys | Works | |
+| Book Cover Keyboard | Partial | works when attached at boot; no hotplug yet |
+| Back/Recent touch keys | Not yet | separate controller (TC305K) |
+| **Connectivity** | | |
+| Wi-Fi | Works | 2.4 and 5 GHz ([wifi](docs/wifi.md)) |
+| Bluetooth | Works | [bluetooth](docs/bluetooth.md) |
+| USB device mode | Works | network, serial, storage |
+| USB host / OTG, USB 3 | Not yet | |
+| USB-C power (PD) | Partial | 5 V / 3 A sink; 9 V over PD fails ([battery](docs/battery.md)) |
+| LTE modem, SIM, GPS (SM-T825) | Not yet | planned |
+| **Power** | | |
+| Battery gauge | Works | [battery](docs/battery.md) |
+| Charging | Works | Samsung's 4.30 V and temperature limits, up to 2.7 A; opt-in 9 V AFC / QC 2.0 |
+| Flash LED | Works | as a torch |
+| **Multimedia** | | |
+| Speakers (4), headphones, microphones | Works | headphone jack detection and headset mic not yet ([audio](docs/audio.md)) |
+| Video decode / encode (Venus) | Partial | H.264, VP8, VP9 decode; H.264 encode; HEVC decode fails ([venus](docs/venus.md)) |
+| Cameras (front, rear) | Not yet | planned |
+| **Sensors** | | |
+| Accelerometer, gyroscope, magnetometer | Works | auto-rotate with iio-sensor-proxy ([sensors](docs/sensors.md)) |
+| Light sensor | Not yet | needs a light channel in the SMGR driver |
+| Cover (hall) sensor | Not yet | waits for reliable suspend |
+| Fingerprint (Home key) | Blocked | its pins are owned by Samsung's TrustZone |
+| **Software** | | |
+| postmarketOS with Plasma (Wayland) | Works | installed on the eMMC behind lk2nd ([pmos-install](docs/pmos-install.md)) |
+| Waydroid (Android 13) | Works | GPU-accelerated; optional `-waydroid` subpackage; first boot is fragile ([waydroid](docs/waydroid.md)) |
 
 ## Layout
 
-- `dts/` - board device tree with everything that works on hardware, plus test variants that `#include` it (the keyboard cover and the panel temperature channel are still test-only; the merged tests are include-only stubs)
-- `pmaports/` - postmarketOS device package and the kernel patch
+- `dts/` - device trees for both models (the SM-T825 one includes the SM-T820 one), plus test variants; the keyboard cover and the panel temperature channel are still test-only
+- `pmaports/` - postmarketOS device package (with the optional Waydroid subpackage) and the kernel patches
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages
 - `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe
 - `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
-- `docs/` - tester instructions, boot logs, display, GPU, Wi-Fi, Bluetooth, reboot and power-off, suspend, video, thermal, audio, battery, charger, CPU idle and input notes, and the postmarketOS desktop install (docs/pmos-install.md)
+- `docs/` - notes per subsystem, the postmarketOS install, tester instructions and boot logs
 
 ## lk2nd
 
-A working prebuilt image is in the GitHub releases.
-
 Samsung's bootloader only accepts lk2nd when it is packed like a stock boot
-image. What works, what does not, and a packing script are in
-[docs/lk2nd.md](docs/lk2nd.md). A working, reproducible lk2nd image is
-attached to the GitHub releases (`lk2nd-gts3lwifi.img`).
+image ([docs/lk2nd.md](docs/lk2nd.md), packing script in `scripts/`). There
+is one image per model for now: `lk2nd-gts3lwifi.img` (SM-T820, in the GitHub
+releases) and `lk2nd-gts3llte.img` (SM-T825).
 
 ## Debugging without a display or UART
 

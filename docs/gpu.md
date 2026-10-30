@@ -30,7 +30,7 @@ On a Tab S3 with no panel attached, booted from RAM with
     well (docs/pmos-install.md)
   - Samsung's signed zap shader from the `apnhlos` partition,
     `image/a530_zap.mdt` + `.b00` to `.b02`, to
-    `/lib/firmware/qcom/apq8096/samsung/gts3lwifi/` (the DTS sets that path).
+    `/lib/firmware/qcom/msm8996/samsung/gts3/` (the DTS sets that path).
     The db820c zap in linux-firmware would not be accepted by Samsung's TZ.
 - **DRM device:** `msm.separate_gpu_kms=1` while MDSS is not in the main DTS,
   so the GPU binds on its own instead of waiting for the display.

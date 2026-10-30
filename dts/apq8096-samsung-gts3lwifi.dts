@@ -19,8 +19,12 @@
  *
  * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
  * from the device (apnhlos and modem partitions), under
- * qcom/apq8096/samsung/gts3lwifi/; the device package's gts3-firmware copies
+ * qcom/msm8996/samsung/gts3/; the device package's gts3-firmware copies
  * them, and the sensor registry from the efs partition, on first boot.
+ *
+ * The LTE model (SM-T825) uses this file too: msm8996-samsung-gts3llte.dts
+ * includes it and changes the SoC ID, the modem memory and the pins it may
+ * not touch. One kernel and one device package boot both models.
  *
  * Sources (all cross-checked against the live DTB with phandles resolved):
  *   downstream arch/arm64/boot/dts/samsung/msm8996-sec-gts3lwifi-r05.dts{,i}
@@ -929,7 +933,7 @@
 };
 
 &gpu_zap_shader {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/a530_zap.mdt";
+	firmware-name = "qcom/msm8996/samsung/gts3/a530_zap.mdt";
 };
 
 /*
@@ -971,7 +975,7 @@
  * segments fit msm8996.dtsi's venus_mem.
  */
 &venus {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/venus.mdt";
+	firmware-name = "qcom/msm8996/samsung/gts3/venus.mdt";
 	status = "okay";
 };
 
@@ -1015,7 +1019,7 @@
 };
 
 &adsp_pil {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/adsp.mdt";
+	firmware-name = "qcom/msm8996/samsung/gts3/adsp.mdt";
 	status = "okay";
 };
 
@@ -1033,7 +1037,7 @@
  * for iio-sensor-proxy (checked in all four positions).
  */
 &slpi_pil {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/slpi.mdt";
+	firmware-name = "qcom/msm8996/samsung/gts3/slpi.mdt";
 	px-supply = <&vreg_lvs2a_1p8>;
 	status = "okay";
 };

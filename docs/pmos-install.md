@@ -47,7 +47,7 @@ What the install runs, against this repository:
   package dependencies; linux-firmware's `a530_pm4.fw`, `a530_pfp.fw` and
   `a530v3_gpmu.fw2` work), plus Samsung's signed files from the tablet's
   own partitions: zap shader and Venus from `apnhlos`, ADSP from `modem`,
-  in `qcom/apq8096/samsung/gts3lwifi/` (docs/gpu.md, docs/venus.md,
+  in `qcom/msm8996/samsung/gts3/` (docs/gpu.md, docs/venus.md,
   docs/audio.md), and the Wi-Fi board data `bdwlan30.bin` as
   `ath10k/QCA6174/hw3.0/board.bin` (docs/wifi.md). We put the board file
   under `/lib/firmware/updates/`, which the kernel searches first.

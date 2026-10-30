@@ -14,7 +14,10 @@
 set -eu
 
 DEST=/lib/firmware/updates
-FW=$DEST/qcom/apq8096/samsung/gts3lwifi
+FW=$DEST/qcom/msm8996/samsung/gts3
+# qcom_sns_reg looks for sns.reg-<first root compatible>: samsung,gts3lwifi
+# on the SM-T820, samsung,gts3llte on the SM-T825
+model=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | head -n1)
 tmp=$(mktemp -d)
 changed=0
 
@@ -64,7 +67,7 @@ fi
 
 if mount_part efs; then
 	copy "$tmp/efs/FactoryApp/sensors/sns.reg" \
-		"$DEST/qcom/sensors/sns.reg-samsung,gts3lwifi"
+		"$DEST/qcom/sensors/sns.reg-${model:-samsung,gts3lwifi}"
 fi
 
 [ "$changed" = 1 ] || exit 0

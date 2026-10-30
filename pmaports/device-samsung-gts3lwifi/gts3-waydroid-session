@@ -1,0 +1,8 @@
+#!/bin/sh
+# Android full screen: Waydroid as a login session of its own, in cage.
+# `waydroid show-full-ui` runs for as long as Android does, so powering
+# Android off (or `waydroid session stop`) ends the session and returns to
+# the login screen. A session left over from elsewhere is stopped first, or
+# show-full-ui would only open a window and return.
+waydroid session stop >/dev/null 2>&1
+exec cage -d -s -- waydroid show-full-ui

@@ -1,7 +1,7 @@
 # Reference: <https://postmarketos.org/devicepkg>
 maintainer="psigod <psigod@example.com>"
 pkgname=device-samsung-gts3lwifi
-pkgdesc="Samsung Galaxy Tab S3 (Wi-Fi)"
+pkgdesc="Samsung Galaxy Tab S3 (SM-T820, SM-T825)"
 pkgver=1
 pkgrel=4
 url="https://postmarketos.org"
@@ -20,7 +20,7 @@ depends="
 	soc-qcom-msm8996
 	"
 makedepends="devicepkg-dev"
-subpackages="$pkgname-openrc"
+subpackages="$pkgname-openrc $pkgname-waydroid:_waydroid"
 source="
 	deviceinfo
 	modules-load.conf
@@ -34,6 +34,9 @@ source="
 	51-gts3lwifi-audio.conf
 	ucm2-gts3lwifi.conf
 	ucm2-gts3lwifi-HiFi.conf
+	waydroid-firewall.nft
+	gts3-waydroid-session
+	waydroid-fullscreen.desktop
 	"
 
 build() {
@@ -71,6 +74,21 @@ package() {
 		"$pkgdir/usr/share/alsa/ucm2/conf.d/apq8096/Galaxy Tab S3.conf"
 }
 
+_waydroid() {
+	pkgdesc="Waydroid (Android 13) on the Galaxy Tab S3: firewall rule and a full-screen Android session"
+	depends="cage waydroid"
+	install="$subpkgname.post-install"
+
+	# pmOS drops input and forwarding on waydroid0 by default
+	install -Dm644 "$srcdir"/waydroid-firewall.nft \
+		"$subpkgdir"/etc/nftables.d/52_waydroid.nft
+	# "Android (Waydroid)" on the login screen: Android full screen in cage
+	install -Dm755 "$srcdir"/gts3-waydroid-session \
+		"$subpkgdir"/usr/bin/gts3-waydroid-session
+	install -Dm644 "$srcdir"/waydroid-fullscreen.desktop \
+		"$subpkgdir"/usr/share/wayland-sessions/waydroid-fullscreen.desktop
+}
+
 openrc() {
 	install_if="$pkgname=$pkgver-r$pkgrel openrc"
 	install="$subpkgname.post-install"
@@ -79,16 +97,19 @@ openrc() {
 }
 
 sha512sums="
-915326ac790bb9e1ea2ec76a9ff83c4fb03eba0b25cbcf77b71b36562d7427d2b8e21edae3011878cfc5f81e8a1fc5034190e0c48df2ac1c733a663317189100  deviceinfo
+13d9a40b1e6c23386362bdc1fc4c4e9ae8f21ed0ac03405f5e584096e41a2bc1e135f9e51f9ed43e474e25fc385db7927ee2ced5f7538629440809368ef38581  deviceinfo
 415c70edb7fc26fe8a4214c454e11b3bee2a26a3d69e5d8833c57d090b7bb780e92ab057763ad28d36084b2c0e958e2f6e3bcc58bafdc426ef3f34ab4c427b98  modules-load.conf
 ee43078064b3827cedac15eb5d47fee2f62b00fb088900e467a80033beb796800bb8f3edd797885a49ce2b8e6b3795f365b859dcee547237edb95f215899414e  gts3-bdaddr
 b66c32dc557b8c7e67c5637e28d5a67a0405bd3abb536132905a7291d920a6436a888f17b9e88e1f659b6e07c785eccdb3c83e77d12388036d93172f635c878c  gts3-bdaddr.initd
-f4d27dd6d77e92fb939fe5fbbae37e108e19551d72b209d68d63c9971fdd48bd5d849f70319ca4c6ddffd6808f92aaf2cf16e91cc3aa3a9b095b22fbdbe02718  gts3-firmware
+d3764969b09570c49630aba4312fe91c825419872d2967a665d0d1c589787ac8756880691f415031eec527ed7c2db40f32ab2f09160d9b56f622b82f4b0dabaf  gts3-firmware
 b40909ca957e7526f5c32c7114c5b3b11a07fa3b33b7310fd9f7970b213c91ada418f655ad4b51a67cb667db767955d99be3fc404c4f5839763bdcc2b35acf44  gts3-firmware.initd
 2808953122722a2ad3786a34107d2eefd94e88fe0ba08cda30169b9681a61a7e1fd6a1a126af4e5f797d8e8c8470ffc5d7818eb602ae03ca581770c2c9cd8172  gts3-firmware.service
 f53aa7ee30d67e56932d1ff328fa8bc31a90dbbcb9d1cf9bc0856a315fc5f88404913df90893e09ff67e22e8ddaeeadb69a85b3fddca6dcc472c23ea36899e9f  gts3-bdaddr.service
 e084e50c5fea8607b9dd9d9f7d36112883a6fa089b24b8bb760d6367f5a222d00930fb182cb7b970d8b1d31dc71dcf94ac65252b4028d729cc095d947b4b306b  90-gts3-bdaddr.rules
 2dd2b980cc320bc22f6e53a035c8a68390ef40bd13bca5e2c248d974b705ed5b3c68e59f3e398f89553a4551af67fc6f46748fb63354421163d77d207ff7147e  51-gts3lwifi-audio.conf
 1e4ce6c102487fb79b13ee3a62c7801bee9eb135992b93a5b1b8af4bba325eaa1527e0d2cc588a976c0956be652d4c579036237684ec5a4d209b37b5c5c188e7  ucm2-gts3lwifi.conf
-59bb42267ab9b472904c08a6600ca5296cc1f8c103a3fcce5398470686fee62a7dcf0c6fc44993424eb4ae5f71ac3853058b86611f337ac1e1e57a7b4a302369  ucm2-gts3lwifi-HiFi.conf
+e9c137c05b023b27b86f483d38026f955265feda529ef5af3db9bb7c360706429618e222c6bfc331e6163296f13708d63d92232c32e178dd589b3a5b93cd4ec2  ucm2-gts3lwifi-HiFi.conf
+cf9b543a487e4c4a2f578dde576189da1c90c852b4a5eb49257df5a8ce09f6f132c82fb14067865674ce203a187c7e9af5c844ea3520efe5cf1988dde0442964  waydroid-firewall.nft
+aedb1730aaa15f6f9e2f20ecd0f5ad98fd49f9bc7480f5558628296c6b1a7af85ccc89360c996331898f3d35477a97386a54b3f631048adb299b61f79bcbb67b  gts3-waydroid-session
+be4208211112f3e4b0950b490819de2bcf9760d45a1d5b390de5b7fd60e2a6ea8cee3cb6202ef52bbbb0030dbd14b3ab6a38d788f80c18bbdd29a13d1681e3f3  waydroid-fullscreen.desktop
 "

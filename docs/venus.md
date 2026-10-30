@@ -33,7 +33,7 @@ Open:
 
 Samsung's signed firmware is on the tablet's `apnhlos` partition
 (`image/venus.mdt`, `.b00`-`.b04`, version `VIDEO.VE.4.4-00060`). Copy it to
-`/lib/firmware/qcom/apq8096/samsung/gts3lwifi/`; it is not in this repo.
+`/lib/firmware/qcom/msm8996/samsung/gts3/`; it is not in this repo.
 TrustZone authenticates it (PAS id 9).
 
 The segments are relocatable and span 5 MB, so they load into msm8996.dtsi's
@@ -42,7 +42,7 @@ The segments are relocatable and span 5 MB, so they load into msm8996.dtsi's
 
 ```dts
 &venus {
-	firmware-name = "qcom/apq8096/samsung/gts3lwifi/venus.mdt";
+	firmware-name = "qcom/msm8996/samsung/gts3/venus.mdt";
 	status = "okay";
 };
 ```
