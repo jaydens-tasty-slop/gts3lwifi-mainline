@@ -1,6 +1,6 @@
-# Mainline Linux on the Samsung Galaxy Tab S3 (SM-T820, SM-T825)
+# Mainline Linux on the Samsung Galaxy Tab S3
 
-Mainline Linux / postmarketOS on the Galaxy Tab S3, Wi-Fi and LTE models.
+Mainline Linux / postmarketOS on the Galaxy Tab S3. One build runs on both models, Wi-Fi and LTE.
 
 - SoC: Qualcomm APQ8096 (SM-T820) / MSM8996 (SM-T825), Snapdragon 820; PMICs PM8994 + PM8004
 - Storage: eMMC (not UFS)
