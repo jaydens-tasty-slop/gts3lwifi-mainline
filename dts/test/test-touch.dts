@@ -42,6 +42,14 @@
 			 */
 			touchscreen-inverted-x;
 			touchscreen-swapped-x-y;
+			/*
+			 * The panel's active area in the sensor's own frame.
+			 * Without it F12 estimates 196 x 148 mm (it pairs
+			 * the 49 RX electrodes with x) and reports 13 and
+			 * 7 units/mm; needs patch 0064.
+			 */
+			touchscreen-x-mm = <147>;
+			touchscreen-y-mm = <196>;
 		};
 	};
 };

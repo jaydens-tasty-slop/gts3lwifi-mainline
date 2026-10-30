@@ -35,9 +35,14 @@ panel's left edge, so hold the tablet in landscape with the home button
 on the right): top-left is X 0 / Y 0, top-right X 2047 / Y 0,
 bottom-left X 0 / Y 1535.
 
-The input device's resolution (13 and 7 units per mm) comes from
-`rmi_f12`'s own estimate and overrides `touchscreen-x-mm`/`-y-mm`;
-the true value is about 10.4 units per mm on both axes.
+The input device's resolution was 13 and 7 units per mm: `rmi_f12`
+overwrote `touchscreen-x-mm`/`-y-mm` with its own estimate, pitch times
+electrode count, which pairs the 49 RX electrodes (4 mm pitch) with x
+while on this sensor they run along y (it read 196 x 148 mm for a
+1535 x 2047 sensor). Patch 0064 is the upstream fix (Linux commit
+9a29ee801f52: platform data first), and `dts/test/test-touch.dts` gives
+the panel's active area in the sensor's frame, 147 x 196 mm: 10 units
+per mm on both axes (seen 2026-10-29).
 
 ## S-Pen (Wacom W9019, Samsung firmware)
 
