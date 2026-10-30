@@ -10,16 +10,21 @@ arch="aarch64"
 options="!check !archcheck"
 depends="
 	bluez-btmgmt
+	linux-firmware-ath10k
+	linux-firmware-qca
+	linux-firmware-qcom
 	linux-postmarketos-qcom-msm8996
 	mkbootimg
 	postmarketos-base
 	soc-qcom-msm8996
 	"
 makedepends="devicepkg-dev"
+subpackages="$pkgname-openrc"
 source="
 	deviceinfo
 	modules-load.conf
 	gts3-bdaddr
+	gts3-bdaddr.initd
 	gts3-bdaddr.service
 	90-gts3-bdaddr.rules
 	51-gts3lwifi-audio.conf
@@ -53,10 +58,16 @@ package() {
 		"$pkgdir/usr/share/alsa/ucm2/conf.d/apq8096/Galaxy Tab S3.conf"
 }
 
+openrc() {
+	install_if="$pkgname=$pkgver-r$pkgrel openrc"
+	install -Dm755 "$srcdir"/gts3-bdaddr.initd "$subpkgdir"/etc/init.d/gts3-bdaddr
+}
+
 sha512sums="
 d194f0e790e12b842c3f7a43fbd37579ff64de0476f0f31734b82f390a674a32f7bfae6b4d528f575cc1007657b946e7ed2d6c62179a830f72dbdd25ae57c287  deviceinfo
 7436ebca050cf8609cfb71a3e1e070d4606018127b0860fa5ef7112ba64f501348020a20e892a446f072c143c37255357dfb09bde4f3406bfd35770c7bd9c4f7  modules-load.conf
 ee43078064b3827cedac15eb5d47fee2f62b00fb088900e467a80033beb796800bb8f3edd797885a49ce2b8e6b3795f365b859dcee547237edb95f215899414e  gts3-bdaddr
+b66c32dc557b8c7e67c5637e28d5a67a0405bd3abb536132905a7291d920a6436a888f17b9e88e1f659b6e07c785eccdb3c83e77d12388036d93172f635c878c  gts3-bdaddr.initd
 f53aa7ee30d67e56932d1ff328fa8bc31a90dbbcb9d1cf9bc0856a315fc5f88404913df90893e09ff67e22e8ddaeeadb69a85b3fddca6dcc472c23ea36899e9f  gts3-bdaddr.service
 e084e50c5fea8607b9dd9d9f7d36112883a6fa089b24b8bb760d6367f5a222d00930fb182cb7b970d8b1d31dc71dcf94ac65252b4028d729cc095d947b4b306b  90-gts3-bdaddr.rules
 2dd2b980cc320bc22f6e53a035c8a68390ef40bd13bca5e2c248d974b705ed5b3c68e59f3e398f89553a4551af67fc6f46748fb63354421163d77d207ff7147e  51-gts3lwifi-audio.conf

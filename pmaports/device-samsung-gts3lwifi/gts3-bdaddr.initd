@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# OpenRC counterpart of gts3-bdaddr.service: hci0 needs its public
+# address before it is usable; gts3-bdaddr waits up to 30 s for hci_qca.
+description="Set the Bluetooth address from the efs partition"
+
+depend() {
+	after bluetooth
+}
+
+start() {
+	ebegin "Setting the Bluetooth address in the background"
+	[ -e /dev/disk/by-partlabel/efs ] || { eend 1 "no efs partition"; return 1; }
+	( /usr/sbin/gts3-bdaddr 2>&1 | logger -t gts3-bdaddr ) &
+	eend 0
+}

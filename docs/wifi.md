@@ -85,8 +85,8 @@ The fix in `dts/test/test-wifi.dts`:
 
 ## Firmware
 
-- `apk add linux-firmware-ath10k` (gives `ath10k/QCA6174/hw3.0/firmware-6.bin`
-  and `board-2.bin`).
+- `linux-firmware-ath10k` (gives `ath10k/QCA6174/hw3.0/firmware-6.bin`
+  and `board-2.bin`; the device package depends on it).
 - `board-2.bin` has no entry for this board (subsystem IDs are 0000:0000), so
   ath10k falls back to `board.bin`. Use Samsung's board data from the tablet
   (read-only, not in this repo): copy `/system/etc/firmware/bdwlan30.bin`

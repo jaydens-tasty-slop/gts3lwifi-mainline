@@ -25,7 +25,9 @@ On a Tab S3 with no panel attached, booted from RAM with
   Sony MSM8996 boards. `mmcc` gets `vdd-gfx-supply` for the GPU GX GDSC.
 - **Firmware** (not in this repo; copy from the tablet itself, read-only):
   - `/system/vendor/firmware/a530_pm4.fw`, `a530_pfp.fw`, `a530v3_gpmu.fw2`
-    to `/lib/firmware/qcom/`
+    to `/lib/firmware/qcom/`; linux-firmware's copies of the three
+    (`linux-firmware-qcom`, which the device package depends on) work as
+    well (docs/pmos-install.md)
   - Samsung's signed zap shader from the `apnhlos` partition,
     `image/a530_zap.mdt` + `.b00` to `.b02`, to
     `/lib/firmware/qcom/apq8096/samsung/gts3lwifi/` (the DTS sets that path).
