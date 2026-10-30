@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaydens-tasty-slop
+ <325336397+jaydens-tasty-slop@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 18:08:22 -0600
+Subject: [PATCH] dt-bindings: display: panel: samsung,ams968hh01: add a
+ temperature channel
+
+The driver IC needs lower ELVSS values in the cold: the vendor driver
+switches tables below 0 C and below -20 C. Allow an IIO channel that
+gives the panel's temperature.
+
+From the Samsung GPL kernel: ss_dsi_panel_ANA38401_AMS968HH01.c
+(mdss_elvss(), mdss_hbm_etc()) and its device tree
+dsi_panel_ANA38401_AMS968HH01_qxga_octa_cmd.dtsi.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../bindings/display/panel/samsung,ams968hh01.yaml   | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/display/panel/samsung,ams968hh01.yaml b/Documentation/devicetree/bindings/display/panel/samsung,ams968hh01.yaml
+index 34874fa2e5f3..c111ca1795a9 100644
+--- a/Documentation/devicetree/bindings/display/panel/samsung,ams968hh01.yaml
++++ b/Documentation/devicetree/bindings/display/panel/samsung,ams968hh01.yaml
+@@ -35,6 +35,15 @@ properties:
+     maxItems: 1
+     description: input raised by the DDI once it accepts commands
+ 
++  io-channels:
++    maxItems: 1
++    description:
++      Temperature sensor near the panel. The DDI needs lower ELVSS values
++      below 0 and below -20 degrees Celsius.
++
++  io-channel-names:
++    const: temperature
++
+   ports:
+     $ref: /schemas/graph.yaml#/properties/ports
+     properties:
+@@ -61,6 +70,7 @@ additionalProperties: false
+ examples:
+   - |
+     #include <dt-bindings/gpio/gpio.h>
++    #include <dt-bindings/iio/qcom,spmi-vadc.h>
+ 
+     dsi {
+         #address-cells = <1>;
+@@ -73,6 +83,8 @@ examples:
+             vdd-supply = <&vreg_lcd_vdd_3p3>;
+             reset-gpios = <&tlmm 143 GPIO_ACTIVE_LOW>;
+             tcon-ready-gpios = <&tlmm 45 GPIO_ACTIVE_HIGH>;
++            io-channels = <&pm8994_vadc VADC_LR_MUX4_PU1_AMUX_THM1>;
++            io-channel-names = "temperature";
+             rotation = <270>;
+ 
+             ports {
+-- 
+2.56.0
+

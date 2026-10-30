@@ -457,6 +457,28 @@ Round 20 (2026-10-29, same tablet and webcam):
   S-Pen) still report the panel's
   own coordinates, as DRM expects: their DT flags map them to the
   panel's landscape frame, not to portrait (docs/input.md).
+- **Temperature (patches 0066-0067).** The vendor driver takes ELVSS
+  from three tables, above 0 C, above -20 C and below that, for the
+  normal steps (`samsung,smart_acl_elvss_tx_cmds_revA`, `_lowtemp_`,
+  `_lowtemp2_`) and the HBM steps (`mdss_hbm_etc()`); stock Android
+  writes the temperature into it from userspace, and its default is
+  20 C. Patch 0067 adds both cold columns and reads the temperature from
+  an optional IIO channel (`io-channels`, `io-channel-names =
+  "temperature"`, patch 0066) at power-on and every 30 s while the panel
+  is on; without the channel nothing changes. From 0 down to -20 C the
+  values are the normal ones minus 0x0a throughout; below -20 C they are
+  0x0f-0x11 below normal. `dts/test/test-display-temp.dts` uses the AP thermistor
+  (PM8994 AMUX 0x73, `msm_therm` in the stock DT) and needs
+  `CONFIG_QCOM_SPMI_VADC`. Seen on an SM-T820 (2026-10-29): 33 C on the
+  bench, band 0; with the temperature forced (a bring-up knob) the 30 s
+  poll moves to band 1 and band 2 (ELVSS 0x0a at level 255), the picture
+  stays intact, HBM levels still work, and it returns to band 0. Not
+  tested in the real cold. Which sensor stock Android feeds the panel is
+  not in the GPL source.
+- **Binding (patch 0065).** The draft binding from the research
+  commit 6405fa5, which never made it into a patch, with the
+  maintainers entry dtschema needs and an example; it and the test DTs
+  pass `dt_binding_check`/`dt-validate` (docs/dtschema.md).
 
 The lk2nd framebuffer (simplefb) route was abandoned: Samsung's bootloader
 sets the display engine up in a way lk2nd's autorefresh cannot take over
@@ -492,4 +514,4 @@ under Linux and only the driver work remains.
   one chip; downstream never talks to link 1). If init fails, try dual writes.
 - `qcom,sync-dual-dsi`: not set downstream (`cmd-sync-wait-broadcast` is
   commented out); start without it.
-- Brightness: ELVSS uses the vendor's normal-temperature table only.
+- Temperature: which sensor stock Android feeds the panel driver.

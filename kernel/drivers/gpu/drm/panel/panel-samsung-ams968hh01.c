@@ -16,6 +16,7 @@
 #include <linux/backlight.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/iio/consumer.h>
 #include <linux/iopoll.h>
 #include <linux/ktime.h>
 #include <linux/math64.h>
@@ -25,6 +26,7 @@
 #include <linux/of_graph.h>
 #include <linux/regulator/consumer.h>
 #include <linux/string.h>
+#include <linux/workqueue.h>
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
@@ -38,6 +40,8 @@
 #define AMS968HH01_POINTS	9	/* gamma points V255 ... V3 */
 #define AMS968HH01_HBM_STEPS	8
 #define AMS968HH01_MAX_BRIGHTNESS	(AMS968HH01_MAX_LEVEL + AMS968HH01_HBM_STEPS)
+#define AMS968HH01_TEMP_BANDS	3	/* above 0 C, above -20 C, colder */
+#define AMS968HH01_TEMP_PERIOD	(30 * HZ)
 
 struct ams968hh01 {
 	struct drm_panel panel;
@@ -56,6 +60,10 @@ struct ams968hh01 {
 	u8 elvss_normal;	/* B0 70 outside HBM */
 	u8 elvss_hbm;		/* B0 70 in HBM */
 	u8 hbm_gamma[AMS968HH01_HBM_STEPS][1 + AMS968HH01_GAMMA_LEN];
+	/* temperature compensation: optional channel, current band */
+	struct iio_channel *temp;
+	struct delayed_work temp_work;
+	unsigned int temp_band;
 };
 
 static inline struct ams968hh01 *to_ams968hh01(struct drm_panel *panel)
@@ -310,9 +318,12 @@ static const u8 ams968hh01_gamma_nominal[11] = {
  * below). Each level has its own AID value (register 0x90, the emission
  * duty cycle); each step has its own ELVSS value and gamma table. A step's
  * gamma table is cut for its base luminance, and AID dims that to the
- * step's luminance. The levels, AID and ELVSS values are from the vendor
- * device tree (samsung,candela_map_table, aid_subdivision_tx_cmds and, as
- * ACL is on, smart_acl_elvss_tx_cmds, revA), the rest from the vendor
+ * step's luminance. ELVSS also depends on the panel temperature, in three
+ * bands (see ams968hh01_temp_band()). The levels, AID and ELVSS values
+ * are from the vendor device tree (samsung,candela_map_table,
+ * aid_subdivision_tx_cmds and, as ACL is on, smart_acl_elvss_tx_cmds,
+ * smart_acl_elvss_lowtemp_tx_cmds and smart_acl_elvss_lowtemp2_tx_cmds,
+ * through smart_acl_elvss_map_table, revA), the rest from the vendor
  * smart dimming code (ss_dsi_smart_dimming_ANA38401_AMS968HH01.h and
  * ss_dsi_smart_dimming_common.c, Copyright (C) 2012 Samsung).
  */
@@ -320,143 +331,143 @@ struct ams968hh01_step {
 	u16 cd;			/* luminance, cd/m2 */
 	u16 base;		/* base luminance, cd/m2 */
 	u8 level;		/* first backlight level */
-	u8 elvss;		/* with ACL on */
+	u8 elvss[AMS968HH01_TEMP_BANDS];	/* with ACL on, per temperature band */
 	s8 gray_offset[AMS968HH01_POINTS];		/* V255 ... V3 */
 	s8 code_offset[3 * (AMS968HH01_POINTS - 1)];	/* R G B of V255 ... V11 */
 };
 
 static const struct ams968hh01_step ams968hh01_steps[AMS968HH01_NUM_STEPS] = {
-	/* cd/m2, base cd/m2, first level, ELVSS (ACL on), gray offsets, code offsets */
-	{ 2, 112, 0, 0x19, { 0, 8, 16, 26, 35, 41, 45, 47, 49 },
+	/* cd/m2, base cd/m2, first level, ELVSS (ACL on) per band, gray offsets, code offsets */
+	{ 2, 112, 0, { 0x19, 0x0f, 0x0a }, { 0, 8, 16, 26, 35, 41, 45, 47, 49 },
 	  {-5, 0, 0, -3, 0, -3, -7, 0, -4, -6, 3, -5, -5, 2, -7, -3, 0, -5, 0, 0, -4, -3, 0, -7} },
-	{ 3, 112, 1, 0x19, { 0, 7, 14, 21, 28, 30, 36, 40, 42 },
+	{ 3, 112, 1, { 0x19, 0x0f, 0x0a }, { 0, 7, 14, 21, 28, 30, 36, 40, 42 },
 	  {-3, 0, 0, -2, 0, -1, -6, 0, -3, -6, 2, -5, -5, 3, -7, -3, 2, -4, -2, 0, -4, -4, 0, -6} },
-	{ 4, 112, 2, 0x19, { 0, 6, 10, 16, 18, 22, 27, 31, 34 },
+	{ 4, 112, 2, { 0x19, 0x0f, 0x0a }, { 0, 6, 10, 16, 18, 22, 27, 31, 34 },
 	  {-1, 0, 1, -1, 0, 0, -5, 0, -3, -6, 2, -4, -5, 3, -6, -4, 2, -4, -2, 1, -5, -4, 1, -6} },
-	{ 5, 112, 3, 0x1a, { 0, 5, 9, 14, 17, 20, 25, 29, 31 },
+	{ 5, 112, 3, { 0x1a, 0x10, 0x0b }, { 0, 5, 9, 14, 17, 20, 25, 29, 31 },
 	  {-1, 0, 1, -1, 0, 0, -5, 0, -3, -5, 2, -3, -5, 2, -6, -3, 2, -3, -2, 1, -4, -4, 1, -6} },
-	{ 6, 112, 4, 0x1a, { 0, 5, 9, 13, 16, 19, 23, 27, 28 },
+	{ 6, 112, 4, { 0x1a, 0x10, 0x0b }, { 0, 5, 9, 13, 16, 19, 23, 27, 28 },
 	  {0, 0, 1, -1, 0, 0, -4, 0, -2, -5, 1, -4, -6, 3, -6, -3, 2, -4, -2, 2, -4, -3, 0, -6} },
-	{ 7, 112, 5, 0x1a, { 0, 5, 8, 11, 13, 15, 19, 24, 26 },
+	{ 7, 112, 5, { 0x1a, 0x10, 0x0b }, { 0, 5, 8, 11, 13, 15, 19, 24, 26 },
 	  {0, 0, 1, -1, 0, 0, -3, 0, -1, -5, 1, -4, -6, 3, -5, -4, 2, -5, 0, 2, -5, -3, 0, -6} },
-	{ 8, 112, 6, 0x1a, { 0, 5, 7, 10, 11, 14, 17, 21, 23 },
+	{ 8, 112, 6, { 0x1a, 0x10, 0x0b }, { 0, 5, 7, 10, 11, 14, 17, 21, 23 },
 	  {0, 0, 1, -1, 0, 0, -1, 0, -1, -5, 1, -4, -6, 4, -6, -4, 2, -4, -1, 2, -3, -2, 0, -4} },
-	{ 9, 112, 7, 0x1a, { 0, 5, 7, 9, 10, 11, 15, 19, 22 },
+	{ 9, 112, 7, { 0x1a, 0x10, 0x0b }, { 0, 5, 7, 9, 10, 11, 15, 19, 22 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -4, 1, -3, -6, 4, -6, -4, 2, -3, -1, 2, -3, -2, 0, -5} },
-	{ 10, 112, 8, 0x1a, { 0, 4, 6, 8, 9, 10, 13, 17, 19 },
+	{ 10, 112, 8, { 0x1a, 0x10, 0x0b }, { 0, 4, 6, 8, 9, 10, 13, 17, 19 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -2, 1, -3, -7, 4, -6, -4, 2, -3, -1, 2, -3, -2, 0, -4} },
-	{ 11, 112, 9, 0x1b, { 0, 4, 6, 7, 9, 10, 13, 17, 18 },
+	{ 11, 112, 9, { 0x1b, 0x11, 0x0c }, { 0, 4, 6, 7, 9, 10, 13, 17, 18 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -2, 1, -3, -7, 3, -6, -4, 2, -3, -1, 2, -3, -2, 0, -4} },
-	{ 12, 112, 10, 0x1b, { 0, 4, 6, 7, 8, 10, 13, 17, 17 },
+	{ 12, 112, 10, { 0x1b, 0x11, 0x0c }, { 0, 4, 6, 7, 8, 10, 13, 17, 17 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -2, 1, -3, -7, 3, -6, -4, 2, -3, -1, 1, -3, -2, 0, -4} },
-	{ 13, 112, 11, 0x1b, { 0, 4, 6, 7, 8, 10, 13, 16, 16 },
+	{ 13, 112, 11, { 0x1b, 0x11, 0x0c }, { 0, 4, 6, 7, 8, 10, 13, 16, 16 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -2, 1, -3, -6, 2, -5, -5, 2, -3, -1, 2, -3, -2, 0, -4} },
-	{ 14, 112, 12, 0x1b, { 0, 4, 5, 6, 7, 9, 12, 15, 16 },
+	{ 14, 112, 12, { 0x1b, 0x11, 0x0c }, { 0, 4, 5, 6, 7, 9, 12, 15, 16 },
 	  {0, 0, 1, 0, 0, 0, -2, 0, 0, -2, 1, -2, -6, 3, -6, -5, 2, -3, -1, 2, -3, -2, 1, -4} },
-	{ 15, 112, 13, 0x1b, { 0, 4, 5, 6, 6, 8, 11, 14, 15 },
+	{ 15, 112, 13, { 0x1b, 0x11, 0x0c }, { 0, 4, 5, 6, 6, 8, 11, 14, 15 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -3, 1, -2, -6, 2, -5, -5, 2, -3, -1, 2, -3, -2, 1, -4} },
-	{ 16, 112, 14, 0x1c, { 0, 4, 5, 6, 6, 7, 10, 14, 14 },
+	{ 16, 112, 14, { 0x1c, 0x12, 0x0d }, { 0, 4, 5, 6, 6, 7, 10, 14, 14 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -3, 1, -2, -6, 2, -5, -5, 1, -3, -1, 2, -2, -2, 2, -4} },
-	{ 17, 112, 15, 0x1c, { 0, 4, 5, 6, 6, 7, 10, 14, 14 },
+	{ 17, 112, 15, { 0x1c, 0x12, 0x0d }, { 0, 4, 5, 6, 6, 7, 10, 14, 14 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 1, -2, -6, 2, -5, -5, 1, -4, 0, 2, -2, -1, 2, -4} },
-	{ 19, 112, 16, 0x1c, { 0, 4, 5, 6, 6, 7, 10, 13, 13 },
+	{ 19, 112, 16, { 0x1c, 0x12, 0x0d }, { 0, 4, 5, 6, 6, 7, 10, 13, 13 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -2, 0, -2, -6, 2, -4, -5, 1, -4, 0, 2, -2, -1, 3, -5} },
-	{ 20, 112, 17, 0x1c, { 0, 4, 4, 5, 5, 6, 9, 12, 12 },
+	{ 20, 112, 17, { 0x1c, 0x12, 0x0d }, { 0, 4, 4, 5, 5, 6, 9, 12, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 0, -2, -5, 2, -4, -5, 1, -4, 0, 2, -2, -1, 4, -5} },
-	{ 21, 112, 18, 0x1d, { 0, 4, 4, 5, 5, 6, 9, 12, 12 },
+	{ 21, 112, 18, { 0x1d, 0x13, 0x0e }, { 0, 4, 4, 5, 5, 6, 9, 12, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, -1, 0, -2, -5, 1, -4, -5, 1, -4, 0, 2, -2, -1, 4, -5} },
-	{ 22, 112, 19, 0x1d, { 0, 4, 4, 5, 5, 6, 8, 11, 12 },
+	{ 22, 112, 19, { 0x1d, 0x13, 0x0e }, { 0, 4, 4, 5, 5, 6, 8, 11, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -5, 1, -4, -3, 1, -3, 0, 2, -2, -1, 4, -5} },
-	{ 24, 112, 20, 0x1d, { 0, 4, 4, 4, 4, 5, 8, 11, 12 },
+	{ 24, 112, 20, { 0x1d, 0x13, 0x0e }, { 0, 4, 4, 4, 4, 5, 8, 11, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -5, 1, -4, -3, 1, -3, 0, 2, -2, -1, 4, -5} },
-	{ 25, 112, 21, 0x1d, { 0, 4, 4, 4, 4, 5, 8, 11, 12 },
+	{ 25, 112, 21, { 0x1d, 0x13, 0x0e }, { 0, 4, 4, 4, 4, 5, 8, 11, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -5, 1, -4, -3, 1, -3, -1, 2, -2, -1, 3, -5} },
-	{ 27, 112, 22, 0x1e, { 0, 4, 4, 4, 4, 5, 7, 10, 12 },
+	{ 27, 112, 22, { 0x1e, 0x14, 0x0f }, { 0, 4, 4, 4, 4, 5, 7, 10, 12 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -4, 1, -4, -3, 1, -3, -1, 2, -3, -1, 4, -6} },
-	{ 29, 112, 24, 0x1e, { 0, 4, 4, 4, 4, 5, 7, 10, 11 },
+	{ 29, 112, 24, { 0x1e, 0x14, 0x0f }, { 0, 4, 4, 4, 4, 5, 7, 10, 11 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -3, 1, -3, -3, 1, -2, -1, 2, -3, -1, 4, -6} },
-	{ 30, 112, 26, 0x1e, { 0, 4, 4, 4, 4, 4, 7, 9, 11 },
+	{ 30, 112, 26, { 0x1e, 0x14, 0x0f }, { 0, 4, 4, 4, 4, 4, 7, 9, 11 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -3, 1, -3, -3, 0, -2, -1, 2, -3, -1, 4, -6} },
-	{ 32, 112, 28, 0x1f, { 0, 3, 4, 4, 4, 4, 7, 9, 11 },
+	{ 32, 112, 28, { 0x1f, 0x15, 0x10 }, { 0, 3, 4, 4, 4, 4, 7, 9, 11 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -3, 1, -3, -3, 0, -2, -1, 1, -4, -1, 4, -7} },
-	{ 34, 112, 30, 0x1f, { 0, 3, 4, 4, 4, 4, 6, 8, 11 },
+	{ 34, 112, 30, { 0x1f, 0x15, 0x10 }, { 0, 3, 4, 4, 4, 4, 6, 8, 11 },
 	  {0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -3, 1, -3, -2, 0, -2, -2, 1, -4, -1, 4, -7} },
-	{ 37, 112, 32, 0x20, { 0, 3, 4, 4, 4, 4, 6, 8, 11 },
+	{ 37, 112, 32, { 0x20, 0x16, 0x11 }, { 0, 3, 4, 4, 4, 4, 6, 8, 11 },
 	  {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -3, 1, -3, -2, 0, -1, -2, 1, -4, -1, 4, -7} },
-	{ 39, 112, 34, 0x20, { 0, 3, 4, 4, 3, 4, 6, 8, 10 },
+	{ 39, 112, 34, { 0x20, 0x16, 0x11 }, { 0, 3, 4, 4, 3, 4, 6, 8, 10 },
 	  {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -3, 1, -3, -2, 0, -1, -2, 1, -4, -1, 4, -7} },
-	{ 41, 112, 36, 0x20, { 0, 3, 4, 4, 3, 3, 5, 8, 9 },
+	{ 41, 112, 36, { 0x20, 0x16, 0x11 }, { 0, 3, 4, 4, 3, 3, 5, 8, 9 },
 	  {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -2, 1, -2, -2, 0, -1, -2, 1, -4, -2, 4, -8} },
-	{ 44, 112, 38, 0x21, { 0, 3, 3, 4, 3, 3, 5, 7, 9 },
+	{ 44, 112, 38, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 4, 3, 3, 5, 7, 9 },
 	  {1, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, -1, 1, -2, -3, 0, -1, -2, 1, -4, -2, 4, -8} },
-	{ 47, 112, 40, 0x21, { 0, 3, 3, 3, 3, 3, 5, 7, 8 },
+	{ 47, 112, 40, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 3, 3, 5, 7, 8 },
 	  {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -2, 1, -3, -3, 0, -1, -2, 1, -4, -3, 4, -8} },
-	{ 50, 112, 42, 0x21, { 0, 3, 3, 3, 3, 3, 5, 7, 8 },
+	{ 50, 112, 42, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 3, 3, 5, 7, 8 },
 	  {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -2, 1, -3, -3, 0, -1, -2, 1, -4, -3, 3, -9} },
-	{ 53, 112, 44, 0x21, { 0, 3, 3, 3, 3, 2, 5, 6, 8 },
+	{ 53, 112, 44, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 3, 2, 5, 6, 8 },
 	  {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 1, -2, -4, 0, -1, -2, 0, -4, -4, 3, -9} },
-	{ 56, 112, 46, 0x21, { 0, 3, 3, 3, 3, 2, 5, 6, 7 },
+	{ 56, 112, 46, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 3, 2, 5, 6, 7 },
 	  {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 1, -2, -4, 0, -1, -2, 0, -4, -4, 3, -9} },
-	{ 60, 112, 49, 0x21, { 0, 3, 3, 3, 3, 2, 4, 6, 6 },
+	{ 60, 112, 49, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 3, 2, 4, 6, 6 },
 	  {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 1, -2, -4, 0, -2, -2, 0, -4, -5, 3, -9} },
-	{ 64, 112, 52, 0x21, { 0, 3, 3, 3, 2, 2, 4, 6, 6 },
+	{ 64, 112, 52, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 2, 2, 4, 6, 6 },
 	  {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, -1, 0, -2, -4, 0, -2, -2, 0, -4, -5, 3, -9} },
-	{ 68, 112, 55, 0x21, { 0, 2, 2, 3, 2, 2, 4, 5, 6 },
+	{ 68, 112, 55, { 0x21, 0x17, 0x12 }, { 0, 2, 2, 3, 2, 2, 4, 5, 6 },
 	  {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, -1, 0, -2, -4, 1, -3, -2, 1, -4, -5, 5, -11} },
-	{ 72, 112, 58, 0x21, { 0, 2, 2, 3, 2, 2, 4, 5, 5 },
+	{ 72, 112, 58, { 0x21, 0x17, 0x12 }, { 0, 2, 2, 3, 2, 2, 4, 5, 5 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -2, -3, 1, -2, -2, 1, -4, -5, 5, -10} },
-	{ 77, 120, 61, 0x21, { 0, 3, 3, 3, 2, 2, 3, 5, 5 },
+	{ 77, 120, 61, { 0x21, 0x17, 0x12 }, { 0, 3, 3, 3, 2, 2, 3, 5, 5 },
 	  {1, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 1, -2, -2, 1, -2, -2, 1, -3, -5, 5, -10} },
-	{ 82, 127, 64, 0x21, { 0, 3, 4, 2, 2, 2, 3, 5, 5 },
+	{ 82, 127, 64, { 0x21, 0x17, 0x12 }, { 0, 3, 4, 2, 2, 2, 3, 5, 5 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, -1, -4, 1, -3, -3, 1, -4, -4, 5, -10} },
-	{ 87, 135, 67, 0x21, { 0, 1, 3, 3, 2, 3, 3, 4, 5 },
+	{ 87, 135, 67, { 0x21, 0x17, 0x12 }, { 0, 1, 3, 3, 2, 3, 3, 4, 5 },
 	  {1, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, -1, -1, 0, -2, -3, 1, -2, -3, 1, -3, -5, 5, -11} },
-	{ 93, 143, 70, 0x21, { 0, 3, 4, 3, 2, 2, 3, 4, 5 },
+	{ 93, 143, 70, { 0x21, 0x17, 0x12 }, { 0, 3, 4, 3, 2, 2, 3, 4, 5 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, -1, -3, 1, -2, -4, 1, -4, -4, 5, -10} },
-	{ 98, 152, 73, 0x21, { 0, 1, 4, 3, 2, 2, 3, 4, 4 },
+	{ 98, 152, 73, { 0x21, 0x17, 0x12 }, { 0, 1, 4, 3, 2, 2, 3, 4, 4 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, -2, 1, -2, -3, 1, -3, -5, 5, -10} },
-	{ 105, 162, 77, 0x21, { 0, 1, 3, 3, 2, 3, 3, 5, 4 },
+	{ 105, 162, 77, { 0x21, 0x17, 0x12 }, { 0, 1, 3, 3, 2, 3, 3, 5, 4 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4, 0, -2, -3, 1, -4, -4, 4, -9} },
-	{ 111, 170, 81, 0x21, { 0, 1, 3, 4, 2, 2, 3, 4, 2 },
+	{ 111, 170, 81, { 0x21, 0x17, 0x12 }, { 0, 1, 3, 4, 2, 2, 3, 4, 2 },
 	  {0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2, 1, -2, -2, 1, -3, -5, 4, -10} },
-	{ 119, 181, 87, 0x21, { 0, 2, 4, 4, 2, 2, 3, 4, 2 },
+	{ 119, 181, 87, { 0x21, 0x17, 0x12 }, { 0, 2, 4, 4, 2, 2, 3, 4, 2 },
 	  {0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, -2, 0, -2, -3, 1, -2, -3, 4, -8} },
-	{ 126, 192, 92, 0x21, { 0, 2, 4, 4, 2, 2, 3, 4, 2 },
+	{ 126, 192, 92, { 0x21, 0x17, 0x12 }, { 0, 2, 4, 4, 2, 2, 3, 4, 2 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, -2, 0, -2, -3, 1, -2, -4, 4, -8} },
-	{ 134, 203, 98, 0x21, { 0, 2, 4, 3, 2, 2, 2, 4, 2 },
+	{ 134, 203, 98, { 0x21, 0x17, 0x12 }, { 0, 2, 4, 3, 2, 2, 2, 4, 2 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -1, -2, 0, -2, -3, 1, -3, -4, 4, -8} },
-	{ 143, 216, 105, 0x21, { 0, 1, 3, 3, 2, 2, 3, 4, 2 },
+	{ 143, 216, 105, { 0x21, 0x17, 0x12 }, { 0, 1, 3, 3, 2, 2, 3, 4, 2 },
 	  {0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -2, 0, -2, -3, 1, -3, -5, 3, -8} },
-	{ 152, 227, 111, 0x20, { 0, 2, 4, 4, 2, 2, 2, 3, 2 },
+	{ 152, 227, 111, { 0x20, 0x16, 0x11 }, { 0, 2, 4, 4, 2, 2, 2, 3, 2 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -2, -4, 1, -2, -4, 3, -8} },
-	{ 162, 240, 119, 0x20, { 0, 1, 3, 3, 2, 2, 2, 3, 2 },
+	{ 162, 240, 119, { 0x20, 0x16, 0x11 }, { 0, 1, 3, 3, 2, 2, 2, 3, 2 },
 	  {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -2, -3, 0, -2, -5, 3, -8} },
-	{ 172, 254, 126, 0x1f, { 0, 2, 4, 3, 2, 2, 1, 3, 1 },
+	{ 172, 254, 126, { 0x1f, 0x15, 0x10 }, { 0, 2, 4, 3, 2, 2, 1, 3, 1 },
 	  {-1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -4, 1, -2, -4, 3, -7} },
 	/* blue V11 +6 as in the vendor table (and as the vendor kernel sends it) */
-	{ 183, 254, 134, 0x1f, { 0, 2, 4, 3, 2, 2, 1, 3, 1 },
+	{ 183, 254, 134, { 0x1f, 0x15, 0x10 }, { 0, 2, 4, 3, 2, 2, 1, 3, 1 },
 	  {-1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -4, 0, -2, -3, 2, 6} },
-	{ 195, 254, 143, 0x1f, { 0, 1, 3, 2, 1, 1, 1, 2, 1 },
+	{ 195, 254, 143, { 0x1f, 0x15, 0x10 }, { 0, 1, 3, 2, 1, 1, 1, 2, 1 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, -2, -3, 2, -5} },
-	{ 207, 254, 151, 0x1f, { 0, 1, 3, 2, 1, 1, 1, 2, 1 },
+	{ 207, 254, 151, { 0x1f, 0x15, 0x10 }, { 0, 1, 3, 2, 1, 1, 1, 2, 1 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, -2, -3, 1, -4} },
-	{ 220, 254, 161, 0x1e, { 0, 1, 2, 2, 1, 1, 0, 1, 1 },
+	{ 220, 254, 161, { 0x1e, 0x14, 0x0f }, { 0, 1, 2, 2, 1, 1, 0, 1, 1 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, -2, -3, 1, -4} },
-	{ 234, 254, 171, 0x1e, { 0, 1, 2, 1, 1, 1, 0, 1, 0 },
+	{ 234, 254, 171, { 0x1e, 0x14, 0x0f }, { 0, 1, 2, 1, 1, 1, 0, 1, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -4, 1, -4} },
-	{ 249, 254, 182, 0x1e, { 0, 0, 1, 1, 0, 0, 0, 0, 0 },
+	{ 249, 254, 182, { 0x1e, 0x14, 0x0f }, { 0, 0, 1, 1, 0, 0, 0, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 265, 272, 194, 0x1e, { 0, -1, -1, 1, 0, 0, 0, 1, 0 },
+	{ 265, 272, 194, { 0x1e, 0x14, 0x0e }, { 0, -1, -1, 1, 0, 0, 0, 1, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 282, 288, 206, 0x1e, { 0, 0, 0, 0, 1, 0, 0, 0, 0 },
+	{ 282, 288, 206, { 0x1e, 0x14, 0x0e }, { 0, 0, 0, 0, 1, 0, 0, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 300, 307, 219, 0x1d, { 0, -1, 0, 0, 0, -1, -1, 0, 0 },
+	{ 300, 307, 219, { 0x1d, 0x13, 0x0d }, { 0, -1, 0, 0, 0, -1, -1, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 316, 321, 231, 0x1c, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 316, 321, 231, { 0x1c, 0x12, 0x0c }, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 333, 336, 243, 0x1c, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 333, 336, 243, { 0x1c, 0x12, 0x0b }, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
-	{ 360, 360, 254, 0x1b, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 360, 360, 254, { 0x1b, 0x11, 0x0a }, { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 	  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
 };
 
@@ -570,18 +581,21 @@ static const u8 ams968hh01_vt_coeff[16] = {
  * them for its outdoor mode. The 500 cd/m2 gamma table is in the panel
  * (D4 from offset 0x5b, plus the MTP gamma offsets); the steps between are
  * interpolated from the 360 cd/m2 table. AID stays at 360 cd/m2's, ELVSS
- * comes from this table and the panel (D8 at 0x81), ACL is lighter (8%
+ * comes from this table (per temperature band) and the panel (D8 at
+ * 0x81), ACL is lighter (8%
  * from a 60% average). Values from the vendor device tree
  * (samsung,hbm_candela_map_table, hbm_etc_tx_cmds, hbm_off_tx_cmds,
  * hbm_rx_cmds, hbm2_rx_cmds and elvss_rx_cmds, revA) and driver
- * (mdss_hbm_etc() at the default 20 C, hbm_interpolation_init()).
+ * (mdss_hbm_etc(), hbm_interpolation_init()).
  */
 static const struct {
 	u16 cd;
-	u8 elvss;	/* ELVSS dim offset, B0 67 */
+	u8 elvss[AMS968HH01_TEMP_BANDS];	/* ELVSS dim offset, B0 67 */
 } ams968hh01_hbm_steps[AMS968HH01_HBM_STEPS] = {
-	{ 378, 0x25 }, { 395, 0x23 }, { 413, 0x21 }, { 430, 0x1f },
-	{ 448, 0x1e }, { 465, 0x1c }, { 483, 0x1a }, { 500, 0x17 },
+	{ 378, { 0x25, 0x1b, 0x17 } }, { 395, { 0x23, 0x19, 0x17 } },
+	{ 413, { 0x21, 0x17, 0x17 } }, { 430, { 0x1f, 0x17, 0x17 } },
+	{ 448, { 0x1e, 0x17, 0x17 } }, { 465, { 0x1c, 0x17, 0x17 } },
+	{ 483, { 0x1a, 0x17, 0x17 } }, { 500, { 0x17, 0x17, 0x17 } },
 };
 
 #define AMS968HH01_VREF_L	28521267	/* 6.8 V */
@@ -895,7 +909,7 @@ static void ams968hh01_brightness(struct ams968hh01 *panel,
 
 		ams968hh01_reg_write(ctx, panel->hbm_gamma[h], sizeof(panel->hbm_gamma[h]));
 		ams968hh01_aid(ctx, AMS968HH01_MAX_LEVEL);
-		ams968hh01_param(ctx, 0x67, ams968hh01_hbm_steps[h].elvss);
+		ams968hh01_param(ctx, 0x67, ams968hh01_hbm_steps[h].elvss[panel->temp_band]);
 		ams968hh01_param(ctx, 0x70, panel->elvss_hbm);
 		ams968hh01_param(ctx, 0x4d, 0x05);	/* 32 frame avg */
 		ams968hh01_param(ctx, 0x49, 0x99);	/* start at 60% */
@@ -911,13 +925,47 @@ static void ams968hh01_brightness(struct ams968hh01 *panel,
 		}
 		ams968hh01_reg_write(ctx, panel->gamma[s], sizeof(panel->gamma[s]));
 		ams968hh01_aid(ctx, level);
-		ams968hh01_param(ctx, 0x67, ams968hh01_steps[s].elvss);
+		ams968hh01_param(ctx, 0x67, ams968hh01_steps[s].elvss[panel->temp_band]);
 		ams968hh01_param(ctx, 0x4d, 0x05);	/* 32 frame avg */
 		ams968hh01_param(ctx, 0x49, 0x7f);	/* start at 50% */
 		ams968hh01_param(ctx, 0x36, 0x12);	/* ACL on, 15% */
 		ams968hh01_param(ctx, 0x6d, ams968hh01_caps(s));
 	}
 	ams968hh01_param(ctx, 0x35, 0x01);		/* gamma update key */
+}
+
+/*
+ * Temperature compensation. Above 0 C, above -20 C and below that, the
+ * vendor driver takes ELVSS from separate tables (mdss_elvss() and
+ * mdss_hbm_etc()); stock Android writes the temperature to it from
+ * userspace. Here it comes from an optional IIO channel, read at power-on
+ * and every 30 s while the panel is on. Without one the panel counts as
+ * warm, as with the vendor driver's 20 C default.
+ */
+static unsigned int ams968hh01_temp_band(struct ams968hh01 *ctx)
+{
+	int mdeg;
+
+	if (!ctx->temp || iio_read_channel_processed(ctx->temp, &mdeg) < 0)
+		return 0;
+	if (mdeg > 0)
+		return 0;
+
+	return mdeg > -20000 ? 1 : 2;
+}
+
+static void ams968hh01_temp_work(struct work_struct *work)
+{
+	struct ams968hh01 *ctx = container_of(to_delayed_work(work),
+					      struct ams968hh01, temp_work);
+	unsigned int band = ams968hh01_temp_band(ctx);
+
+	if (band != ctx->temp_band) {
+		dev_dbg(ctx->panel.dev, "temperature band %u\n", band);
+		ctx->temp_band = band;
+		backlight_update_status(ctx->bl);
+	}
+	schedule_delayed_work(&ctx->temp_work, AMS968HH01_TEMP_PERIOD);
 }
 
 static void ams968hh01_init(struct mipi_dsi_multi_context *ctx)
@@ -964,6 +1012,8 @@ static int ams968hh01_prepare(struct drm_panel *panel)
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
 	int val, ret, before;
 	ktime_t t0;
+
+	ctx->temp_band = ams968hh01_temp_band(ctx);
 
 	ret = regulator_enable(ctx->vdd);
 	if (ret)
@@ -1047,6 +1097,9 @@ static int ams968hh01_enable(struct drm_panel *panel)
 		ams968hh01_readback(ctx, "after late init");
 	}
 
+	if (ctx->temp)
+		schedule_delayed_work(&ctx->temp_work, AMS968HH01_TEMP_PERIOD);
+
 	return 0;
 }
 
@@ -1055,6 +1108,7 @@ static int ams968hh01_disable(struct drm_panel *panel)
 	struct ams968hh01 *ctx = to_ams968hh01(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi[0] };
 
+	cancel_delayed_work_sync(&ctx->temp_work);
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 100);
 
@@ -1151,6 +1205,15 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
 	if (ret)
 		return dev_err_probe(dev, ret, "invalid rotation\n");
 
+	ctx->temp = devm_iio_channel_get(dev, "temperature");
+	if (IS_ERR(ctx->temp)) {
+		if (PTR_ERR(ctx->temp) != -ENODEV)
+			return dev_err_probe(dev, PTR_ERR(ctx->temp),
+					     "failed to get the temperature channel\n");
+		ctx->temp = NULL;
+	}
+	INIT_DELAYED_WORK(&ctx->temp_work, ams968hh01_temp_work);
+
 	/*
 	 * The panel node sits under the master DSI controller and has a second
 	 * input port fed by the other controller. Register a DSI device there.
@@ -1217,6 +1280,7 @@ static void ams968hh01_remove(struct mipi_dsi_device *dsi)
 {
 	struct ams968hh01 *ctx = mipi_dsi_get_drvdata(dsi);
 
+	cancel_delayed_work_sync(&ctx->temp_work);
 	mipi_dsi_detach(ctx->dsi[0]);
 	mipi_dsi_detach(ctx->dsi[1]);
 	mipi_dsi_device_unregister(ctx->dsi[1]);

@@ -1,0 +1,28 @@
+#include "test-display.dts"
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
+
+/*
+ * Test: the panel's low-temperature ELVSS bands (patches 0066-0067) with
+ * a temperature from the PM8994 ADC.  Needs CONFIG_QCOM_SPMI_VADC (=y or
+ * =m); without the ADC driver the panel waits for it and never probes.
+ *
+ * The GPL source names no thermistor at the panel.  This is the AP
+ * thermistor the stock kernel reads for its own temperature reports
+ * (msm8996-sec-gts3lwifi-r04.dtsi: pm8994_vadc chan@73 "msm_therm",
+ * ratiometric, settle index 2 = 200 us, 100k pull-up).  Which sensor
+ * stock Android feeds the panel driver is not in the GPL source.
+ */
+
+&pm8994_vadc {
+	channel@73 {
+		reg = <VADC_LR_MUX4_PU1_AMUX_THM1>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		label = "msm_therm";
+	};
+};
+
+&panel {
+	io-channels = <&pm8994_vadc VADC_LR_MUX4_PU1_AMUX_THM1>;
+	io-channel-names = "temperature";
+};
