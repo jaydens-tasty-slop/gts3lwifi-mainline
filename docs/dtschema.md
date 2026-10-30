@@ -39,6 +39,14 @@ Nine findings:
 and `test-spen.dts` add no findings of their own. Before patch 0065 the
 panel node had no binding to match.
 
+`test-sdcard.dts`, `test-keys.dts` and `test-keyboard.dts` (2026-10-29)
+add none either, checked once against the schemas of the tree with
+patches 0001-0067 and once with 0001-0075. Only the second knows
+`st,stmpe1801` (patch 0069): before it, the keyboard node matches no
+schema and is not checked at all. With it the node validates, and a copy
+with 11 columns or a 5 ms debounce is rejected. `dt_binding_check` on
+`mfd/st,stmpe.yaml` with patch 0069 is clean.
+
 dtc also warns about four things in `msm8996.dtsi`, `pm8994.dtsi` and
 `pm8004.dtsi` (unneeded `#address-cells`, a duplicate unit address for
 `i2c@75ba000`/`spi@75ba000`); none come from the board files.
