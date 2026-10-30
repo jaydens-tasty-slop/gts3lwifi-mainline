@@ -2,6 +2,11 @@
 
 ## Status (2026-10-30): runs, GPU-accelerated, network works
 
+Waydroid is an extra on top of Linux, for running Android apps. It is not a
+replacement for stock Android or LineageOS on this tablet: Android in the
+container has no camera, does not control Wi-Fi or Bluetooth, decodes video in
+software, gets Widevine L3 only (SD streaming) and does not see the sensors.
+
 Tested on the headless SM-T820 (r5 kernel, pmOS edge, systemd) with Waydroid
 1.6.3 and the LineageOS 20 VANILLA image (system 2026-09-27, vendor MAINLINE
 2026-10-22), shown in a headless sway session over VNC.
