@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 #include "test-display.dts"
 #include <dt-bindings/iio/qcom,spmi-vadc.h>
 
