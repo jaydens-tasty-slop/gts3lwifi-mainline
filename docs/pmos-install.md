@@ -119,10 +119,11 @@ energy-aware scheduling is not active although
   (-84)" during the UART baud change; the display series' debug lines
   (`split dbg`, `op_mode was`).
 - **GPU faults:** under Plasma the kernel logged bursts of GPU page faults
-  of type TRANSLATION, on two boots: at 124.5 s after one, and at 63.8 s
-  after the next (about 30 READ faults within a millisecond each time,
-  while Plasma started). Nothing visibly broke. Not looked into yet (which
-  client and which buffer).
+  of type TRANSLATION (all reads, one ttbr0), on every Plasma boot so far
+  and not only at login: one boot logged bursts at 40, 55, 63, 374 and
+  618 s, and the log is rate-limited (6350 more suppressed in the 63 s
+  burst alone). No hang or GPU recovery followed and nothing visibly broke.
+  Not looked into yet (which client and which buffer).
 - **X11 hardware cursor:** needs patch 0068, and then lags; use
   `Option "SWcursor"` under X (docs/display.md, round 21). Wayland is not
   affected.
