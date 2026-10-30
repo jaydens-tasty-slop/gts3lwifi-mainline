@@ -1,0 +1,49 @@
+From 513dc8c03768f699c0faae79aa6003a5699e97ed Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Fri, 30 Oct 2026 13:05:17 +0530
+Subject: [PATCH] iio: qcom_smgr: release the QMI handle through a void *
+ wrapper
+
+qcom_smgr_probe() hands qmi_handle_release() to devm_add_action_or_reset()
+cast to void (*)(void *). With kCFI the indirect call through the cast
+pointer fails the type check, so every unbind (the SLPI going down,
+module removal, a probe failure after this point) oopses in
+devm_action_release() and leaves the remoteproc lock held:
+
+  CFI failure at devm_action_release+0x34/0x50
+  (target: qmi_handle_release+0x0/0x18c [qmi_helpers]; expected type: 0x0ef81b7d)
+
+Call it from a small wrapper with the right prototype instead.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index 1d5753bd2..b2cebf9af 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -732,6 +732,11 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
+ 	return 0;
+ }
+ 
++static void qcom_smgr_qmi_release(void *data)
++{
++	qmi_handle_release(data);
++}
++
+ static int qcom_smgr_probe(struct qrtr_device *qdev)
+ {
+ 	struct qcom_smgr *smgr;
+@@ -757,8 +762,7 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
+ 		return dev_err_probe(smgr->dev, ret,
+ 			"Failed to initialize sensor manager handle\n");
+ 
+-	ret = devm_add_action_or_reset(smgr->dev,
+-				       (void(*)(void *))qmi_handle_release,
++	ret = devm_add_action_or_reset(smgr->dev, qcom_smgr_qmi_release,
+ 				       &smgr->sns_smgr_hdl);
+ 	if (ret)
+ 		return ret;
