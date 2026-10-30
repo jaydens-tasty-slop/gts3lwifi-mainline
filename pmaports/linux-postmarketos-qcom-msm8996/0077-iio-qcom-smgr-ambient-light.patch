@@ -1,0 +1,288 @@
+From a2d783763dc96d8d1a794e53fcf94bbc93d83a94 Mon Sep 17 00:00:00 2001
+From: psigod <psigod@example.com>
+Date: Fri, 30 Oct 2026 16:46:20 +0530
+Subject: [PATCH] iio: qcom_smgr: stream ambient light from a light-only
+ prox/light sensor
+
+A proximity/light sensor ID can carry an ambient light chip alone. On the
+Galaxy Tab S3 the CM3323 is registered with no primary data type and
+ambient light as the secondary one, and SMGR lists only that one entry
+for it (type 1, "Capella CM3323 ALS", 5 Hz). The driver always asked for
+the primary data type, which SMGR rejects (result 0x501), so the sensor
+showed up as a proximity device that never delivered data.
+
+Keep each data type's own type from the sensor info, stream the primary
+one when there is one and otherwise the secondary one of a prox/light
+sensor, and register that as "qcom-smgr-light" with an in_intensity_both
+channel, as other ambient light sensors expose it, so iio-sensor-proxy
+uses it. The value is plain lux, not 16.16 fixed point: about 20 indoors,
+up to ~31000 under a phone torch, 0 when covered.
+
+Also set the default sample rate of every data type at probe; the loop
+only ever touched the first one.
+
+Signed-off-by: psigod <psigod@example.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 125 +++++++++++++++++++----
+ include/linux/iio/common/qcom_smgr.h     |  10 +-
+ 2 files changed, 111 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index b2cebf9af..253e15090 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -132,6 +132,7 @@ static int qcom_smgr_request_single_sensor_info(struct qcom_smgr *smgr,
+ 		return -ENOMEM;
+ 
+ 	for (i = 0; i < sensor->data_type_count; ++i) {
++		sensor->data_types[i].type = resp.data_types[i].data_type;
+ 		sensor->data_types[i].name = devm_kstrdup_const(
+ 			smgr->dev, resp.data_types[i].name, GFP_KERNEL);
+ 		sensor->data_types[i].vendor = devm_kstrdup_const(
+@@ -171,6 +172,7 @@ static int qcom_smgr_request_buffering(struct qcom_smgr *smgr,
+ 		.notify_suspend_valid = false
+ 	};
+ 	struct sns_smgr_buffering_resp resp = {};
++	struct qcom_smgr_data_type_item *dt = &sensor->data_types[sensor->data_type];
+ 	struct qmi_txn txn;
+ 	u16 sample_rate = 0;
+ 	int ret;
+@@ -191,24 +193,22 @@ static int qcom_smgr_request_buffering(struct qcom_smgr *smgr,
+ 		 * report rate such that every report contains only 1 sample.
+ 		 * This gives us the lowest latency.
+ 		 */
+-		if (sensor->data_types[0].native_sample_rates)
+-			sample_rate = sensor->data_types[0].native_sample_rates
+-					[sensor->data_types[0]
+-						 .native_sample_rate_count - 1];
++		if (dt->native_sample_rates)
++			sample_rate = dt->native_sample_rates
++					[dt->native_sample_rate_count - 1];
+ 
+ 		/*
+ 		 * SMGR may support a lower maximum sample rate than natively
+ 		 * supported by the sensor.
+ 		 */
+-		if (sample_rate == 0 ||
+-		    sample_rate > sensor->data_types[0].max_sample_rate)
+-			sample_rate = sensor->data_types[0].max_sample_rate;
++		if (sample_rate == 0 || sample_rate > dt->max_sample_rate)
++			sample_rate = dt->max_sample_rate;
+ 
+ 		req.report_rate = sample_rate * SMGR_REPORT_RATE_HZ;
+ 
+ 		req.item_len = 1;
+ 		req.items[0].sensor_id = sensor->id;
+-		req.items[0].data_type = SNS_SMGR_DATA_TYPE_PRIMARY;
++		req.items[0].data_type = dt->type;
+ 
+ 		req.items[0].sampling_rate = sample_rate;
+ 
+@@ -252,7 +252,7 @@ static int qcom_smgr_request_buffering(struct qcom_smgr *smgr,
+ 	}
+ 
+ 	/* Keep track of requested sample rate */
+-	sensor->data_types[0].cur_sample_rate = sample_rate;
++	dt->cur_sample_rate = sample_rate;
+ 
+ 	return 0;
+ }
+@@ -305,11 +305,13 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
+ 	 * (sensor maxed out) and 0 when something is within range (assume
+ 	 * sensor is covered).
+ 	 */
+-	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT) {
++	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT &&
++	    sensor->data_types[sensor->data_type].type ==
++		    SNS_SMGR_DATA_TYPE_PRIMARY) {
+ 		temp = le32_to_cpu(iio_data.values[0]);
+ 		temp >>= SMGR_VALUE_DECIMAL_OFFSET;
+ 		temp = ~temp & 1;
+-		temp *= sensor->data_types[0].range;
++		temp *= sensor->data_types[sensor->data_type].range;
+ 		iio_data.values[0] = cpu_to_le32(temp);
+ 	}
+ 
+@@ -379,9 +381,19 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
+ 
+ 	switch (mask) {
+ 	case IIO_CHAN_INFO_SAMP_FREQ:
+-		*val = priv->sensor->data_types[0].cur_sample_rate;
++		*val = priv->sensor->data_types[priv->sensor->data_type].cur_sample_rate;
+ 		return IIO_VAL_INT;
+ 	case IIO_CHAN_INFO_SCALE:
++		/*
++		 * Ambient light comes as plain lux, not in the 16.16 fixed
++		 * point of the other sensors (CM3323 on the Galaxy Tab S3:
++		 * about 20 indoors, up to ~31000 under a phone torch, 0 when
++		 * covered).
++		 */
++		if (chan->type == IIO_INTENSITY) {
++			*val = 1;
++			return IIO_VAL_INT;
++		}
+ 		*val = 1;
+ 		*val2 = 1 << SMGR_VALUE_DECIMAL_OFFSET;
+ 		return IIO_VAL_FRACTIONAL;
+@@ -401,7 +413,7 @@ static int qcom_smgr_iio_write_raw(struct iio_dev *iio_dev,
+ 		if (!iio_device_claim_direct(iio_dev))
+ 			return -EBUSY;
+ 
+-		priv->sensor->data_types[0].cur_sample_rate = val;
++		priv->sensor->data_types[priv->sensor->data_type].cur_sample_rate = val;
+ 
+ 		iio_device_release_direct(iio_dev);
+ 		return 0;
+@@ -637,6 +649,39 @@ static const struct iio_chan_spec qcom_smgr_prox_iio_channels[] = {
+ 	},
+ };
+ 
++/*
++ * Ambient light (the secondary data type of a proximity/light sensor) in lux,
++ * as in_intensity_both like other ambient light sensors, so that
++ * iio-sensor-proxy can use it.
++ */
++static const struct iio_chan_spec qcom_smgr_light_iio_channels[] = {
++	{
++		.type = IIO_INTENSITY,
++		.modified = true,
++		.channel2 = IIO_MOD_LIGHT_BOTH,
++		.scan_index = 0,
++		.scan_type = {
++			.sign = 'u',
++			.realbits = 32,
++			.storagebits = 32,
++			.endianness = IIO_LE,
++		},
++		.info_mask_separate = BIT(IIO_CHAN_INFO_SCALE) |
++				      BIT(IIO_CHAN_INFO_SAMP_FREQ)
++	},
++	{
++		.type = IIO_TIMESTAMP,
++		.channel = -1,
++		.scan_index = 3,
++		.scan_type = {
++			.sign = 'u',
++			.realbits = 32,
++			.storagebits = 64,
++			.endianness = IIO_LE,
++		},
++	},
++};
++
+ static const struct iio_chan_spec qcom_smgr_pressure_iio_channels[] = {
+ 	{
+ 		.type = IIO_PRESSURE,
+@@ -705,12 +750,20 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
+ 
+ 	priv->samp_freq_vals[0] = 1;
+ 	priv->samp_freq_vals[1] = 1;
+-	priv->samp_freq_vals[2] = priv->sensor->data_types[0].max_sample_rate;
++	priv->samp_freq_vals[2] = sensor->data_types[sensor->data_type].max_sample_rate;
+ 
+-	iio_dev->name = qcom_smgr_sensor_type_device_names[sensor->type];
+ 	iio_dev->info = &qcom_smgr_iio_info;
+-	iio_dev->channels = qcom_smgr_sensor_type_iio_channels[sensor->type];
+-	iio_dev->num_channels = qcom_smgr_sensor_type_num_channels[sensor->type];
++	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT &&
++	    sensor->data_types[sensor->data_type].type ==
++		    SNS_SMGR_DATA_TYPE_SECONDARY) {
++		iio_dev->name = "qcom-smgr-light";
++		iio_dev->channels = qcom_smgr_light_iio_channels;
++		iio_dev->num_channels = ARRAY_SIZE(qcom_smgr_light_iio_channels);
++	} else {
++		iio_dev->name = qcom_smgr_sensor_type_device_names[sensor->type];
++		iio_dev->channels = qcom_smgr_sensor_type_iio_channels[sensor->type];
++		iio_dev->num_channels = qcom_smgr_sensor_type_num_channels[sensor->type];
++	}
+ 
+ 	sensor->iio_dev = iio_dev;
+ 
+@@ -732,6 +785,30 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
+ 	return 0;
+ }
+ 
++/*
++ * Pick the data type to stream: the primary one if the sensor has it. A
++ * proximity/light sensor ID can carry an ambient light chip alone (the
++ * CM3323 on the Galaxy Tab S3 is registered with no primary data type and
++ * ambient light as the secondary one, the only entry SMGR lists for it).
++ * SMGR rejects buffering requests for the missing primary type (result
++ * 0x501), so stream the secondary one then.
++ */
++static u8 qcom_smgr_pick_data_type(const struct qcom_smgr_sensor *sensor)
++{
++	u8 i;
++
++	for (i = 0; i < sensor->data_type_count; i++)
++		if (sensor->data_types[i].type == SNS_SMGR_DATA_TYPE_PRIMARY)
++			return i;
++
++	for (i = 0; i < sensor->data_type_count; i++)
++		if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT &&
++		    sensor->data_types[i].type == SNS_SMGR_DATA_TYPE_SECONDARY)
++			return i;
++
++	return 0;
++}
++
+ static void qcom_smgr_qmi_release(void *data)
+ {
+ 	qmi_handle_release(data);
+@@ -785,15 +862,21 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
+ 
+ 		for (j = 0; j < smgr->sensors[i].data_type_count; j++) {
+ 			/* Default to maximum sample rate */
+-			smgr->sensors[i].data_types->cur_sample_rate =
+-				smgr->sensors[i].data_types->max_sample_rate;
++			smgr->sensors[i].data_types[j].cur_sample_rate =
++				smgr->sensors[i].data_types[j].max_sample_rate;
+ 
+-			dev_dbg(smgr->dev, "0x%02x,%d: %s %s\n",
++			dev_dbg(smgr->dev, "0x%02x,%d: type %u, %s %s, max %u Hz, range %u\n",
+ 				smgr->sensors[i].id, j,
++				smgr->sensors[i].data_types[j].type,
+ 				smgr->sensors[i].data_types[j].vendor,
+-				smgr->sensors[i].data_types[j].name);
++				smgr->sensors[i].data_types[j].name,
++				smgr->sensors[i].data_types[j].max_sample_rate,
++				smgr->sensors[i].data_types[j].range);
+ 		}
+ 
++		smgr->sensors[i].data_type =
++			qcom_smgr_pick_data_type(&smgr->sensors[i]);
++
+ 		/* Skip if sensor type is not supported */
+ 		if (smgr->sensors[i].type == SNS_SMGR_SENSOR_TYPE_UNKNOWN ||
+ 		    !qcom_smgr_sensor_type_iio_channels[smgr->sensors[i].type])
+diff --git a/include/linux/iio/common/qcom_smgr.h b/include/linux/iio/common/qcom_smgr.h
+index fdd3de12b..0dad50846 100644
+--- a/include/linux/iio/common/qcom_smgr.h
++++ b/include/linux/iio/common/qcom_smgr.h
+@@ -28,6 +28,8 @@ enum qcom_smgr_data_type {
+ };
+ 
+ struct qcom_smgr_data_type_item {
++	/* SNS_SMGR_DATA_TYPE_PRIMARY or _SECONDARY, as SMGR reports it */
++	u8 type;
+ 	const char *name;
+ 	const char *vendor;
+ 
+@@ -45,11 +47,13 @@ struct qcom_smgr_sensor {
+ 	enum qcom_smgr_sensor_type type;
+ 
+ 	u8 data_type_count;
++	struct qcom_smgr_data_type_item *data_types;
+ 	/*
+-	 * Only SNS_SMGR_DATA_TYPE_PRIMARY is used at the moment, but we store
+-	 * SNS_SMGR_DATA_TYPE_SECONDARY when available as well for future use.
++	 * Index in data_types of the data type streamed to IIO: the primary
++	 * one, or the secondary one for a proximity/light sensor that only has
++	 * the light part.
+ 	 */
+-	struct qcom_smgr_data_type_item *data_types;
++	u8 data_type;
+ 
+ 	struct iio_dev *iio_dev;
+ };

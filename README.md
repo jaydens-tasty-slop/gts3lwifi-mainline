@@ -59,7 +59,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Cameras (front, rear) | Not yet | planned |
 | **Sensors** | | |
 | Accelerometer, gyroscope, magnetometer | Works | auto-rotate with iio-sensor-proxy ([sensors](docs/sensors.md)) |
-| Light sensor | Not yet | needs a light channel in the SMGR driver |
+| Light sensor | Works | lux through iio-sensor-proxy, for auto-brightness (patch 0077, [sensors](docs/sensors.md)) |
 | Cover (hall) sensor | Not yet | waits for reliable suspend |
 | Fingerprint (Home key) | Blocked | its pins are owned by Samsung's TrustZone |
 | **Software** | | |

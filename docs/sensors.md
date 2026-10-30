@@ -1,13 +1,13 @@
 # Sensors
 
-## Status (2026-10-30): accelerometer, gyroscope and magnetometer work; auto-rotate works with iio-sensor-proxy
+## Status (2026-10-30): accelerometer, gyroscope, magnetometer and light sensor work; auto-rotate and the light sensor work with iio-sensor-proxy
 
 | Sensor | Chip | State |
 |---|---|---|
 | Accelerometer | ST LSM6DS3 (K6DS3TR) | works, orientation correct in all four positions |
 | Gyroscope | same chip | works |
 | Magnetometer | AKM AK09916C | works (about 0.4-0.6 gauss) |
-| Ambient light (RGB) | Capella CM3323 | found, but `qcom_smgr` asks it for proximity data, which it does not have (`Buffering request failed: 0x501`); needs a light channel in the driver |
+| Ambient light (RGB) | Capella CM3323 | works with patch 0077: `qcom-smgr-light`, `in_intensity_both` in lux (about 20 indoors, up to ~31000 under a phone torch, 0 when covered); iio-sensor-proxy reports it |
 | Cover (hall) | PM8994 GPIO 7, low = closed | not in the DT yet: closing the cover would suspend the tablet, and suspend is not reliable yet |
 
 ## How they are connected
@@ -62,10 +62,23 @@ right orientation for this tablet, where the landscape panel is mounted at
 If iio-sensor-proxy was installed after the sensors appeared, run
 `udevadm trigger --subsystem-match=iio --action=add` once (or reboot).
 
+## Light sensor
+
+SMGR lists the CM3323 under the proximity/light sensor ID (0x28) with a
+single data type of type 1 (secondary): "Capella CM3323 ALS", 5 Hz. Stock
+registers it with no primary data type (`data_type1 0`, `data_type2 6` in
+`sensor_def_qcomdev.conf`). The driver always streamed the primary data type,
+which SMGR rejects with 0x501. Patch 0077 keeps each data type's own type,
+streams the secondary one for such a light-only sensor and registers it as
+`qcom-smgr-light` with an `in_intensity_both` channel, the layout
+iio-sensor-proxy's buffered light driver reads. The value is plain lux
+(scale 1), not 16.16 fixed point like the motion sensors. The sample's second
+word moves between about 3960 and 5270 (warm room light vs a cool torch),
+probably the colour temperature in kelvin; it is not exposed.
+
 ## Known issues
 
 - `qcom_smgr` registered `qmi_handle_release` through a function-pointer
   cast; with kCFI every unbind (stopping the SLPI, unloading the module)
   oopsed and left the remoteproc lock held. Patch 0076 fixes it. Before
   0076, do not stop or restart the SLPI.
-- Light sensor: see the table above.

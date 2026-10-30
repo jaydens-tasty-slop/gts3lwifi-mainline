@@ -102,6 +102,7 @@ source="
 	0074-input-stmpe-keypad-of-match.patch
 	0075-mfd-stmpe-supplies-on-probe-failure.patch
 	0076-iio-qcom-smgr-qmi-release-wrapper.patch
+	0077-iio-qcom-smgr-ambient-light.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -203,4 +204,5 @@ e5c452ad14096b6cae7413579d09eb6ffd1bba4ce896726bc236f4b11b595d5e433d9fc7c1c9f430
 c0b6270992e036039c11778b2f278a721b0c5582d09dc098d00e9d66e4a1bb6e6470fc97d04e7f46e6e0d675089d383468419a1953fc2b10d5b6a2121ed080f9  0074-input-stmpe-keypad-of-match.patch
 b97689a75b337df2295c6c75dc7922273644e6704d0f1ef60c182966c33f1579aca25aa14ede0d9d0570329d2cd8d8a8430508fd8d43ea045f6c216fa59a81ca  0075-mfd-stmpe-supplies-on-probe-failure.patch
 6016cb97968d60d8654fc1af419bb77e7db462cfadf092c576478abb8a238e4044c6c117356a18d4a7c492146589855127c11f15b7f1eee958b555c7bf55ba77  0076-iio-qcom-smgr-qmi-release-wrapper.patch
+efdccc8a0b8cb0bfb6eb21b688a497aa662ae85af49650882e811ab6dd646a08bcb584f11e8f75f71ba4b7895b0822ee144994bbda71d2f98ac587628b7f8a6a  0077-iio-qcom-smgr-ambient-light.patch
 "
