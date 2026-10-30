@@ -1,0 +1,44 @@
+# Device tree validation (dtschema)
+
+Checked 2026-10-29 with dtschema 2026.9 on the 6.19.5 tree with patches
+0001-0067 (`make dt_binding_check`, `make CHECK_DTBS=y`, and
+`dt-validate` on the test DTs compiled the way the boot images are).
+
+## Bindings
+
+Clean: `display/panel/samsung,ams968hh01.yaml` (patches 0065-0066),
+`input/touchscreen/wacom,w9007a-lt03.yaml` (0056, 0058, 0062),
+`power/supply/siliconmitus,sm5705-charger.yaml`,
+`power/supply/siliconmitus,sm5705-fuel-gauge.yaml`,
+`extcon/siliconmitus,sm5705-muic.yaml`, `usb/samsung,s2mm005.yaml`,
+`sound/richtek,rt5508.yaml`.
+
+## Main DT (`apq8096-samsung-gts3lwifi.dts`)
+
+Nine findings:
+
+- The board compatible `samsung,gts3lwifi` is not in
+  `Documentation/devicetree/bindings/arm/qcom.yaml` (two findings: the
+  `oneOf` on `/compatible`, and "failed to match any schema"). The
+  binding needs the board added to the msm8996/apq8096 list.
+- `domain-idle-states/system-ret`: idle state nodes must be named
+  `domain-...` (or `cpu-`/`cluster-`), e.g. `domain-ret`.
+- `syscon@4ab000` (`pshold`): a bare `"syscon"` compatible is not allowed;
+  it needs a specific compatible before `"syscon"`.
+- `s2mm005-int-default-state` and `wcd-intr-default-state` (in `&tlmm`):
+  the msm8996 TLMM binding has no `input-enable` (upstream Qualcomm DTs
+  dropped it); remove it.
+- `codec@1,0` (WCD9335): the binding wants both interrupts, `intr1` and
+  `intr2`; the DT gives only `intr1`.
+- `syscon@9a10000` (`saw3` in `msm8996.dtsi`): same bare `"syscon"`; this
+  one is in the SoC file, not the board DT.
+
+## Test DTs
+
+`dts/test/test-display.dts`, `test-display-temp.dts`, `test-touch.dts`
+and `test-spen.dts` add no findings of their own. Before patch 0065 the
+panel node had no binding to match.
+
+dtc also warns about four things in `msm8996.dtsi`, `pm8994.dtsi` and
+`pm8004.dtsi` (unneeded `#address-cells`, a duplicate unit address for
+`i2c@75ba000`/`spi@75ba000`); none come from the board files.
