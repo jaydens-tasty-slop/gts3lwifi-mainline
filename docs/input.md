@@ -146,8 +146,13 @@ launcher:
 
 then `systemd-hwdb update` (or `udevadm hwdb --update`) and a reboot.
 `gpio-keys` uses each button's index as its scan code, so 1 is Home, the
-second button in `test-keys.dts`. Seen on an SM-T820 (2026-10-29): with
-the entry, a Home tap opens the launcher.
+second button in `test-keys.dts`.
+
+Tested on an SM-T820 (2026-10-29), kernel built with `test-keys.dts`:
+Volume Up and Volume Down change the volume in Plasma (the owner pressed
+them); Home presses arrive as KEY_HOMEPAGE press/release pairs on the
+`gpio-keys` device (an event capture), none of the three reads as pressed
+at rest (EVIOCGKEY), and with the hwdb entry a Home tap opens the launcher.
 
 Not done:
 
