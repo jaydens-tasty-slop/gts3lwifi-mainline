@@ -7,16 +7,16 @@
  * Internal storage: eMMC on SDHC1 (cmdline: androidboot.bootdevice=7464900.sdhci).
  *   UFS silicon is present but unpopulated; ufshc/ufsphy stay disabled.
  *
- * Working: eMMC, microSD, USB peripheral, reboot and power-off, display
- * (AMS968HH01 dual-DSI command-mode panel), GPU, touch, S-Pen, Volume and
- * Home keys, Wi-Fi and Bluetooth (QCA6174), Venus, audio (ADSP + WCD9335:
- * headphones and microphones; four RT5508 speaker amplifiers), SM5705 fuel
- * gauge, charger, MUIC and flash LED (torch), S2MM005 USB Type-C/PD (sink),
- * accelerometer, gyroscope and magnetometer (through the SLPI sensor core),
- * CPU/cluster/system idle. The Book Cover Keyboard (no hotplug yet) and the
- * panel's temperature input have test DTs; the cameras are described but
- * not yet tested; the light sensor and the cover's hall sensor are not
- * here yet.
+ * Working: eMMC, microSD, USB peripheral, host and OTG (USB 3.0), reboot
+ * and power-off, display (AMS968HH01 dual-DSI command-mode panel), GPU,
+ * touch, S-Pen, Volume and Home keys, Wi-Fi and Bluetooth (QCA6174), Venus,
+ * audio (ADSP + WCD9335: headphones and microphones; four RT5508 speaker
+ * amplifiers), SM5705 fuel gauge, charger, MUIC and flash LED (torch),
+ * S2MM005 USB Type-C/PD (sink up to 9 V, source), accelerometer, gyroscope
+ * and magnetometer (through the SLPI sensor core), CPU/cluster/system idle,
+ * both cameras, the Book Cover Keyboard (attached at boot; no hotplug yet).
+ * The panel's temperature input has a test DT; the cover's hall sensor is
+ * not here yet.
  *
  * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
  * from the device (apnhlos and modem partitions), under
@@ -268,6 +268,105 @@
 			/* the boost onto VBUS, for USB OTG */
 			otg_vbus: usb-otg-vbus {
 				regulator-name = "usb_otg_vbus";
+			};
+		};
+	};
+
+	/* Book Cover Keyboard (EJ-FT820) on the pogo pins */
+	i2c-pogo {
+		compatible = "i2c-gpio";
+		sda-gpios = <&tlmm 2 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&tlmm 3 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		pinctrl-0 = <&pogo_i2c_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		keyboard@40 {
+			compatible = "st,stmpe1801";
+			reg = <0x40>;
+			/* stmpe_probe() only looks for "interrupts" */
+			interrupt-parent = <&tlmm>;
+			interrupts = <54 IRQ_TYPE_LEVEL_LOW>;
+			pinctrl-0 = <&pogo_kbd_int_default>;
+			pinctrl-names = "default";
+			vcc-supply = <&vreg_l6a_1p8>;
+
+			keyboard-controller {
+				compatible = "st,stmpe-keypad";
+				debounce-interval = <10>;
+				st,scan-count = <3>;
+				keypad,num-rows = <8>;
+				keypad,num-columns = <10>;
+				linux,keymap = <
+					MATRIX_KEY(0, 2, KEY_Z)
+					MATRIX_KEY(0, 3, KEY_102ND)
+					MATRIX_KEY(0, 4, KEY_V)
+					MATRIX_KEY(0, 5, KEY_M)
+					MATRIX_KEY(0, 6, KEY_DOWN)
+					MATRIX_KEY(0, 8, KEY_SPACE)
+					MATRIX_KEY(0, 9, KEY_UP)
+					MATRIX_KEY(1, 0, KEY_ONSCREEN_KEYBOARD)
+					MATRIX_KEY(1, 1, KEY_LEFTMETA)
+					MATRIX_KEY(1, 2, KEY_A)
+					MATRIX_KEY(1, 3, KEY_X)
+					MATRIX_KEY(1, 4, KEY_B)
+					MATRIX_KEY(1, 5, KEY_N)
+					MATRIX_KEY(1, 6, KEY_COMMA)
+					MATRIX_KEY(1, 7, KEY_DOT)
+					MATRIX_KEY(1, 8, KEY_SLASH)
+					MATRIX_KEY(1, 9, KEY_RIGHTBRACE)
+					MATRIX_KEY(2, 1, KEY_HANGEUL)
+					MATRIX_KEY(2, 2, KEY_Q)
+					MATRIX_KEY(2, 3, KEY_S)
+					MATRIX_KEY(2, 4, KEY_F)
+					MATRIX_KEY(2, 5, KEY_J)
+					MATRIX_KEY(2, 6, KEY_K)
+					MATRIX_KEY(2, 7, KEY_L)
+					MATRIX_KEY(2, 8, KEY_SEMICOLON)
+					MATRIX_KEY(2, 9, KEY_ENTER)
+					MATRIX_KEY(3, 1, KEY_LEFTALT)
+					MATRIX_KEY(3, 2, KEY_TAB)
+					MATRIX_KEY(3, 3, KEY_W)
+					MATRIX_KEY(3, 4, KEY_G)
+					MATRIX_KEY(3, 5, KEY_H)
+					MATRIX_KEY(3, 6, KEY_I)
+					MATRIX_KEY(3, 7, KEY_APOSTROPHE)
+					MATRIX_KEY(3, 8, KEY_P)
+					MATRIX_KEY(3, 9, KEY_BACKSLASH)
+					MATRIX_KEY(4, 0, KEY_CAPSLOCK)
+					MATRIX_KEY(4, 1, KEY_RIGHTALT)
+					MATRIX_KEY(4, 2, KEY_1)
+					MATRIX_KEY(4, 3, KEY_2)
+					MATRIX_KEY(4, 4, KEY_R)
+					MATRIX_KEY(4, 5, KEY_U)
+					MATRIX_KEY(4, 6, KEY_8)
+					MATRIX_KEY(4, 7, KEY_O)
+					MATRIX_KEY(4, 8, KEY_0)
+					MATRIX_KEY(4, 9, KEY_BACKSLASH)
+					MATRIX_KEY(5, 1, KEY_LEFTCTRL)
+					MATRIX_KEY(5, 2, KEY_GRAVE)
+					MATRIX_KEY(5, 3, KEY_RIGHT)
+					MATRIX_KEY(5, 4, KEY_T)
+					MATRIX_KEY(5, 5, KEY_Y)
+					MATRIX_KEY(5, 7, KEY_LEFTBRACE)
+					MATRIX_KEY(5, 8, KEY_BACKSPACE)
+					MATRIX_KEY(5, 9, KEY_MINUS)
+					MATRIX_KEY(6, 0, KEY_RIGHTSHIFT)
+					MATRIX_KEY(6, 1, KEY_LEFT)
+					MATRIX_KEY(6, 2, KEY_D)
+					MATRIX_KEY(6, 3, KEY_C)
+					MATRIX_KEY(6, 4, KEY_4)
+					MATRIX_KEY(6, 5, KEY_7)
+					MATRIX_KEY(6, 7, KEY_9)
+					MATRIX_KEY(6, 8, KEY_3)
+					MATRIX_KEY(6, 9, KEY_E)
+					MATRIX_KEY(7, 0, KEY_LEFTSHIFT)
+					MATRIX_KEY(7, 4, KEY_5)
+					MATRIX_KEY(7, 6, KEY_6)
+					MATRIX_KEY(7, 7, KEY_EQUAL)
+				>;
 			};
 		};
 	};
@@ -650,6 +749,19 @@
 			regulator-min-microvolt = <1250000>;
 			regulator-max-microvolt = <1250000>;
 			regulator-allow-set-load;
+		};
+
+		/*
+		 * Book Cover Keyboard (downstream pm8994_l6, "vdd" of the pogo
+		 * keyboard). The keyboard's controller did not answer 10 ms
+		 * after power-up; stock retries each transfer 3 times 10 ms
+		 * apart (stmpe1801_pogo_keyboard.c).
+		 */
+		vreg_l6a_1p8: l6 {
+			regulator-name = "vreg_l6a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-enable-ramp-delay = <100000>;
 		};
 
 		/* USB PHY PLL / core 1.8 V (downstream vdda18 / core-supply) */
@@ -1909,5 +2021,19 @@
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;
+	};
+
+	pogo_i2c_default: pogo-i2c-default-state {
+		pins = "gpio2", "gpio3";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	pogo_kbd_int_default: pogo-kbd-int-default-state {
+		pins = "gpio54";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
 	};
 };

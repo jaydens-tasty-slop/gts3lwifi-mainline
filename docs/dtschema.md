@@ -45,7 +45,9 @@ patches 0001-0067 and once with 0001-0075. Only the second knows
 `st,stmpe1801` (patch 0069): before it, the keyboard node matches no
 schema and is not checked at all. With it the node validates, and a copy
 with 11 columns or a 5 ms debounce is rejected. `dt_binding_check` on
-`mfd/st,stmpe.yaml` with patch 0069 is clean.
+`mfd/st,stmpe.yaml` with patch 0069 is clean. The keyboard nodes moved
+into the main DT on 2026-10-31 (`test-keyboard.dts` is gone) and still add
+none, against the tree with patches 0001-0104.
 
 The USB-C nodes merged into the main DT on 2026-10-31 add none either,
 against the schemas of the tree with patches 0001-0087. The charger's

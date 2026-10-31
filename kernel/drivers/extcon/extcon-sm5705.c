@@ -16,8 +16,9 @@
  * driver, which sees the Type-C controller, can hold VBUS at 5 V through
  * sm5705_muic_hold_5v(): for a USB-C source, and while the flash LED is on.
  *
- * Accessory (ID resistor) detection and the manual switch are not
- * supported. Register layout and the AFC sequence follow the Samsung
+ * Of the accessories that the ID pin identifies by their resistor, only
+ * Samsung's keyboard covers are reported, as EXTCON_DOCK. The manual switch
+ * is not supported. Register layout and the AFC sequence follow the Samsung
  * vendor driver (muic_regmap_sm5705.c).
  */
 
@@ -34,6 +35,7 @@
 #define SM5705_MUIC_REG_CONTROL		0x02
 #define SM5705_MUIC_REG_INT1		0x03
 #define SM5705_MUIC_REG_INTMASK1	0x06
+#define SM5705_MUIC_REG_ADC		0x09
 #define SM5705_MUIC_REG_RSVD_ID1	0x15
 #define SM5705_MUIC_REG_CHG_TYPE	0x17
 #define SM5705_MUIC_REG_AFC_CNTL	0x18
@@ -64,6 +66,10 @@
 #define SM5705_MUIC_CONTROL_MASK_INT	BIT(0)
 #define SM5705_MUIC_RSVD_ID1_VBUS_VALID	BIT(0)
 #define SM5705_MUIC_CHG_TYPE_MASK	GENMASK(4, 0)
+#define SM5705_MUIC_ADC_MASK		GENMASK(4, 0)
+
+/* ID pin ADC: 49.9 kOhm, Samsung's keyboard covers (ADC_KEYBOARDDOCK) */
+#define SM5705_MUIC_ADC_KEYBOARD_DOCK	0x11
 
 /* CHG_TYPE values */
 #define SM5705_MUIC_CHG_TYPE_DCP	0x01
@@ -80,6 +86,7 @@ static const unsigned int sm5705_muic_cables[] = {
 	EXTCON_CHG_USB_DCP,
 	EXTCON_CHG_USB_CDP,
 	EXTCON_CHG_USB_FAST,
+	EXTCON_DOCK,
 	EXTCON_NONE,
 };
 
@@ -105,7 +112,7 @@ static struct i2c_driver sm5705_muic_driver;
 static int sm5705_muic_detect(struct sm5705_muic *muic)
 {
 	bool usb = false, sdp = false, dcp = false, cdp = false;
-	unsigned int vbus, type;
+	unsigned int vbus, type, adc;
 	int ret;
 
 	ret = regmap_read(muic->regmap, SM5705_MUIC_REG_RSVD_ID1, &vbus);
@@ -115,6 +122,10 @@ static int sm5705_muic_detect(struct sm5705_muic *muic)
 	if (ret)
 		return ret;
 	type &= SM5705_MUIC_CHG_TYPE_MASK;
+	ret = regmap_read(muic->regmap, SM5705_MUIC_REG_ADC, &adc);
+	if (ret)
+		return ret;
+	adc &= SM5705_MUIC_ADC_MASK;
 
 	if (vbus & SM5705_MUIC_RSVD_ID1_VBUS_VALID) {
 		switch (type) {
@@ -142,8 +153,11 @@ static int sm5705_muic_detect(struct sm5705_muic *muic)
 		muic->afc_ta = false;
 	}
 
-	dev_dbg(muic->dev, "vbus %#04x chg type %#04x afc %d\n", vbus, type,
-		muic->afc_9v);
+	dev_dbg(muic->dev, "vbus %#04x chg type %#04x adc %#04x afc %d\n", vbus,
+		type, adc, muic->afc_9v);
+
+	extcon_set_state_sync(muic->edev, EXTCON_DOCK,
+			      adc == SM5705_MUIC_ADC_KEYBOARD_DOCK);
 
 	/* charger type first, so consumers of EXTCON_USB see it */
 	extcon_set_state_sync(muic->edev, EXTCON_CHG_USB_FAST,

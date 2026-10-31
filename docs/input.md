@@ -195,16 +195,17 @@ The register facts come from ST's public STMPE1801 datasheet (chip ID
 0x30-0x36, a ten-entry FIFO read as five bytes from 0x3a); Samsung's GPL
 driver was only used to cross-check the addresses and the I2C transfers.
 
-`dts/test/test-keyboard.dts` describes the cover on top of the keys test,
-with the stock key map (stock key 706, Samsung's soft keyboard toggle,
+The main DT describes the cover (since 2026-10-31; before that
+`dts/test/test-keyboard.dts`, on top of the keys test), with the stock
+key map (stock key 706, Samsung's soft keyboard toggle,
 is KEY_ONSCREEN_KEYBOARD). Two things beyond the stock values were
 needed: the controller does not answer 10 ms after L6 comes up (the
 chip ID read failed with -ENXIO), so L6 has a 100 ms
 `regulator-enable-ramp-delay` (stock retries each transfer three times,
 10 ms apart); and the node uses plain `interrupts`, which is what
 `stmpe_probe()` reads. Kernel config: `CONFIG_MFD_STMPE`,
-`CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE` (all three =m on our
-install; off in the package config).
+`CONFIG_STMPE_I2C` and `CONFIG_KEYBOARD_STMPE` (all three =m in the
+package config).
 
 Seen on an SM-T820 (2026-10-29): with the cover attached at boot the
 STMPE1801 probes, the keypad registers as an input device, and typing
@@ -212,14 +213,25 @@ works. Patch 0075 came from a probe that ran too early (before the ramp
 delay): the ID read failed and the supply stayed enabled, with a WARN in
 `regulator_put()`.
 
+Again with the main DT and patches 0001-0104 (2026-10-31): the
+STMPE1801 probes at boot (chip ID 0xc110), "STMPE keypad" registers, and
+typing works (keypad interrupts and key events on the event device).
+
+With the cover attached the MUIC does no BC1.2 detection: its device
+type and charger type registers read 0 next to the cover's ID, so a
+USB-A wall charger plugged in at the same time charges at the Type-C
+default current (500 mA) instead of as a DCP. Samsung's MUIC driver
+needs checking for what it does with VBUS on `ADC_KEYBOARDDOCK`.
+
 Not done: hotplug. The STMPE1801 only probes when the cover is attached
 at boot, and stays gone after a detach. Stock detects the cover through
 the SM5705 MUIC: an ID ADC reading of 0x11 (49.9 kOhm, `ADC_KEYBOARDDOCK`
 in the Samsung kernel's `include/linux/muic/muic.h`;
 `drivers/muic/universal/muic_vps.c`) means attached, and
 `drivers/muic/keyboard_notifier.c` then powers L6 and starts the
-keyboard. Plan: `extcon-sm5705` reads the ADC register (0x09) on its
-ADC-change interrupt and reports EXTCON_DOCK; a small glue driver (or
-the STMPE node with a supply switched by that event) enables L6 and
-binds or unbinds the 0x40 client. Check first that a plain USB cable
-never reads 0x11.
+keyboard. Patch 0104 does the first half: `extcon-sm5705` reads the ADC
+register (0x09) with the other detection registers, on the ADC change
+interrupt too, and reports EXTCON_DOCK for 0x11 (DOCK=1 with the cover
+attached, 2026-10-31). Left: a small glue driver (or the STMPE node with
+a supply switched by that event) that enables L6 and binds or unbinds
+the 0x40 client. Check that a plain USB cable never reads 0x11.

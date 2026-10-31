@@ -6,10 +6,10 @@
 carry what this install needed: the kernel (pkgrel 7) has patches 0001-0075
 and the options below (`CONFIG_QCOM_SPMI_VADC=m`, which is enough), the main
 DTS has the display, touch, S-Pen, microSD and keys, and the deviceinfo has
-the command line below. Only the keyboard cover (`dts/test/test-keyboard.dts`,
-until hotplug works) and the panel temperature channel
-(`dts/test/test-display-temp.dts`) are still test DTs. The rest of this page
-records the original install.
+the command line below. The keyboard cover joined the main DTS on
+2026-10-31 (attached at boot; no hotplug yet); only the panel temperature
+channel (`dts/test/test-display-temp.dts`) is still a test DT. The rest of
+this page records the original install.
 
 postmarketOS edge with systemd and KDE Plasma on Wayland is installed on
 the eMMC of an SM-T820, behind lk2nd, and boots to the desktop with
@@ -21,7 +21,8 @@ What the install runs, against this repository:
 - **Kernel:** the same 6.19.5 tree with patches 0001-0075, built on a
   host (the package APKBUILD lists patches up to 0043 only).
 - **Device tree:** `dts/test/test-keyboard.dts` (display, touch, S-Pen,
-  microSD, keys, keyboard cover) plus the two nodes of
+  microSD, keys, keyboard cover; merged into the main DTS since) plus the
+  two nodes of
   `dts/test/test-display-temp.dts` (panel temperature channel).
 - **Kernel config:** `config-postmarketos-qcom-msm8996.aarch64` plus
   these, and nothing else:
