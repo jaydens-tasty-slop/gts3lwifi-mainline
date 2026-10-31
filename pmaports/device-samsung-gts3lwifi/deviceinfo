@@ -6,8 +6,11 @@ deviceinfo_name="Samsung Galaxy Tab S3 (SM-T820, SM-T825)"
 deviceinfo_manufacturer="Samsung"
 deviceinfo_codename="samsung-gts3lwifi"
 deviceinfo_year="2017"
-# Both models; lk2nd boots the one whose compatible matches the tablet
-deviceinfo_dtb="qcom/apq8096-samsung-gts3lwifi qcom/msm8996-samsung-gts3llte"
+# Both models (apq8096-samsung-gts3lwifi, msm8996-samsung-gts3llte), appended;
+# lk2nd picks the one whose qcom,msm-id and board-id match the tablet. One
+# wildcard rather than two names: boot-deploy's boot.img step looks the
+# value up as a single DTB and fails on a list
+deviceinfo_dtb="qcom/*-samsung-gts3l*"
 deviceinfo_append_dtb="true"
 deviceinfo_arch="aarch64"
 

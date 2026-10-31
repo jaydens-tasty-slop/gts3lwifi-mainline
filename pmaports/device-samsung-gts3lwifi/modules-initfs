@@ -1,0 +1,4 @@
+# Display in the initramfs: boot messages, the debug shell and an FDE
+# password prompt on the panel (confirmed on an SM-T825).
+msm
+panel-samsung-ams968hh01

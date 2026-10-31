@@ -60,8 +60,8 @@
 	 * match the tablet: msm-id 291 (APQ8096) is the SM-T820, 246 (MSM8996)
 	 * the SM-T825 (msm8996-samsung-gts3llte.dts). Stock ships one DT per
 	 * board revision, Rev00/02/04/05 as board-id <8 0>, <8 2>, <8 4>,
-	 * <8 5>; list them all, or a tablet of another revision falls back to
-	 * the other model's DTB.
+	 * <8 5>; list them all, or lk2nd finds no match on a tablet of another
+	 * revision and refuses the image ("dtb not found").
 	 */
 	qcom,msm-id = <291 0x30001>;
 	qcom,board-id = <8 0>, <8 2>, <8 4>, <8 5>;

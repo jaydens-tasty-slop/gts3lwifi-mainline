@@ -47,19 +47,20 @@ and the registry from the tablet's own partitions into
 
 ## Auto-rotate
 
-iio-sensor-proxy 3.9 works with these trigger-less buffers as they are, but
-the orientation needs a device-specific mount matrix. KDE (and GNOME) turn
-the output by the panel's mount (the landscape panel sits at 270 degrees)
-and the sensor's orientation on top of that, so the accelerometer has to be
-expressed in the panel's own frame. With the SMGR driver's generic matrix
-(`0, -1, 0; -1, 0, 0; 0, 0, 1`) the desktop was rotated 90 degrees too far in
-every position. The device package's udev rule `61-gts3-accel.rules` sets
+iio-sensor-proxy 3.9 works with these trigger-less buffers as they are. The
+accelerometer axes come from the SLPI, and the two models do not report them
+in the same frame:
 
-    ACCEL_MOUNT_MATRIX="1, 0, 0; 0, -1, 0; 0, 0, 1"
+| Model | Raw gravity, portrait with USB at the bottom | Mount matrix |
+|---|---|---|
+| SM-T820 | +X | the SMGR driver's own, `0, -1, 0; -1, 0, 0; 0, 0, 1` (iio-sensor-proxy reports normal, right-up, bottom-up, left-up in the right positions; checked on a board without a panel) |
+| SM-T825 | +Y | `1, 0, 0; 0, -1, 0; 0, 0, 1` (with the driver's matrix the desktop was 90 degrees off in every position; confirmed in all positions with this one) |
 
-for `qcom-smgr-accel`, which iio-sensor-proxy prefers over the driver's
-matrix. Confirmed on an SM-T825 at commit 563456e (rotation correct in all
-positions); the SM-T820 has the same board.
+The device package's udev rule `61-gts3-accel.rules` sets
+`ACCEL_MOUNT_MATRIX` (which iio-sensor-proxy prefers over the driver's
+matrix) on `qcom-smgr-accel` only when the device tree is the SM-T825 one
+(`samsung,gts3llte`). A per-model `mount-matrix` in the device tree would be
+cleaner, but the SMGR sensors have no DT nodes of their own.
 
 If iio-sensor-proxy was installed after the sensors appeared, run
 `udevadm trigger --subsystem-match=iio --action=add` once (or reboot).

@@ -1,6 +1,6 @@
-From 31877805cad78f171d00f66d2660a8a5a833391e Mon Sep 17 00:00:00 2001
+From 003ae4106c5dc1a2cfb2329ce5fd5923417c30a0 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Sat, 31 Oct 2026 05:42:25 +0000
+Date: Sat, 31 Oct 2026 16:47:45 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 (gts3lwifi,
  gts3llte)
 
@@ -54,7 +54,7 @@ index 821146b..39b7195 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-sony-xperia-tone-keyaki.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..1b9e4f6
+index 0000000..e98c60b
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 @@ -0,0 +1,1607 @@
@@ -120,8 +120,8 @@ index 0000000..1b9e4f6
 +	 * match the tablet: msm-id 291 (APQ8096) is the SM-T820, 246 (MSM8996)
 +	 * the SM-T825 (msm8996-samsung-gts3llte.dts). Stock ships one DT per
 +	 * board revision, Rev00/02/04/05 as board-id <8 0>, <8 2>, <8 4>,
-+	 * <8 5>; list them all, or a tablet of another revision falls back to
-+	 * the other model's DTB.
++	 * <8 5>; list them all, or lk2nd finds no match on a tablet of another
++	 * revision and refuses the image ("dtb not found").
 +	 */
 +	qcom,msm-id = <291 0x30001>;
 +	qcom,board-id = <8 0>, <8 2>, <8 4>, <8 5>;
