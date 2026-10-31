@@ -22,7 +22,8 @@
 	compatible = "samsung,gts3llte", "qcom,msm8996";
 
 	qcom,msm-id = <246 0x30001>;
-	qcom,board-id = <8 5>;
+	/* Board revisions Rev00/02/04/05, as in the stock gts3llte DTs */
+	qcom,board-id = <8 0>, <8 2>, <8 4>, <8 5>;
 
 	reserved-memory {
 		/* Downstream modem_shared_mem_region@0x93000000, LTE model only */

@@ -11,14 +11,15 @@ Mainline Linux / postmarketOS on the Galaxy Tab S3. One build runs on both model
 ## Models
 
 One kernel and one device package boot both models: the package carries both
-device trees and lk2nd picks the one that matches the tablet. The SM-T825
+device trees and lk2nd picks the one whose msm-id (291 SM-T820, 246 SM-T825)
+and board-id (board revisions 00/02/04/05, all listed) match the tablet. The SM-T825
 device tree (`dts/msm8996-samsung-gts3llte.dts`) includes the SM-T820 one and
 only changes the SoC ID, the modem memory and the pins TrustZone may own.
 
 | Model | State |
 |---|---|
 | SM-T820 (Wi-Fi, `gts3lwifi`) | main target, everything below is tested on it |
-| SM-T825 (LTE, `gts3llte`) | lk2nd boots on it; Linux not confirmed yet; modem (LTE, SIM, GPS) not supported; top speakers left out until checked |
+| SM-T825 (LTE, `gts3llte`) | boots to KDE (first report 2026-10-31); modem (LTE, SIM, GPS) not supported; top speakers left out until checked |
 
 ## Status
 

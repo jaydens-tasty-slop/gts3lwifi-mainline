@@ -55,12 +55,16 @@
 	chassis-type = "tablet";
 
 	/*
-	 * Bootloader DTB-selection IDs (documented in arm/qcom.yaml).
-	 * lk2nd matches the root compatible instead, so these only matter
-	 * if the DTB is ever offered to the stock bootloader.
+	 * DTB-selection IDs (documented in arm/qcom.yaml). lk2nd, like the
+	 * stock bootloader, picks the appended DTB whose msm-id and board-id
+	 * match the tablet: msm-id 291 (APQ8096) is the SM-T820, 246 (MSM8996)
+	 * the SM-T825 (msm8996-samsung-gts3llte.dts). Stock ships one DT per
+	 * board revision, Rev00/02/04/05 as board-id <8 0>, <8 2>, <8 4>,
+	 * <8 5>; list them all, or a tablet of another revision falls back to
+	 * the other model's DTB.
 	 */
 	qcom,msm-id = <291 0x30001>;
-	qcom,board-id = <8 5>;
+	qcom,board-id = <8 0>, <8 2>, <8 4>, <8 5>;
 
 	aliases {
 		mmc0 = &sdhc1;
