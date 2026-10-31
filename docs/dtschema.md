@@ -54,6 +54,12 @@ against the schemas of the tree with patches 0001-0087. The charger's
 `dt_binding_check` on `usb/samsung,s2mm005.yaml` and
 `power/supply/siliconmitus,sm5705-charger.yaml` is clean.
 
+The cameras merged into the main DT on 2026-10-31 add none either,
+against the schemas of the tree with patches 0001-0103. The front
+sensor's `samsung,s5k5e3` needs patch 0094 and the lens's `vdd-supply`
+and `vio-supply` patch 0092; the IMX258, CCI and CAMSS nodes use
+existing bindings.
+
 dtc also warns about four things in `msm8996.dtsi`, `pm8994.dtsi` and
 `pm8004.dtsi` (unneeded `#address-cells`, a duplicate unit address for
 `i2c@75ba000`/`spi@75ba000`); none come from the board files.

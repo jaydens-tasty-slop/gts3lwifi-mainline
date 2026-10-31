@@ -192,3 +192,20 @@ index ab9abd151078..9c020678632c 100644
  obj-$(CONFIG_TOUCHSCREEN_WDT87XX_I2C)	+= wdt87xx_i2c.o
  obj-$(CONFIG_TOUCHSCREEN_WM831X)	+= wm831x-ts.o
  obj-$(CONFIG_TOUCHSCREEN_WM97XX)	+= wm97xx-ts.o
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ (after VIDEO_S5K5BAF) @@
++config VIDEO_S5K5E3
++	tristate "Samsung S5K5E3 sensor support"
++	select V4L2_CCI_I2C
++	help
++	  This is a Video4Linux2 sensor driver for the Samsung S5K5E3
++	  raw camera sensor.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called s5k5e3.
++
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ (after VIDEO_S5K5BAF) @@
++obj-$(CONFIG_VIDEO_S5K5E3) += s5k5e3.o

@@ -12,18 +12,40 @@ With `dts/test/test-venus.dts` (merged into the main DTS on 2026-10-28) and kern
   and Xvid. **The encoder offers** H.264, HEVC, VP8, MPEG-4 and H.263.
 - **H.264 encoding works through `v4l2-ctl`**: 60 frames, valid High profile
   stream, clean stop.
+- **Update 2026-10-31: encoding through GStreamer works** (`v4l2h264enc`,
+  `v4l2h265enc`) with patches 0099-0102, up to 3840x2160 from the camera
+  ([camera](camera.md)): HEVC at 29.8 fps, H.264 at about 27 fps.
+
+## Encoder fixes (2026-10-31, patches 0099-0102)
+
+- **0099:** GStreamer asks for more capture buffers (CREATE_BUFS) once the
+  session runs; Venus works in static buffer mode on HFI v3, and a late
+  SET_BUFFERS made the firmware stop with `Err_Fatal ...
+  vbuffer.c:1219` after a few frames. The encoder now refuses new capture
+  buffers while streaming (-EBUSY), and GStreamer goes on with the ones it
+  has. This is the GStreamer crash below.
+- **0100:** the firmware gets timestamps at the frame rate. It derives the
+  bitrate from the timestamps it is given, so with GStreamer's the bitrate
+  setting was ignored.
+- **0101:** RGBA input on HFI v3: Venus converts RGBA to YUV itself, so
+  the camera's RGBA dma-bufs (libcamera's software ISP on the GPU) go to
+  the encoder without a copy.
+- **0102:** CAVLC with the Baseline profiles: CABAC with Baseline (what
+  `v4l2h264enc` negotiates without a profile in the caps) crashed the
+  firmware (`venus_venc_host_driver.c:5844`).
 
 Open:
 
 - **HEVC decoding:** the firmware never reports the stream resolution, so
   GStreamer fails to negotiate ("Video device returned invalid dimensions").
   Seen with libx265 Main profile streams at 720p and 1080p.
-- **Encoding through GStreamer (`v4l2h264enc`):** the firmware stops with
-  `Err_Fatal ... venus\utils\src\vbuffer.c:1219` after about 5 frames, and the
-  first frames are already wrong (19.6 dB). The I/O mode and padding make no
-  difference. The driver recovers the firmware, but repeated crashes ended in
-  a TrustZone reset. `v4l2-ctl` does not trigger it, so compare the two V4L2
-  ioctl traces next.
+- ~~**Encoding through GStreamer (`v4l2h264enc`):** the firmware stops with
+  `Err_Fatal ... venus\utils\src\vbuffer.c:1219` after about 5 frames.~~
+  Fixed by patch 0099 (above).
+- H.264 at 3840x2160 tops out at about 27 fps: about 35 ms per frame at
+  490 MHz with camera content. The bootloader leaves MMPLL3 at 980 MHz (the
+  vendor runs 1040 MHz), nothing votes for CX, and the vendor's 512 KB of
+  VMEM for Venus is not described.
 - With `v4l2-ctl` defaults the encoder writes level 1.0 and no SPS cropping
   (1280x736 for 720p). Userspace normally sets the level; check the cropping.
 - `ffmpeg -c:v h264_v4l2m2m` aborts in ffmpeg itself (`Assertion pkt failed`).

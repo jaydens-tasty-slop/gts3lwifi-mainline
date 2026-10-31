@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 13:26:13 -0600
+Subject: [PATCH] media: i2c: imx258: add 16:9 modes
+
+All modes crop or bin the 4:3 pixel array, so 16:9 video has to be cut
+out of a 4:3 frame afterwards, which wastes a third of the CSI-2
+bandwidth and caps UHD recording at the full mode's frame rate.
+
+Add three modes that read a centred 4208x2368 window (rows 376 to 2743,
+an even first row, so the Bayer order does not change): unbinned
+4208x2368 for 4K video, 2x2 binned 2104x1184 for 1080p and 4x binned
+1048x592 for high frame rates. All three run at the high link frequency
+and default to 30 fps. The unbinned mode keeps the 32 lines of minimum
+vertical blanking that the full array mode uses, the binned ones 64, so
+VBLANK can take them up to about 39, 76 and 144 fps respectively.
+
+The window and the binned high-rate modes were chosen to match what the
+Galaxy Tab S3's Android camera stack uses on this sensor (a 16:9 window
+for UHD at 30 fps and 2x2 binning at the full VT clock for 117 fps).
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/media/i2c/imx258.c | 99 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 99 insertions(+)
+
+diff --git a/drivers/media/i2c/imx258.c b/drivers/media/i2c/imx258.c
+index 6768c64fb620..ba8ca7faf5f9 100644
+--- a/drivers/media/i2c/imx258.c
++++ b/drivers/media/i2c/imx258.c
+@@ -87,6 +87,19 @@
+ #define IMX258_PIXEL_ARRAY_WIDTH	4208U
+ #define IMX258_PIXEL_ARRAY_HEIGHT	3120U
+ 
++/*
++ * 16:9 window, centred vertically in the pixel array. The first row is even,
++ * so the Bayer order is the same as for the full array. The 16:9 modes all
++ * run at the high link frequency and default to 30 fps; their minimum
++ * vertical blanking (32 lines unbinned, as in the full array mode, and 64
++ * lines binned) allows higher frame rates.
++ */
++#define IMX258_16_9_TOP			376U
++#define IMX258_16_9_HEIGHT		2368U
++#define IMX258_16_9_VTS_MIN		(IMX258_16_9_HEIGHT + 32)
++#define IMX258_16_9_BIN2_VTS_MIN	(IMX258_16_9_HEIGHT / 2 + 64)
++#define IMX258_16_9_BIN4_VTS_MIN	(IMX258_16_9_HEIGHT / 4 + 64)
++
+ /* regs */
+ #define IMX258_REG_PLL_MULT_DRIV                  CCI_REG8(0x0310)
+ #define IMX258_REG_IVTPXCK_DIV                    CCI_REG8(0x0301)
+@@ -409,6 +422,18 @@ static const struct cci_reg_sequence mode_4208x3120_regs[] = {
+ 	{IMX258_REG_Y_OUT_SIZE, 3120},
+ };
+ 
++static const struct cci_reg_sequence mode_4208x2368_regs[] = {
++	{IMX258_REG_Y_ADD_STA, IMX258_16_9_TOP},
++	{IMX258_REG_Y_ADD_END, IMX258_16_9_TOP + IMX258_16_9_HEIGHT - 1},
++	{IMX258_REG_BINNING_MODE, 0},
++	{IMX258_REG_BINNING_TYPE_V, 0x11},
++	{IMX258_REG_SCALE_MODE, 0},
++	{IMX258_REG_SCALE_M, 16},
++	{IMX258_REG_DIG_CROP_IMAGE_HEIGHT, IMX258_16_9_HEIGHT},
++	{IMX258_REG_X_OUT_SIZE, 4208},
++	{IMX258_REG_Y_OUT_SIZE, IMX258_16_9_HEIGHT},
++};
++
+ static const struct cci_reg_sequence mode_2104_1560_regs[] = {
+ 	{IMX258_REG_BINNING_MODE, 1},
+ 	{IMX258_REG_BINNING_TYPE_V, 0x12},
+@@ -419,6 +444,18 @@ static const struct cci_reg_sequence mode_2104_1560_regs[] = {
+ 	{IMX258_REG_Y_OUT_SIZE, 1560},
+ };
+ 
++static const struct cci_reg_sequence mode_2104_1184_regs[] = {
++	{IMX258_REG_Y_ADD_STA, IMX258_16_9_TOP},
++	{IMX258_REG_Y_ADD_END, IMX258_16_9_TOP + IMX258_16_9_HEIGHT - 1},
++	{IMX258_REG_BINNING_MODE, 1},
++	{IMX258_REG_BINNING_TYPE_V, 0x12},
++	{IMX258_REG_SCALE_MODE, 1},
++	{IMX258_REG_SCALE_M, 32},
++	{IMX258_REG_DIG_CROP_IMAGE_HEIGHT, IMX258_16_9_HEIGHT / 2},
++	{IMX258_REG_X_OUT_SIZE, 2104},
++	{IMX258_REG_Y_OUT_SIZE, IMX258_16_9_HEIGHT / 2},
++};
++
+ static const struct cci_reg_sequence mode_1048_780_regs[] = {
+ 	{IMX258_REG_BINNING_MODE, 1},
+ 	{IMX258_REG_BINNING_TYPE_V, 0x14},
+@@ -429,6 +466,18 @@ static const struct cci_reg_sequence mode_1048_780_regs[] = {
+ 	{IMX258_REG_Y_OUT_SIZE, 780},
+ };
+ 
++static const struct cci_reg_sequence mode_1048_592_regs[] = {
++	{IMX258_REG_Y_ADD_STA, IMX258_16_9_TOP},
++	{IMX258_REG_Y_ADD_END, IMX258_16_9_TOP + IMX258_16_9_HEIGHT - 1},
++	{IMX258_REG_BINNING_MODE, 1},
++	{IMX258_REG_BINNING_TYPE_V, 0x14},
++	{IMX258_REG_SCALE_MODE, 1},
++	{IMX258_REG_SCALE_M, 64},
++	{IMX258_REG_DIG_CROP_IMAGE_HEIGHT, IMX258_16_9_HEIGHT / 4},
++	{IMX258_REG_X_OUT_SIZE, 1048},
++	{IMX258_REG_Y_OUT_SIZE, IMX258_16_9_HEIGHT / 4},
++};
++
+ struct imx258_variant_cfg {
+ 	const struct cci_reg_sequence *regs;
+ 	unsigned int num_regs;
+@@ -610,6 +659,23 @@ static const struct imx258_mode supported_modes[] = {
+ 			.height = 3120,
+ 		},
+ 	},
++	{
++		.width = 4208,
++		.height = 2368,
++		.vts_def = IMX258_VTS_30FPS,
++		.vts_min = IMX258_16_9_VTS_MIN,
++		.reg_list = {
++			.num_of_regs = ARRAY_SIZE(mode_4208x2368_regs),
++			.regs = mode_4208x2368_regs,
++		},
++		.link_freq_index = IMX258_LINK_FREQ_1267MBPS,
++		.crop = {
++			.left = IMX258_PIXEL_ARRAY_LEFT,
++			.top = IMX258_PIXEL_ARRAY_TOP + IMX258_16_9_TOP,
++			.width = 4208,
++			.height = IMX258_16_9_HEIGHT,
++		},
++	},
+ 	{
+ 		.width = 2104,
+ 		.height = 1560,
+@@ -627,6 +693,23 @@ static const struct imx258_mode supported_modes[] = {
+ 			.height = 3120,
+ 		},
+ 	},
++	{
++		.width = 2104,
++		.height = 1184,
++		.vts_def = IMX258_VTS_30FPS,
++		.vts_min = IMX258_16_9_BIN2_VTS_MIN,
++		.reg_list = {
++			.num_of_regs = ARRAY_SIZE(mode_2104_1184_regs),
++			.regs = mode_2104_1184_regs,
++		},
++		.link_freq_index = IMX258_LINK_FREQ_1267MBPS,
++		.crop = {
++			.left = IMX258_PIXEL_ARRAY_LEFT,
++			.top = IMX258_PIXEL_ARRAY_TOP + IMX258_16_9_TOP,
++			.width = 4208,
++			.height = IMX258_16_9_HEIGHT,
++		},
++	},
+ 	{
+ 		.width = 1048,
+ 		.height = 780,
+@@ -643,6 +726,22 @@ static const struct imx258_mode supported_modes[] = {
+ 			.width = 4208,
+ 			.height = 3120,
+ 		},
++	},	{
++		.width = 1048,
++		.height = 592,
++		.vts_def = IMX258_VTS_30FPS,
++		.vts_min = IMX258_16_9_BIN4_VTS_MIN,
++		.reg_list = {
++			.num_of_regs = ARRAY_SIZE(mode_1048_592_regs),
++			.regs = mode_1048_592_regs,
++		},
++		.link_freq_index = IMX258_LINK_FREQ_1267MBPS,
++		.crop = {
++			.left = IMX258_PIXEL_ARRAY_LEFT,
++			.top = IMX258_PIXEL_ARRAY_TOP + IMX258_16_9_TOP,
++			.width = 4208,
++			.height = IMX258_16_9_HEIGHT,
++		},
+ 	},
+ };
+ 
+-- 
+2.56.0
+

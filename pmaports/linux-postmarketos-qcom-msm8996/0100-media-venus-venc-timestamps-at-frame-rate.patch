@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 22:25:30 -0600
+Subject: [PATCH] media: venus: venc: Give the firmware timestamps at the frame
+ rate
+
+The encoder firmware takes the bit budget of each frame from the input
+timestamps, also in its constant frame rate modes. The driver hands it
+the timestamps userspace set, but the stateful encoder interface only
+asks for them to be copied to the encoded frame, and GStreamer uses
+them as frame tags: frame n gets n seconds. The firmware then assumes
+one frame per second and the bitrate control does nothing. Asked for
+40 Mbit/s at 30 fps, a 2160p camera stream came out at 131 Mbit/s,
+about 2 MB per frame.
+
+When the rate control has a constant frame rate, give the firmware
+timestamps that advance by the frame interval set with S_PARM. Keep the
+userspace ones in the timestamp table the decoder uses and put them
+back on the encoded frames. The variable frame rate modes keep getting
+the userspace timestamps.
+
+Tested on an APQ8096 tablet (Samsung Galaxy Tab S3): the same stream
+now gets 157 KB per frame (40 Mbit/s at 30 fps is 163 KB), with the
+GStreamer timestamps on the encoded frames.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/media/platform/qcom/venus/core.h    |  4 ++++
+ drivers/media/platform/qcom/venus/helpers.c | 26 ++++++++++++++++-----
+ drivers/media/platform/qcom/venus/venc.c    |  7 ++++++
+ 3 files changed, 31 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/venus/core.h b/drivers/media/platform/qcom/venus/core.h
+index e5964cf67c62..1c3c3af154b9 100644
+--- a/drivers/media/platform/qcom/venus/core.h
++++ b/drivers/media/platform/qcom/venus/core.h
+@@ -419,6 +419,8 @@ enum venus_inst_modes {
+  * @payloads:		cache plane payload to use it for clock/BW scaling
+  * @fps:		holds current FPS
+  * @timeperframe:	holds current time per frame structure
++ * @enc_fw_ts:	encoder: give the firmware timestamps at the frame rate
++ * @enc_fw_ts_us:	encoder: the next of these timestamps
+  * @fmt_out:	a reference to output format structure
+  * @fmt_cap:	a reference to capture format structure
+  * @num_input_bufs:	holds number of input buffers
+@@ -490,6 +492,8 @@ struct venus_inst {
+ 	unsigned long payloads[VIDEO_MAX_FRAME];
+ 	u64 fps;
+ 	struct v4l2_fract timeperframe;
++	bool enc_fw_ts;
++	u64 enc_fw_ts_us;
+ 	const struct venus_format *fmt_out;
+ 	const struct venus_format *fmt_cap;
+ 	unsigned int num_input_bufs;
+diff --git a/drivers/media/platform/qcom/venus/helpers.c b/drivers/media/platform/qcom/venus/helpers.c
+index c0bb20e3f6dd..bdb834994a53 100644
+--- a/drivers/media/platform/qcom/venus/helpers.c
++++ b/drivers/media/platform/qcom/venus/helpers.c
+@@ -445,12 +445,12 @@ static void return_buf_error(struct venus_inst *inst,
+ }
+ 
+ static void
+-put_ts_metadata(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf)
++put_ts_metadata(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf,
++		u64 ts_us)
+ {
+ 	struct vb2_buffer *vb = &vbuf->vb2_buf;
+ 	unsigned int i;
+ 	int slot = -1;
+-	u64 ts_us = vb->timestamp;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(inst->tss); i++) {
+ 		if (!inst->tss[i].used) {
+@@ -464,8 +464,6 @@ put_ts_metadata(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf)
+ 		return;
+ 	}
+ 
+-	do_div(ts_us, NSEC_PER_USEC);
+-
+ 	inst->tss[slot].used = true;
+ 	inst->tss[slot].flags = vbuf->flags;
+ 	inst->tss[slot].tc = vbuf->timecode;
+@@ -519,8 +517,24 @@ session_process_buf(struct venus_inst *inst, struct vb2_v4l2_buffer *vbuf)
+ 		if (vbuf->flags & V4L2_BUF_FLAG_LAST || !fdata.filled_len)
+ 			fdata.flags |= HFI_BUFFERFLAG_EOS;
+ 
+-		if (inst->session_type == VIDC_SESSION_TYPE_DEC)
+-			put_ts_metadata(inst, vbuf);
++		if (inst->session_type == VIDC_SESSION_TYPE_DEC) {
++			put_ts_metadata(inst, vbuf, fdata.timestamp);
++		} else if (inst->enc_fw_ts && fdata.filled_len) {
++			/*
++			 * The encoder firmware takes the bit budget of a frame
++			 * from the input timestamps, also in its constant frame
++			 * rate modes, while userspace may use them as plain
++			 * frame tags (GStreamer gives frame n the timestamp n
++			 * seconds). Give it timestamps at the frame rate and
++			 * keep the userspace ones for the encoded frame.
++			 */
++			u64 step = inst->timeperframe.numerator * (u64)USEC_PER_SEC;
++
++			do_div(step, inst->timeperframe.denominator);
++			fdata.timestamp = inst->enc_fw_ts_us;
++			inst->enc_fw_ts_us += step;
++			put_ts_metadata(inst, vbuf, fdata.timestamp);
++		}
+ 
+ 		venus_pm_load_scale(inst);
+ 	} else if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+diff --git a/drivers/media/platform/qcom/venus/venc.c b/drivers/media/platform/qcom/venus/venc.c
+index 511f29e7ec6a..94809d5300f1 100644
+--- a/drivers/media/platform/qcom/venus/venc.c
++++ b/drivers/media/platform/qcom/venus/venc.c
+@@ -839,6 +839,9 @@ static int venc_set_properties(struct venus_inst *inst)
+ 	if (ret)
+ 		return ret;
+ 
++	inst->enc_fw_ts = rate_control != HFI_RATE_CONTROL_VBR_VFR &&
++			  rate_control != HFI_RATE_CONTROL_CBR_VFR;
++
+ 	if (rate_control == HFI_RATE_CONTROL_CQ && ctr->const_quality) {
+ 		struct hfi_heic_frame_quality quality = {};
+ 
+@@ -1280,6 +1283,8 @@ static int venc_start_streaming(struct vb2_queue *q, unsigned int count)
+ 
+ 	inst->sequence_cap = 0;
+ 	inst->sequence_out = 0;
++	inst->enc_fw_ts_us = 0;
++	memset(inst->tss, 0, sizeof(inst->tss));
+ 
+ 	ret = venc_pm_get(inst);
+ 	if (ret)
+@@ -1386,6 +1391,8 @@ static void venc_buf_done(struct venus_inst *inst, unsigned int buf_type,
+ 		vb2_set_plane_payload(vb, 0, bytesused + data_offset);
+ 		vb->planes[0].data_offset = data_offset;
+ 		vb->timestamp = timestamp_us * NSEC_PER_USEC;
++		if (inst->enc_fw_ts)
++			venus_helper_get_ts_metadata(inst, timestamp_us, vbuf);
+ 		vbuf->sequence = inst->sequence_cap++;
+ 		if ((vbuf->flags & V4L2_BUF_FLAG_LAST) &&
+ 		    inst->enc_state == VENUS_ENC_STATE_DRAIN) {
+-- 
+2.56.0
+

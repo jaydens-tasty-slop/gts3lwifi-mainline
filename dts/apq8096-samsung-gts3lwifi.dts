@@ -14,8 +14,9 @@
  * gauge, charger, MUIC and flash LED (torch), S2MM005 USB Type-C/PD (sink),
  * accelerometer, gyroscope and magnetometer (through the SLPI sensor core),
  * CPU/cluster/system idle. The Book Cover Keyboard (no hotplug yet) and the
- * panel's temperature input have test DTs; cameras, the light sensor and
- * the cover's hall sensor are not here yet.
+ * panel's temperature input have test DTs; the cameras are described but
+ * not yet tested; the light sensor and the cover's hall sensor are not
+ * here yet.
  *
  * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
  * from the device (apnhlos and modem partitions), under
@@ -364,6 +365,38 @@
 	};
 
 	/*
+	 * Camera core supplies: switched regulators fed from S3, enabled by
+	 * CAM_CORE_EN (rear, TLMM 9) and CAM_VDIG (front, TLMM 8) in the
+	 * downstream camera@0 and camera@2 nodes. Their output voltage is
+	 * not documented downstream; 1.2 V is what both sensors take.
+	 */
+	cam_rear_vdig: regulator-cam-rear-vdig {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_rear_vdig_1p2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		gpio = <&tlmm 9 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&vreg_s3a_1p3>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_rear_vdig_en_default>;
+	};
+
+	cam_front_vdig: regulator-cam-front-vdig {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_front_vdig_1p2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		gpio = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&vreg_s3a_1p3>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_front_vdig_en_default>;
+	};
+
+	/*
 	 * Volume Up and Home (downstream gpio_keys in msm8996-sec-common.dtsi:
 	 * PM8994 GPIO 3 and 2, active low, 15 ms debounce, Home a wakeup
 	 * source). Volume Down is the PON RESIN input below, Power the PON
@@ -564,6 +597,7 @@
 		vdd_l9_l10_l18_l22-supply = <&vph_pwr>;
 		vdd_l13_l19_l23_l24-supply = <&vph_pwr>;
 		vdd_l14_l15-supply = <&vreg_s5a_2p15>;
+		vdd_l17_l29-supply = <&vph_pwr>;
 		vdd_l20_l21-supply = <&vph_pwr>;
 		vdd_lvs1_2-supply = <&vreg_s4a_1p8>;
 
@@ -590,6 +624,13 @@
 			regulator-name = "vreg_s5a_2p15";
 			regulator-min-microvolt = <2150000>;
 			regulator-max-microvolt = <2150000>;
+		};
+
+		/* Camera I/O: both sensors, the rear lens driver */
+		vreg_lvs1a_1p8: lvs1 {
+			regulator-name = "vreg_lvs1a_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
 		};
 
 		/*
@@ -636,6 +677,13 @@
 			regulator-allow-set-load;
 		};
 
+		/* Rear camera lens driver (downstream cam_vaf) */
+		vreg_l17a_2p8: l17 {
+			regulator-name = "vreg_l17a_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+		};
+
 		/*
 		 * 3.3 V on this board (downstream overrides msm8996's 2.7-2.9 V):
 		 * touch controller analog supply (tsp_avdd), also requested by
@@ -666,6 +714,13 @@
 			regulator-system-load = <800000>;
 		};
 
+		/* Front camera analog (downstream camera@2 cam_vana) */
+		vreg_l23a_2p8: l23 {
+			regulator-name = "vreg_l23a_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+		};
+
 		/* USB2 PHY D+/D- 3.075 V (downstream vdda33) */
 		vreg_l24a_3p075: l24 {
 			regulator-name = "vreg_l24a_3p075";
@@ -679,6 +734,13 @@
 			regulator-min-microvolt = <925000>;
 			regulator-max-microvolt = <925000>;
 			regulator-allow-set-load;
+		};
+
+		/* Rear camera analog (downstream camera@0 cam_vana) */
+		vreg_l29a_2p8: l29 {
+			regulator-name = "vreg_l29a_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
 		};
 
 		/* QCA6174 crystal 1.8 V, not managed by ath10k */
@@ -1334,6 +1396,25 @@
  * these too, but they are the BLSP2 QUP2 I2C pins, so use the controller.
  * Its alert line (PM8994 GPIO 1) is not used; the driver polls.
  */
+/*
+ * Rear camera lens: Dongwoon DW9807 voice coil driver, downstream
+ * actuator@18 on i2c_7. The module's calibration EEPROM shares the bus at
+ * 0x58 (downstream eeprom@50, 0x1200 bytes, 16-bit addressing); it has
+ * no binding yet.
+ */
+&blsp2_i2c1 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	rear_lens: camera-lens@c {
+		compatible = "dongwoon,dw9807-vcm";
+		reg = <0x0c>;
+
+		vdd-supply = <&vreg_l17a_2p8>;
+		vio-supply = <&vreg_lvs1a_1p8>;
+	};
+};
+
 &blsp2_i2c2 {
 	clock-frequency = <100000>;
 	status = "okay";
@@ -1419,6 +1500,113 @@
 		touchscreen-y-mm = <147>;
 		touchscreen-inverted-x;
 		touchscreen-inverted-y;
+	};
+};
+
+/*
+ * Cameras (downstream msm8996-camera-sensor-gts3llte-r00.dtsi):
+ *   rear:  Sony IMX258, CCI master 0, CSIPHY0, 4 lanes, MCLK0,
+ *          reset TLMM 30, mount angle 90
+ *   front: Samsung S5K5E3, CCI master 1, CSIPHY2, 2 lanes, MCLK2,
+ *          reset TLMM 40, mount angle 270
+ * Both take a 24 MHz MCLK.
+ */
+&camss {
+	vdda-supply = <&vreg_l2a_1p25>;
+
+	status = "okay";
+
+	ports {
+		port@0 {
+			reg = <0>;
+
+			csiphy0_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&rear_camera_ep>;
+			};
+		};
+
+		port@2 {
+			reg = <2>;
+
+			csiphy2_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1>;
+				remote-endpoint = <&front_camera_ep>;
+			};
+		};
+	};
+};
+
+&cci {
+	status = "okay";
+};
+
+&cci_i2c0 {
+	clock-frequency = <1000000>;
+
+	camera@1a {
+		compatible = "sony,imx258";
+		reg = <0x1a>;
+
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+
+		vana-supply = <&vreg_l29a_2p8>;
+		vdig-supply = <&cam_rear_vdig>;
+		vif-supply = <&vreg_lvs1a_1p8>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_rear_default>;
+
+		orientation = <1>;
+		rotation = <90>;
+		lens-focus = <&rear_lens>;
+
+		port {
+			rear_camera_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <636000000 321000000>;
+				remote-endpoint = <&csiphy0_ep>;
+			};
+		};
+	};
+};
+
+&cci_i2c1 {
+	clock-frequency = <1000000>;
+
+	camera@10 {
+		compatible = "samsung,s5k5e3";
+		reg = <0x10>;
+
+		clocks = <&mmcc CAMSS_MCLK2_CLK>;
+		assigned-clocks = <&mmcc CAMSS_MCLK2_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		reset-gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
+
+		vdda-supply = <&vreg_l23a_2p8>;
+		vddd-supply = <&cam_front_vdig>;
+		vddio-supply = <&vreg_lvs1a_1p8>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_front_default>;
+
+		orientation = <0>;
+		rotation = <270>;
+
+		port {
+			front_camera_ep: endpoint {
+				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <448000000>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
 	};
 };
 
@@ -1672,6 +1860,52 @@
 	/* microSD card detect, downstream sdc2_cd_on */
 	sdc2_cd_default: sdc2-cd-default-state {
 		pins = "gpio95";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_rear_default: cam-rear-default-state {
+		mclk-pins {
+			pins = "gpio13";
+			function = "cam_mclk";
+			drive-strength = <4>;
+			bias-disable;
+		};
+
+		reset-pins {
+			pins = "gpio30";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	cam_rear_vdig_en_default: cam-rear-vdig-en-state {
+		pins = "gpio9";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_front_default: cam-front-default-state {
+		mclk-pins {
+			pins = "gpio15";
+			function = "cam_mclk";
+			drive-strength = <4>;
+			bias-disable;
+		};
+
+		reset-pins {
+			pins = "gpio40";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	cam_front_vdig_en_default: cam-front-vdig-en-state {
+		pins = "gpio8";
 		function = "gpio";
 		drive-strength = <2>;
 		bias-disable;

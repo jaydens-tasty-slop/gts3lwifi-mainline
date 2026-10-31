@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 22:46:24 -0600
+Subject: [PATCH] media: venus: venc: Add RGBA input on HFI v3
+
+The HFI v3 firmware of msm8996 encodes from RGBA8888 frames and converts
+them to YUV itself, although it does not list the format among the raw
+formats it reports. Offer V4L2_PIX_FMT_RGBA32 on the encoder's output
+queue with HFI v3, in the layout the firmware reads: one plane, a stride
+of the line length aligned to 128 bytes, and a buffer that holds the
+height aligned to 32 lines.
+
+This lets frames rendered by the GPU, such as those of the libcamera
+software ISP, go to the encoder as dma-bufs without a conversion pass.
+
+Tested on a Samsung Galaxy Tab S3 (msm8996): RGBA colour bars encode with
+the right colours, and 3840x2176 RGBA frames from the libcamera software
+ISP, imported as dma-bufs, encode at 27 fps in H.264.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/media/platform/qcom/venus/core.h    |  1 +
+ drivers/media/platform/qcom/venus/helpers.c | 23 +++++++++++++++++
+ drivers/media/platform/qcom/venus/venc.c    | 28 ++++++++++++++++++---
+ 3 files changed, 49 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/venus/core.h b/drivers/media/platform/qcom/venus/core.h
+index 1c3c3af154b9..93c65445c0ab 100644
+--- a/drivers/media/platform/qcom/venus/core.h
++++ b/drivers/media/platform/qcom/venus/core.h
+@@ -118,6 +118,7 @@ enum venus_fmt {
+ 	VENUS_FMT_MPEG2			= 11,
+ 	VENUS_FMT_H263			= 12,
+ 	VENUS_FMT_XVID			= 13,
++	VENUS_FMT_RGBA32		= 14,
+ };
+ 
+ struct venus_format {
+diff --git a/drivers/media/platform/qcom/venus/helpers.c b/drivers/media/platform/qcom/venus/helpers.c
+index bdb834994a53..03f8fc596963 100644
+--- a/drivers/media/platform/qcom/venus/helpers.c
++++ b/drivers/media/platform/qcom/venus/helpers.c
+@@ -624,6 +624,8 @@ static u32 to_hfi_raw_fmt(u32 v4l2_fmt)
+ 		return HFI_COLOR_FORMAT_YUV420_TP10_UBWC;
+ 	case V4L2_PIX_FMT_P010:
+ 		return HFI_COLOR_FORMAT_P010;
++	case V4L2_PIX_FMT_RGBA32:
++		return HFI_COLOR_FORMAT_RGBA8888;
+ 	default:
+ 		break;
+ 	}
+@@ -975,6 +977,14 @@ static u32 get_framesize_raw_nv12(u32 width, u32 height)
+ 	return ALIGN(size, SZ_4K);
+ }
+ 
++static u32 get_framesize_raw_rgba8888(u32 width, u32 height)
++{
++	u32 stride = ALIGN(width * 4, 128);
++	u32 sclines = ALIGN(height, 32);
++
++	return ALIGN(stride * sclines, SZ_4K);
++}
++
+ static u32 get_framesize_raw_nv12_ubwc(u32 width, u32 height)
+ {
+ 	u32 y_meta_stride, y_meta_plane;
+@@ -1081,6 +1091,8 @@ u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height)
+ 		return get_framesize_raw_nv12(width, height);
+ 	case HFI_COLOR_FORMAT_NV12_UBWC:
+ 		return get_framesize_raw_nv12_ubwc(width, height);
++	case HFI_COLOR_FORMAT_RGBA8888:
++		return get_framesize_raw_rgba8888(width, height);
+ 	case HFI_COLOR_FORMAT_P010:
+ 		return get_framesize_raw_p010(width, height);
+ 	case HFI_COLOR_FORMAT_P010_UBWC:
+@@ -1866,6 +1878,17 @@ int venus_helper_set_stride(struct venus_inst *inst,
+ 	struct hfi_uncompressed_plane_actual_info plane_actual_info;
+ 
+ 	plane_actual_info.buffer_type = HFI_BUFFER_INPUT;
++
++	if (inst->fmt_out->pixfmt == V4L2_PIX_FMT_RGBA32) {
++		plane_actual_info.num_planes = 1;
++		plane_actual_info.plane_format[0].actual_stride =
++			ALIGN(width * 4, 128);
++		plane_actual_info.plane_format[0].actual_plane_buffer_height =
++			height;
++
++		return hfi_session_set_property(inst, ptype, &plane_actual_info);
++	}
++
+ 	plane_actual_info.num_planes = 2;
+ 	plane_actual_info.plane_format[0].actual_stride = width;
+ 	plane_actual_info.plane_format[0].actual_plane_buffer_height = height;
+diff --git a/drivers/media/platform/qcom/venus/venc.c b/drivers/media/platform/qcom/venus/venc.c
+index 94809d5300f1..9d0fb8a630c6 100644
+--- a/drivers/media/platform/qcom/venus/venc.c
++++ b/drivers/media/platform/qcom/venus/venc.c
+@@ -37,6 +37,11 @@ static const struct venus_format venc_formats[] = {
+ 		.num_planes = 1,
+ 		.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE,
+ 	},
++	[VENUS_FMT_RGBA32] = {
++		.pixfmt = V4L2_PIX_FMT_RGBA32,
++		.num_planes = 1,
++		.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE,
++	},
+ 	[VENUS_FMT_H264] = {
+ 		.pixfmt = V4L2_PIX_FMT_H264,
+ 		.num_planes = 1,
+@@ -64,6 +69,15 @@ static const struct venus_format venc_formats[] = {
+ 	},
+ };
+ 
++/*
++ * The firmware does not list RGBA8888 among its raw formats, but the HFI v3
++ * one encodes from it and converts it to YUV itself.
++ */
++static bool venc_check_raw_format(struct venus_inst *inst, u32 pixfmt)
++{
++	return pixfmt != V4L2_PIX_FMT_RGBA32 || IS_V3(inst->core);
++}
++
+ static const struct venus_format *
+ find_format(struct venus_inst *inst, u32 pixfmt, u32 type)
+ {
+@@ -83,6 +97,10 @@ find_format(struct venus_inst *inst, u32 pixfmt, u32 type)
+ 	    !venus_helper_check_codec(inst, fmt[i].pixfmt))
+ 		return NULL;
+ 
++	if (type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE &&
++	    !venc_check_raw_format(inst, fmt[i].pixfmt))
++		return NULL;
++
+ 	return &fmt[i];
+ }
+ 
+@@ -101,8 +119,10 @@ find_format_by_index(struct venus_inst *inst, unsigned int index, u32 type)
+ 
+ 		if (fmt[i].type != type)
+ 			continue;
+-		valid = type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE ||
+-			venus_helper_check_codec(inst, fmt[i].pixfmt);
++		if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
++			valid = venus_helper_check_codec(inst, fmt[i].pixfmt);
++		else
++			valid = venc_check_raw_format(inst, fmt[i].pixfmt);
+ 		if (k == index && valid)
+ 			break;
+ 		if (valid)
+@@ -213,7 +233,9 @@ venc_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
+ 					     pixmp->height);
+ 	pfmt[0].sizeimage = max(ALIGN(pfmt[0].sizeimage, SZ_4K), sizeimage);
+ 
+-	if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
++	if (pixmp->pixelformat == V4L2_PIX_FMT_RGBA32)
++		pfmt[0].bytesperline = ALIGN(pixmp->width * 4, 128);
++	else if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
+ 		pfmt[0].bytesperline = ALIGN(pixmp->width, 128);
+ 	else
+ 		pfmt[0].bytesperline = 0;
+-- 
+2.56.0
+

@@ -56,8 +56,8 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Flash LED | Works | as a torch |
 | **Multimedia** | | |
 | Speakers (4), headphones, microphones | Works | headphone jack detection and headset mic not yet ([audio](docs/audio.md)) |
-| Video decode / encode (Venus) | Partial | H.264, VP8, VP9 decode; H.264 encode; HEVC decode fails ([venus](docs/venus.md)) |
-| Cameras (front, rear) | Not yet | planned |
+| Video decode / encode (Venus) | Partial | H.264, VP8, VP9 decode; H.264 and HEVC encode, 4K30 HEVC from the camera; HEVC decode fails ([venus](docs/venus.md)) |
+| Cameras (front, rear) | Works | rear 13 MP with autofocus, front 5 MP, through libcamera (`pmaports/libcamera` for AF) ([camera](docs/camera.md)) |
 | **Sensors** | | |
 | Accelerometer, gyroscope, magnetometer | Works | auto-rotate with iio-sensor-proxy ([sensors](docs/sensors.md)) |
 | Light sensor | Works | lux through iio-sensor-proxy, for auto-brightness (patch 0077, [sensors](docs/sensors.md)) |

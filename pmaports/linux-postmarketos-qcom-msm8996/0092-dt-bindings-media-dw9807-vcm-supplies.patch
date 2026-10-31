@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 13:30:52 -0600
+Subject: [PATCH] dt-bindings: media: i2c: dongwoon,dw9807-vcm: add the
+ supplies
+
+The binding assumes that the VCM driver is always powered. On the
+Samsung Galaxy Tab S3 it has a 2.8 V supply and a 1.8 V supply for its
+I2C interface, both of which are switched off while the camera is not
+in use.
+
+Document both supplies. They are optional, as existing users have no
+switchable supplies to describe.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../bindings/media/i2c/dongwoon,dw9807-vcm.yaml           | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/dongwoon,dw9807-vcm.yaml b/Documentation/devicetree/bindings/media/i2c/dongwoon,dw9807-vcm.yaml
+index aae246ca3fcf..3ae491224f42 100644
+--- a/Documentation/devicetree/bindings/media/i2c/dongwoon,dw9807-vcm.yaml
++++ b/Documentation/devicetree/bindings/media/i2c/dongwoon,dw9807-vcm.yaml
+@@ -21,6 +21,12 @@ properties:
+   reg:
+     maxItems: 1
+ 
++  vdd-supply:
++    description: VCM driver supply.
++
++  vio-supply:
++    description: I2C interface supply.
++
+ required:
+   - compatible
+   - reg
+@@ -36,6 +42,8 @@ examples:
+         lens@e {
+             compatible = "dongwoon,dw9807-vcm";
+             reg = <0x0e>;
++            vdd-supply = <&vreg_2p8>;
++            vio-supply = <&vreg_1p8>;
+         };
+     };
+ ...
+-- 
+2.56.0
+

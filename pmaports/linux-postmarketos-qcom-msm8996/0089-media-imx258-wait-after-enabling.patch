@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Muzaffer Kadir <muzafferkadir@mainlining.org>
+Date: Sat, 29 Aug 2026 16:06:33 +0300
+Subject: [PATCH] media: i2c: imx258: Add wait after enabling
+
+After enabling the device, a delay is required before the sensor is
+ready for CCI access. 0.4ms delay needed between enabling and
+reading the ID register over CCI.
+
+Link: https://lore.kernel.org/phone-devel/apF5oxsCf7MJt1lk@kekkonen.localdomain/T/#md6a0411e81a2e3a563c935348f2fb4f3d52df64f
+Signed-off-by: Muzaffer Kadir <muzafferkadir@mainlining.org>
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+---
+ drivers/media/i2c/imx258.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/media/i2c/imx258.c b/drivers/media/i2c/imx258.c
+index e50dcfd830f5..61faa8daf5eb 100644
+--- a/drivers/media/i2c/imx258.c
++++ b/drivers/media/i2c/imx258.c
+@@ -1117,6 +1117,7 @@ static int imx258_power_on(struct device *dev)
+ 		dev_err(dev, "failed to enable clock\n");
+ 		regulator_bulk_disable(IMX258_NUM_SUPPLIES, imx258->supplies);
+ 	}
++	fsleep(400);
+ 
+ 	return ret;
+ }
+-- 
+2.56.0
+

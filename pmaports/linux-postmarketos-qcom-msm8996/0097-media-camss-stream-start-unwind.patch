@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 21:14:19 -0600
+Subject: [PATCH] media: qcom: camss: Stop the started subdevs when stream
+ start fails
+
+video_start_streaming() enables the subdevs from the video node
+towards the sensor. When one of them fails, the error path only stops
+the media pipeline, so the subdevs already enabled stay streaming. The
+next start then hits the s_stream() state check in call_s_stream() for
+each of them (one WARNING per subdev), leaves the hardware as it was,
+and the capture hangs in VIDIOC_DQBUF with "VFE sof timeout", "VFE reg
+update timeout" and "VFE halt timeout" errors. Only reloading the
+driver recovers.
+
+Disable the subdevs enabled before the failing one, in the same order
+video_stop_streaming() uses.
+
+Tested on a Galaxy Tab S3 (APQ8096) with imx258 start failures forced
+(CCI kept runtime active across sensor power cycles, see the CCI
+timeout fix): the stream after each failure starts and captures
+normally. The failed start itself now also logs "VFE sof timeout" and
+"VFE reg update timeout" while the VFE that never got a frame is
+stopped.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../media/platform/qcom/camss/camss-video.c    | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-video.c b/drivers/media/platform/qcom/camss/camss-video.c
+index 831486e14754..f4f0e8c5bc81 100644
+--- a/drivers/media/platform/qcom/camss/camss-video.c
++++ b/drivers/media/platform/qcom/camss/camss-video.c
+@@ -244,7 +244,7 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
+ {
+ 	struct camss_video *video = vb2_get_drv_priv(q);
+ 	struct video_device *vdev = &video->vdev;
+-	struct media_entity *entity;
++	struct media_entity *entity, *failed;
+ 	struct media_pad *pad;
+ 	struct v4l2_subdev *subdev;
+ 	int ret;
+@@ -274,11 +274,25 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
+ 
+ 		ret = v4l2_subdev_call(subdev, video, s_stream, 1);
+ 		if (ret < 0 && ret != -ENOIOCTLCMD)
+-			goto error;
++			goto error_stream;
+ 	}
+ 
+ 	return 0;
+ 
++error_stream:
++	/* Stop the subdevs started before the one that failed */
++	failed = entity;
++	entity = &vdev->entity;
++	while (1) {
++		pad = media_pad_remote_pad_first(&entity->pads[0]);
++		entity = pad->entity;
++		if (entity == failed)
++			break;
++
++		subdev = media_entity_to_v4l2_subdev(entity);
++		v4l2_subdev_call(subdev, video, s_stream, 0);
++	}
++
+ error:
+ 	video_device_pipeline_stop(vdev);
+ 
+-- 
+2.56.0
+

@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 23:39:48 -0600
+Subject: [PATCH] media: qcom: camss: vfe: Toggle the frame drop period once
+ per update
+
+The gen1 VFE restarts an output's frame drop pattern on the frame where
+a new frame drop period takes effect, which is why
+vfe_output_frame_drop() toggles the period between two values on each
+call. Called twice before the hardware takes the registers, it puts the
+old period back: the period the hardware sees doesn't change, and the
+pattern carries on from where it was.
+
+That happens when a frame completes with no buffer queued after it, and
+a buffer is queued before the next frame starts:
+vfe_buf_update_wm_on_last() switches the output to single buffer mode
+and vfe_buf_update_wm_on_new() back to continuous mode, each with a
+toggle. With the two frames of the continuous pattern used up, the VFE
+then drops frames until the period ends, 31 frames or a second of video
+at 30 fps. The libcamera simple pipeline, which keeps few buffers
+queued, runs into it every few seconds with a 3840x2160 software ISP
+stream on msm8996.
+
+Toggle the period only once until the register update done interrupt
+shows the hardware took it.
+
+Tested on a Samsung Galaxy Tab S3 (msm8996), with 12 s recordings from
+the IMX258 at 4208x2368 over RDI0, in which the VFE ran down to its
+last buffer 9 to 87 times: without the fix about two thirds of them
+stopped for 1028 ms at least once, with it five had no gap between raw
+frames longer than 91 ms.
+
+Fixes: 4c98a5f57f90 ("media: camss: Add VFE files")
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../media/platform/qcom/camss/camss-vfe-gen1.c   | 16 +++++++++++++---
+ drivers/media/platform/qcom/camss/camss-vfe.h    |  1 +
+ 2 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-vfe-gen1.c b/drivers/media/platform/qcom/camss/camss-vfe-gen1.c
+index d84a375e3318..a9e41f88e4ec 100644
+--- a/drivers/media/platform/qcom/camss/camss-vfe-gen1.c
++++ b/drivers/media/platform/qcom/camss/camss-vfe-gen1.c
+@@ -152,9 +152,17 @@ static void vfe_output_frame_drop(struct vfe_device *vfe,
+ 	u8 drop_period;
+ 	unsigned int i;
+ 
+-	/* We need to toggle update period to be valid on next frame */
+-	output->drop_update_idx++;
+-	output->drop_update_idx %= VFE_FRAME_DROP_UPDATES;
++	/*
++	 * We need to toggle update period to be valid on next frame. Toggle
++	 * it once per register update: toggled again before the hardware
++	 * takes it, the period would not change and the pattern would not
++	 * restart, which drops frames until the current period ends.
++	 */
++	if (!output->gen1.drop_update_pending) {
++		output->drop_update_idx++;
++		output->drop_update_idx %= VFE_FRAME_DROP_UPDATES;
++		output->gen1.drop_update_pending = 1;
++	}
+ 	drop_period = VFE_FRAME_DROP_VAL + output->drop_update_idx;
+ 
+ 	for (i = 0; i < output->wm_num; i++) {
+@@ -320,6 +328,7 @@ static int vfe_get_output(struct vfe_line *line)
+ 	}
+ 
+ 	output->drop_update_idx = 0;
++	output->gen1.drop_update_pending = 0;
+ 
+ 	spin_unlock_irqrestore(&vfe->output_lock, flags);
+ 
+@@ -549,6 +558,7 @@ static void vfe_isr_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
+ 	vfe->res->hw_ops->reg_update_clear(vfe, line_id);
+ 
+ 	output = &line->output;
++	output->gen1.drop_update_pending = 0;
+ 
+ 	if (output->wait_reg_update) {
+ 		output->wait_reg_update = 0;
+diff --git a/drivers/media/platform/qcom/camss/camss-vfe.h b/drivers/media/platform/qcom/camss/camss-vfe.h
+index a2188a81bcfc..d5b79baa01df 100644
+--- a/drivers/media/platform/qcom/camss/camss-vfe.h
++++ b/drivers/media/platform/qcom/camss/camss-vfe.h
+@@ -70,6 +70,7 @@ struct vfe_output {
+ 		struct {
+ 			int active_buf;
+ 			int wait_sof;
++			int drop_update_pending;
+ 		} gen1;
+ 		struct {
+ 			int active_num;
+-- 
+2.56.0
+

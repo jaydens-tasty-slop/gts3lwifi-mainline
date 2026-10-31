@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 21:14:19 -0600
+Subject: [PATCH] media: qcom: camss: ispif: Power all VFEs for the ISPIF reset
+
+On MSM8996 the ISPIF reset for VFE0 stops completing once VFE1 has
+been powered on and off again. Any stream that powers VFE1 (through
+VFE1 itself, or through CSID1, whose power-on also powers VFE1) makes
+the next VFE0 stream fail:
+
+  qcom-camss a34000.camss: ISPIF for VFE0 reset timeout
+  qcom-camss a34000.camss: Failed to power up pipeline: -5
+
+The reset-done bit never shows up in the raw interrupt status, even a
+second after the timeout, although the software register part of the
+reset has taken effect. Once the failed attempt has let the CAMSS
+power domain switch off, the next attempt works, so every other stream
+start fails when two cameras on different CSIDs take turns.
+
+ispif_reset() powers only the VFE whose half of the ISPIF it resets.
+Power all VFEs for the reset instead. Samsung's GPL kernel for the
+Galaxy Tab S3 does the same: msm_ispif_reset_hw() in
+drivers/media/platform/msm/camera_v2/ispif/msm_ispif.c enables both
+VFE power domains and both VFE clock sets around the ISPIF reset.
+
+Tested on a Galaxy Tab S3 (APQ8096): 40 raw captures alternating
+between CSID0/VFE0 and CSID1 or VFE1 all work; without the change every
+VFE0 stream after one that used VFE1 failed.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../media/platform/qcom/camss/camss-ispif.c   | 23 +++++++++++++------
+ 1 file changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-ispif.c b/drivers/media/platform/qcom/camss/camss-ispif.c
+index 43d3b133f773..232b92308aa0 100644
+--- a/drivers/media/platform/qcom/camss/camss-ispif.c
++++ b/drivers/media/platform/qcom/camss/camss-ispif.c
+@@ -315,24 +315,33 @@ static int ispif_vfe_reset(struct ispif_device *ispif, u8 vfe_id)
+ /*
+  * ispif_reset - Trigger reset on ISPIF module and wait to complete
+  * @ispif: ISPIF device
++ * @vfe_id: VFE HW module id
+  *
+  * Return 0 on success or a negative error code otherwise
+  */
+ static int ispif_reset(struct ispif_device *ispif, u8 vfe_id)
+ {
+ 	struct camss *camss = ispif->camss;
+-	struct vfe_device *vfe = &camss->vfe[vfe_id];
+-	int ret;
+-
+-	ret = vfe_power_on(vfe);
+-	if (ret)
+-		return ret;
++	int i, ret;
++
++	/*
++	 * On MSM8996, once VFE1 has been powered on and off again, the reset
++	 * of VFE0's half of the ISPIF does not complete while VFE1 is off.
++	 * Keep all VFEs powered for the reset, as the downstream driver does.
++	 */
++	for (i = 0; i < camss->res->vfe_num; i++) {
++		ret = vfe_power_on(&camss->vfe[i]);
++		if (ret)
++			goto power_off;
++	}
+ 
+ 	ret = ispif_vfe_reset(ispif, vfe_id);
+ 	if (ret)
+ 		dev_dbg(camss->dev, "ISPIF Reset failed\n");
+ 
+-	vfe_power_off(vfe);
++power_off:
++	while (i--)
++		vfe_power_off(&camss->vfe[i]);
+ 
+ 	return ret;
+ }
+-- 
+2.56.0
+

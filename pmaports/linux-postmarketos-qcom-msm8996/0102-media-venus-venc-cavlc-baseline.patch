@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 23:18:37 -0600
+Subject: [PATCH] media: venus: venc: Use CAVLC with the Baseline profiles
+
+CABAC is not part of the H.264 Baseline and Constrained Baseline
+profiles, but the encoder passes the entropy mode control on to the
+firmware whatever the profile. Given CABAC with the Baseline profile,
+the msm8996 firmware (VIDEO.VE.4.4-00060) fails fatally on the first
+frame, with an Err_Fatal at venus_venc_host_driver.c:5844 in its SFR
+message, and the session and the core have to be recovered.
+
+Send CAVLC with those profiles, like the 8x8 transform is only enabled
+with the High profiles.
+
+Tested on a Samsung Galaxy Tab S3 (msm8996): GStreamer's v4l2h264enc
+asked for CABAC negotiates the Baseline profile and now encodes with
+CAVLC instead of crashing the firmware; with the Main profile the
+stream uses CABAC.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/media/platform/qcom/venus/venc.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/media/platform/qcom/venus/venc.c b/drivers/media/platform/qcom/venus/venc.c
+index 9d0fb8a630c6..bb36433fe26e 100644
+--- a/drivers/media/platform/qcom/venus/venc.c
++++ b/drivers/media/platform/qcom/venus/venc.c
+@@ -732,6 +732,10 @@ static int venc_set_properties(struct venus_inst *inst)
+ 		entropy.entropy_mode = venc_v4l2_to_hfi(
+ 					  V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE,
+ 					  ctr->h264_entropy_mode);
++		/* CABAC is not part of the Baseline profiles */
++		if (ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE ||
++		    ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE)
++			entropy.entropy_mode = HFI_H264_ENTROPY_CAVLC;
+ 		entropy.cabac_model = HFI_H264_CABAC_MODEL_0;
+ 
+ 		ret = hfi_session_set_property(inst, ptype, &entropy);
+-- 
+2.56.0
+
