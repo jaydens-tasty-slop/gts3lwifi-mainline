@@ -47,17 +47,19 @@ and the registry from the tablet's own partitions into
 
 ## Auto-rotate
 
-iio-sensor-proxy 3.9 works with these trigger-less buffers as they are.
-The driver's mount matrix (`0, -1, 0; -1, 0, 0; 0, 0, 1`) already gives the
-right orientation for this tablet, where the landscape panel is mounted at
-270 degrees and portrait is the natural position:
+iio-sensor-proxy 3.9 works with these trigger-less buffers as they are, but
+the orientation needs a device-specific mount matrix. KDE (and GNOME) turn
+the output by the panel's mount (the landscape panel sits at 270 degrees)
+and the sensor's orientation on top of that, so the accelerometer has to be
+expressed in the panel's own frame. With the SMGR driver's generic matrix
+(`0, -1, 0; -1, 0, 0; 0, 0, 1`) the desktop was rotated 90 degrees too far in
+every position. The device package's udev rule `61-gts3-accel.rules` sets
 
-| Position | iio-sensor-proxy |
-|---|---|
-| portrait, USB port at the bottom | normal |
-| landscape, USB port on the right | right-up |
-| portrait upside down | bottom-up |
-| landscape, USB port on the left | left-up |
+    ACCEL_MOUNT_MATRIX="1, 0, 0; 0, -1, 0; 0, 0, 1"
+
+for `qcom-smgr-accel`, which iio-sensor-proxy prefers over the driver's
+matrix. Confirmed on an SM-T825 at commit 563456e (rotation correct in all
+positions); the SM-T820 has the same board.
 
 If iio-sensor-proxy was installed after the sensors appeared, run
 `udevadm trigger --subsystem-match=iio --action=add` once (or reboot).

@@ -1,0 +1,7 @@
+# Accelerometer orientation for iio-sensor-proxy (and so for KDE/GNOME
+# auto-rotate). The compositor turns the output by the panel's mount (the
+# landscape panel sits at 270 degrees) and the sensor orientation on top, so
+# the accelerometer has to be given in the panel's own frame. This replaces
+# the SMGR driver's generic mount matrix; confirmed on an SM-T825 in all
+# positions (and the SM-T820 shares the board).
+SUBSYSTEM=="iio", ATTR{name}=="qcom-smgr-accel", ENV{ACCEL_MOUNT_MATRIX}="1, 0, 0; 0, -1, 0; 0, 0, 1"
