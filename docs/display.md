@@ -16,7 +16,7 @@ Samsung's `ss_regulator_common.c`). Nothing has been tried on hardware yet.
 | Full mode | 2048x1536, htotal 2720, vtotal 1554, pixel clock 253.6 MHz (msm host halves h-timings per link) |
 | Tearing | TE on TLMM GPIO 10 (`mdp_vsync`), tear scanline 1526 |
 | Commands | DCS, sent on link 0 only (downstream `qcom,dcs-cmd-by-left`), init in LP mode |
-| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"): backlight device, 256 levels over the vendor's 65 steps from 2 to 360 cd/m2 (patch 0042), levels 256-263 for the 8 HBM steps up to 500 cd/m2 (patch 0054) |
+| Brightness | via DCS gamma/AID/ELVSS tables (Samsung "smart dimming"): backlight device, 256 levels over the vendor's 65 steps from 2 to 360 cd/m2 (patch 0042); the 8 HBM steps up to 500 cd/m2 (patch 0054) through the panel's `hbm` attribute (patch 0088) |
 
 GPIOs (all TLMM): reset 143 (high = running), TCON_RDY 45 (input, DDI raises it
 when ready), LCD_LDO_EN 46 (panel 3.3 V), TE 10.
@@ -440,6 +440,16 @@ Round 20 (2026-10-29, same tablet and webcam):
   and the reads equal the stock kernel's. White on the webcam rises with
   every step (camera units 69 at 255, 77 at 256, 84 at 259, 97 at 263),
   and levels 263 and 64 come back after a blank/unblank.
+- **HBM out of the backlight range (patch 0088).** Desktops take
+  `max_brightness` for 100%, so with 263 a slider at full kept the panel
+  in HBM. The backlight now ends at 255 (360 cd/m2), as other panel
+  drivers with an HBM range do, and `/sys/bus/mipi-dsi/devices/*/hbm`
+  selects a step: 0 (default) off, 1-8 replace level 255 with that HBM
+  step while the backlight is at 255
+  (Documentation/ABI/testing/sysfs-bus-mipi-dsi-devices-ams968hh01).
+  Samsung's kernel also leaves the decision to user space: its HBM
+  steps are backlight levels from `hbm_min_level` up, and mDNIe switches
+  to outdoor tuning only from 10000 lux.
 - **Panel orientation (patch 0055).** The tablet is a portrait device
   with a landscape panel: the boot logo and stock Android (which rotates
   the display by 270 degrees, `SF_PRIMARY_DISPLAY_ORIENTATION := 270` in

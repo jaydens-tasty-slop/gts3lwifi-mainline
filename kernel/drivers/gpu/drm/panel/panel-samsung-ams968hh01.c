@@ -39,7 +39,6 @@
 #define AMS968HH01_MAX_LEVEL	255
 #define AMS968HH01_POINTS	9	/* gamma points V255 ... V3 */
 #define AMS968HH01_HBM_STEPS	8
-#define AMS968HH01_MAX_BRIGHTNESS	(AMS968HH01_MAX_LEVEL + AMS968HH01_HBM_STEPS)
 #define AMS968HH01_TEMP_BANDS	3	/* above 0 C, above -20 C, colder */
 #define AMS968HH01_TEMP_PERIOD	(30 * HZ)
 
@@ -56,6 +55,7 @@ struct ams968hh01 {
 	u8 gamma[AMS968HH01_NUM_STEPS][1 + AMS968HH01_GAMMA_LEN];
 	/* high brightness mode: read from the panel with the MTP */
 	bool hbm_valid;
+	unsigned int hbm;	/* HBM step used at the top level, 0 = off */
 	bool hbm_on;		/* HBM ELVSS (B0 70) set since the last reset */
 	u8 elvss_normal;	/* B0 70 outside HBM */
 	u8 elvss_hbm;		/* B0 70 in HBM */
@@ -314,7 +314,7 @@ static const u8 ams968hh01_gamma_nominal[11] = {
 
 /*
  * Brightness. As in the vendor driver, backlight levels 0 to 255 map onto
- * 65 luminance steps from 2 to 360 cd/m2 (levels 256 to 263 are HBM, see
+ * 65 luminance steps from 2 to 360 cd/m2 (HBM goes above that, see
  * below). Each level has its own AID value (register 0x90, the emission
  * duty cycle); each step has its own ELVSS value and gamma table. A step's
  * gamma table is cut for its base luminance, and AID dims that to the
@@ -576,9 +576,12 @@ static const u8 ams968hh01_vt_coeff[16] = {
 
 /* DDI reference voltages (vendor VREG0_REF_L and _H), in 2^-22 V */
 /*
- * High brightness mode: backlight levels 256 to 263, eight steps from 378
- * to 500 cd/m2 above the 360 cd/m2 of level 255. The vendor driver uses
- * them for its outdoor mode. The 500 cd/m2 gamma table is in the panel
+ * High brightness mode: eight steps from 378 to 500 cd/m2 above the
+ * 360 cd/m2 of level 255. The vendor driver takes them as backlight levels
+ * 256 and up, which Android only asks for in its outdoor mode and from
+ * automatic brightness in bright light. Here they stay out of the backlight
+ * range, whose top a desktop takes for 100%: the hbm attribute selects one
+ * for the top level. The 500 cd/m2 gamma table is in the panel
  * (D4 from offset 0x5b, plus the MTP gamma offsets); the steps between are
  * interpolated from the 360 cd/m2 table. AID stays at 360 cd/m2's, ELVSS
  * comes from this table (per temperature band) and the panel (D8 at
@@ -902,10 +905,11 @@ static void ams968hh01_brightness(struct ams968hh01 *panel,
 				  struct mipi_dsi_multi_context *ctx,
 				  unsigned int level)
 {
+	unsigned int hbm = READ_ONCE(panel->hbm);
 	unsigned int s;
 
-	if (level > AMS968HH01_MAX_LEVEL && panel->hbm_valid) {
-		unsigned int h = level - AMS968HH01_MAX_LEVEL - 1;
+	if (level == AMS968HH01_MAX_LEVEL && hbm && panel->hbm_valid) {
+		unsigned int h = hbm - 1;
 
 		ams968hh01_reg_write(ctx, panel->hbm_gamma[h], sizeof(panel->hbm_gamma[h]));
 		ams968hh01_aid(ctx, AMS968HH01_MAX_LEVEL);
@@ -917,7 +921,6 @@ static void ams968hh01_brightness(struct ams968hh01 *panel,
 		ams968hh01_param(ctx, 0x6d, 0x85);	/* CAPS */
 		panel->hbm_on = true;
 	} else {
-		level = min(level, AMS968HH01_MAX_LEVEL);
 		s = ams968hh01_step(level);
 		if (panel->hbm_on) {
 			ams968hh01_param(ctx, 0x70, panel->elvss_normal);
@@ -1174,7 +1177,7 @@ static int ams968hh01_probe(struct mipi_dsi_device *dsi)
 	const struct backlight_properties props = {
 		.type = BACKLIGHT_RAW,
 		.brightness = AMS968HH01_MAX_LEVEL,
-		.max_brightness = AMS968HH01_MAX_BRIGHTNESS,
+		.max_brightness = AMS968HH01_MAX_LEVEL,
 		.power = BACKLIGHT_POWER_OFF,
 	};
 	static const u8 no_mtp[AMS968HH01_GAMMA_LEN];
@@ -1287,6 +1290,39 @@ static void ams968hh01_remove(struct mipi_dsi_device *dsi)
 	drm_panel_remove(&ctx->panel);
 }
 
+static ssize_t hbm_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ams968hh01 *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", READ_ONCE(ctx->hbm));
+}
+
+static ssize_t hbm_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	struct ams968hh01 *ctx = dev_get_drvdata(dev);
+	unsigned int hbm;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &hbm);
+	if (ret)
+		return ret;
+	if (hbm > AMS968HH01_HBM_STEPS)
+		return -EINVAL;
+
+	WRITE_ONCE(ctx->hbm, hbm);
+	ret = backlight_update_status(ctx->bl);
+
+	return ret ?: count;
+}
+static DEVICE_ATTR_RW(hbm);
+
+static struct attribute *ams968hh01_attrs[] = {
+	&dev_attr_hbm.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(ams968hh01);
+
 static const struct of_device_id ams968hh01_of_match[] = {
 	{ .compatible = "samsung,ams968hh01" },
 	{ }
@@ -1299,6 +1335,7 @@ static struct mipi_dsi_driver ams968hh01_driver = {
 	.driver = {
 		.name = "panel-samsung-ams968hh01",
 		.of_match_table = ams968hh01_of_match,
+		.dev_groups = ams968hh01_groups,
 	},
 };
 module_mipi_dsi_driver(ams968hh01_driver);

@@ -36,7 +36,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Reboot, power-off | Works | through PS_HOLD, PSCI hangs in Samsung's TrustZone ([reboot](docs/reboot.md)) |
 | Suspend | Partial | s2idle; the Wi-Fi fix (patch 0037) is untested; no deep sleep yet ([suspend](docs/suspend.md)) |
 | **Display and input** | | |
-| Display | Works | colours, brightness, blank/unblank; HBM sits at the top of the brightness range for now ([display](docs/display.md)) |
+| Display | Works | colours, brightness, blank/unblank; HBM (outdoor brightness) through the panel's `hbm` attribute ([display](docs/display.md)) |
 | GPU (Adreno 530) | Works | freedreno, OpenGL ES 3.1 ([gpu](docs/gpu.md)) |
 | Touchscreen | Works | [input](docs/input.md) |
 | S-Pen | Works | pressure, hover, side button ([input](docs/input.md)) |
