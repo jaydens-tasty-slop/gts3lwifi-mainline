@@ -147,7 +147,7 @@ energy-aware scheduling is not active although
   with the fuel gauge, or from the downstream energy tables), which turns
   energy-aware scheduling on.
 - Keyboard cover hotplug through the SM5705 MUIC (docs/input.md).
-- USB OTG: S2MM005 role switching, the SM5705 OTG boost and dwc3 dual
-  role (the board DT has `dr_mode = "peripheral"`).
+- The USB 3.0 redriver stays enabled (PM8994 GPIO 14): measure its
+  suspend drain once suspend is reliable (docs/usb.md).
 - An image built with pmbootstrap (or a recovery zip for TWRP) instead of
   the manual install.

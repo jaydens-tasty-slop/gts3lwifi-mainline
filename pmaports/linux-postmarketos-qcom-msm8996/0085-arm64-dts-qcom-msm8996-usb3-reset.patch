@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Sat, 31 Oct 2026 09:59:33 -0600
+Subject: [PATCH] arm64: dts: qcom: msm8996: add the USB 3.0 controller reset
+
+When LK brings up USB without the QMP PHY (its PHY setup failed, or
+the board asks for high speed only), it switches the controller's
+PIPE interface over to the UTMI side: PIPE_UTMI_CLK_SEL and
+PIPE3_PHYSTATUS_SW in QSCRATCH_GENERAL_CFG stay set when Linux starts.
+The dwc3-qcom glue only sets these bits, for
+qcom,select-utmi-as-pipe-clk, and with no reset in the node nothing
+clears them. A board that uses the QMP PHY then never gets a
+SuperSpeed link: as a host the port stays in RxDetect, and as a device
+the link stays in SS.RxDetect without falling back to high speed, so
+the host sees nothing.
+
+Describe GCC_USB_30_BCR, as msm8998 and sdm630 do. The glue pulses it
+at probe, which puts QSCRATCH back in its reset state. Qualcomm's
+downstream dwc3-msm driver resets the block the same way, through the
+BCR of gcc_usb30_master_clk.
+
+Tested on the Samsung Galaxy Tab S3 (SM-T820) with SuperSpeed enabled
+for the board, booted through lk2nd's fastboot mode: QSCRATCH_GENERAL_CFG
+reads 0x04 after probe instead of 0x0d, the gadget enumerates on a PC,
+and a VL817 hub enumerates at 5000M.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ arch/arm64/boot/dts/qcom/msm8996.dtsi | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/msm8996.dtsi b/arch/arm64/boot/dts/qcom/msm8996.dtsi
+index dc9e9e42a756..e716eea7f112 100644
+--- a/arch/arm64/boot/dts/qcom/msm8996.dtsi
++++ b/arch/arm64/boot/dts/qcom/msm8996.dtsi
+@@ -3143,6 +3143,9 @@ usb3: usb@6af8800 {
+ 			interconnect-names = "usb-ddr", "apps-usb";
+ 
+ 			power-domains = <&gcc USB30_GDSC>;
++
++			resets = <&gcc GCC_USB_30_BCR>;
++
+ 			status = "disabled";
+ 
+ 			usb3_dwc3: usb@6a00000 {
+-- 
+2.56.0
+

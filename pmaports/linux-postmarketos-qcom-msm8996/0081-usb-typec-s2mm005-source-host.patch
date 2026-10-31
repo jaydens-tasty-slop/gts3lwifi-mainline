@@ -1,0 +1,425 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 12:45:41 -0600
+Subject: [PATCH] usb: typec: s2mm005: support the source and host roles
+
+The S2MM005 firmware toggles between the sink and source roles by itself:
+when a sink is plugged in, it attaches as the source and the DFP. It also
+handles the data and power role swaps the partner asks for. It does not
+drive VBUS, though; on Samsung's devices the charger's boost does.
+
+On a connector with the dual power role and a VBUS supply, switch the
+supply on while the firmware is the source, and follow a power role
+swap: off when the firmware turns its source off, on when it turns it
+on. On a connector with the dual data role, set the USB role switch of
+the connector's high speed port from the firmware's DFP flag: host while
+it is the DFP (a sink attached, or a hub that swapped data roles),
+device while it is the UFP, none while detached. VBUS goes on before the
+host starts, and the host stops before VBUS goes off.
+
+The charger that provides VBUS lists this port in power-supplies, so the
+power supply core defers the charger until our supply exists. Getting
+the VBUS regulator at probe would defer us until the charger exists, and
+neither would probe. Only check at probe that the connector names a
+VBUS supply; get the regulator when VBUS goes on and put it when VBUS
+goes off, so that the charger can also be unbound while we don't source.
+
+As a source the firmware only sends its capabilities once the AP has
+started its policy manager with option command 0x42, which Samsung's
+driver sends when its USB notifier comes up and again after a firmware
+reset. Without it the firmware skips the negotiation and waits for new
+capabilities, and in that state VBUS being present means a detach to it,
+so our own VBUS ended every attach about 200 ms in. Send the command at
+probe and after a firmware reset, on dual role ports.
+
+Connectors that only allow sink and device keep the old behaviour, where
+a sink on the other end gets nothing.
+
+The power role swap states and the policy manager command come from the
+Samsung vendor driver (s2mm005_cc.c, usb_typec_manager_notifier.c).
+
+Tested on gts3lwifi. s2mm005 and the charger probe in either load
+order, and rmmod/insmod of s2mm005 with VBUS off is clean. A USB-C dock
+with PD passthrough still sinks at 5 V / 2.6 A from its supply; without
+the supply the port goes through SRC_Ready in 0.6 s, and the dock's hub,
+a flash drive and a receiver behind it enumerate and work. A flash drive
+on a plain USB-C OTG adapter (no PD) ends in SRC_Disabled when the
+capabilities go unanswered, still attached and powered, and works. An
+Android phone charges from the tablet and enumerates, ten plug cycles in
+a row, and an Anker USB-C hub with Ethernet, hubs, a keyboard and mice
+works.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/usb/typec/s2mm005.c | 244 ++++++++++++++++++++++++++++++++----
+ 1 file changed, 223 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/usb/typec/s2mm005.c b/drivers/usb/typec/s2mm005.c
+index 48800abf11bc..e097c76222b1 100644
+--- a/drivers/usb/typec/s2mm005.c
++++ b/drivers/usb/typec/s2mm005.c
+@@ -9,6 +9,12 @@
+  * source advertises on CC, and the PD contract. A power supply carries the
+  * contract to the charger.
+  *
++ * The firmware also attaches as the source to a sink, and swaps roles when
++ * the partner asks, but VBUS comes from elsewhere, and it offers its
++ * capabilities only once the driver has started its policy manager. On a
++ * dual role connector the driver switches the connector's VBUS supply and
++ * the USB role switch to follow the firmware's power and data roles.
++ *
+  * Registers have 16-bit addresses. Register 0x10 takes commands; the
+  * firmware's state words and PD message buffers sit at fixed addresses.
+  * Based on the Samsung vendor driver (drivers/ccic/s2mm005*.c).
+@@ -25,10 +31,13 @@
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/of.h>
+ #include <linux/power_supply.h>
+ #include <linux/property.h>
+ #include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
+ #include <linux/usb/pd.h>
++#include <linux/usb/role.h>
+ #include <linux/usb/typec.h>
+ 
+ #define S2MM005_REG_CMD			0x0010
+@@ -48,6 +57,9 @@
+ /* two-byte command: automatic low power mode while detached */
+ #define S2MM005_CMD_LPM			0x0f
+ #define S2MM005_LPM_AUTO		0x06
++/* two-byte command: options, here starting the policy manager as a source */
++#define S2MM005_CMD_OPTION		0x03
++#define S2MM005_OPT_DPM_START		0x42
+ 
+ /* FUNC_STATE, little endian */
+ #define S2MM005_FUNC_PD_STATE		GENMASK(7, 0)
+@@ -63,6 +75,9 @@
+ 
+ /* PD_STATE values of the firmware's policy engine */
+ #define S2MM005_PE_SNK_READY		21
++/* power role swap: our VBUS off before the partner's, or on after it */
++#define S2MM005_PE_PRS_SRC_SNK_OFF	52
++#define S2MM005_PE_PRS_SNK_SRC_ON	64
+ 
+ /* RP_LEVEL: the source's pull-up, i.e. the current it allows without PD */
+ #define S2MM005_RP_DEFAULT		1
+@@ -82,8 +97,15 @@ struct s2mm005 {
+ 	struct typec_port *port;
+ 	struct typec_partner *partner;
+ 	struct power_supply *psy;
++	struct usb_role_switch *role_sw;
++	struct device_node *vbus_np;	/* the connector, which names VBUS */
++	bool can_source, can_host;	/* the connector's roles */
++
++	/* changed by s2mm005_update() only */
++	struct regulator *vbus;		/* held while VBUS is on */
++	enum usb_role role;
+ 
+-	bool attached;
++	bool attached;			/* to a source, which powers us */
+ 	bool pd;
+ 	enum typec_pwr_opmode opmode;
+ 	int voltage_uv;
+@@ -124,6 +146,23 @@ static void s2mm005_wake(struct s2mm005 *s)
+ 		regmap_read(s->regmap, S2MM005_REG_FW_BOOT, &val);
+ }
+ 
++/*
++ * As a source, the firmware sends its capabilities only after the AP has
++ * started its policy manager. Until then it waits in
++ * SRC_Wait_New_Capabilities, and once VBUS comes up it takes that for the
++ * partner's and detaches. A firmware restart forgets the request.
++ */
++static void s2mm005_start_dpm(struct s2mm005 *s)
++{
++	static const u8 cmd[] = { S2MM005_CMD_OPTION, S2MM005_OPT_DPM_START };
++
++	if (!s->can_source)
++		return;
++
++	s2mm005_wake(s);
++	s2mm005_cmd(s, cmd, sizeof(cmd));
++}
++
+ /*
+  * Read the PD contract: the request the firmware sent and the source
+  * capability it points to. Only fixed supplies are expected here.
+@@ -165,12 +204,74 @@ static int s2mm005_read_contract(struct s2mm005 *s, int *uv, int *ua,
+ 	return 0;
+ }
+ 
++/*
++ * The charger that provides VBUS takes this port's supply as its input
++ * (power-supplies), so it can only probe after us and is unbound before us.
++ * Look VBUS up when it is switched on and let it go when it is off again.
++ * Unbinding the charger while we source VBUS still pulls the supply away.
++ */
++static void s2mm005_set_vbus(struct s2mm005 *s, bool on)
++{
++	struct regulator *vbus;
++	int ret;
++
++	if (on == !!s->vbus)
++		return;
++
++	if (!on) {
++		ret = regulator_disable(s->vbus);
++		if (ret) {
++			dev_err(s->dev, "failed to switch VBUS off: %d\n", ret);
++			return;
++		}
++		regulator_put(s->vbus);
++		s->vbus = NULL;
++		dev_info(s->dev, "VBUS off\n");
++		return;
++	}
++
++	vbus = of_regulator_get_optional(s->dev, s->vbus_np, "vbus");
++	if (IS_ERR(vbus)) {
++		dev_err(s->dev, "no VBUS supply: %pe\n", vbus);
++		return;
++	}
++
++	ret = regulator_enable(vbus);
++	if (ret) {
++		dev_err(s->dev, "failed to switch VBUS on: %d\n", ret);
++		regulator_put(vbus);
++		return;
++	}
++
++	s->vbus = vbus;
++	dev_info(s->dev, "VBUS on\n");
++}
++
++static void s2mm005_set_role(struct s2mm005 *s, enum usb_role role)
++{
++	int ret;
++
++	if (role == s->role)
++		return;
++
++	ret = usb_role_switch_set_role(s->role_sw, role);
++	if (ret) {
++		dev_err(s->dev, "failed to set USB role %s: %d\n",
++			usb_role_string(role), ret);
++		return;
++	}
++
++	s->role = role;
++}
++
+ static void s2mm005_update(struct s2mm005 *s)
+ {
+ 	enum typec_pwr_opmode opmode = TYPEC_PWR_MODE_USB;
+ 	struct typec_partner_desc desc = { };
+ 	int voltage_uv = 5000000, current_ua = S2MM005_DEFAULT_UA;
+-	bool attached, pd = false, changed;
++	bool connected, source, attached, vbus, pd = false, changed;
++	enum usb_role role = USB_ROLE_NONE;
++	unsigned int pd_state;
+ 	u16 pd_rev = 0;
+ 	u32 func, lp;
+ 	u8 cmd[2];
+@@ -181,23 +282,49 @@ static void s2mm005_update(struct s2mm005 *s)
+ 		dev_err(s->dev, "failed to read state: %d\n", ret);
+ 		return;
+ 	}
++	dev_dbg(s->dev, "function state %#010x\n", func);
++
++	/* the firmware restarted: set it up again */
++	if (func & S2MM005_FUNC_RESET) {
++		s2mm005_start_dpm(s);
++		/* and let it save power while detached */
++		if (!s2mm005_read32(s, S2MM005_REG_LP_STATE, &lp) &&
++		    !(lp & S2MM005_LP_AUTO_LPM)) {
++			dev_dbg(s->dev, "firmware reset, enabling low power mode\n");
++			cmd[0] = S2MM005_CMD_LPM;
++			cmd[1] = S2MM005_LPM_AUTO;
++			s2mm005_wake(s);
++			s2mm005_cmd(s, cmd, sizeof(cmd));
++		}
++	}
+ 
+-	/* the firmware restarted: let it save power while detached again */
+-	if (func & S2MM005_FUNC_RESET &&
+-	    !s2mm005_read32(s, S2MM005_REG_LP_STATE, &lp) &&
+-	    !(lp & S2MM005_LP_AUTO_LPM)) {
+-		dev_dbg(s->dev, "firmware reset, enabling low power mode\n");
+-		cmd[0] = S2MM005_CMD_LPM;
+-		cmd[1] = S2MM005_LPM_AUTO;
+-		s2mm005_wake(s);
+-		s2mm005_cmd(s, cmd, sizeof(cmd));
++	pd_state = FIELD_GET(S2MM005_FUNC_PD_STATE, func);
++	connected = func & S2MM005_FUNC_ATTACHED;
++	source = connected && (func & S2MM005_FUNC_SOURCE);
++	/* without the source role, a sink on the other end gets nothing */
++	if (source && !s->can_source) {
++		connected = false;
++		source = false;
+ 	}
++	attached = connected && !source;
++
++	/* across a power role swap too: ours off first, or the partner's */
++	vbus = s->can_source &&
++	       ((source && pd_state != S2MM005_PE_PRS_SRC_SNK_OFF) ||
++		pd_state == S2MM005_PE_PRS_SNK_SRC_ON);
+ 
+-	/* only the sink role is supported; a sink on the other end gets nothing */
+-	attached = (func & S2MM005_FUNC_ATTACHED) && !(func & S2MM005_FUNC_SOURCE);
++	if (connected)
++		role = (s->can_host && (func & S2MM005_FUNC_DFP)) ?
++		       USB_ROLE_HOST : USB_ROLE_DEVICE;
+ 
+-	if (attached && FIELD_GET(S2MM005_FUNC_PD_STATE, func) ==
+-			S2MM005_PE_SNK_READY &&
++	/* VBUS before the host starts, and the host stopped before VBUS */
++	if (vbus)
++		s2mm005_set_vbus(s, true);
++	s2mm005_set_role(s, role);
++	if (!vbus)
++		s2mm005_set_vbus(s, false);
++
++	if (attached && pd_state == S2MM005_PE_SNK_READY &&
+ 	    !s2mm005_read_contract(s, &voltage_uv, &current_ua, &pd_rev)) {
+ 		pd = true;
+ 		opmode = TYPEC_PWR_MODE_PD;
+@@ -223,12 +350,12 @@ static void s2mm005_update(struct s2mm005 *s)
+ 		  current_ua != s->current_ua;
+ 
+ 	/* the PD contract usually follows the attach: register the partner again */
+-	if (s->partner && (!attached || pd != s->pd)) {
++	if (s->partner && (!connected || pd != s->pd)) {
+ 		typec_unregister_partner(s->partner);
+ 		s->partner = NULL;
+ 	}
+ 
+-	if (attached && !s->partner) {
++	if (connected && !s->partner) {
+ 		desc.usb_pd = pd;
+ 		desc.pd_revision = pd_rev;
+ 		s->partner = typec_register_partner(s->port, &desc);
+@@ -237,10 +364,11 @@ static void s2mm005_update(struct s2mm005 *s)
+ 				PTR_ERR(s->partner));
+ 			s->partner = NULL;
+ 		}
+-		typec_set_pwr_role(s->port, TYPEC_SINK);
+-		typec_set_data_role(s->port, TYPEC_DEVICE);
+ 	}
+ 
++	typec_set_pwr_role(s->port, source ? TYPEC_SOURCE : TYPEC_SINK);
++	typec_set_data_role(s->port, role == USB_ROLE_HOST ? TYPEC_HOST :
++							     TYPEC_DEVICE);
+ 	typec_set_pwr_opmode(s->port, opmode);
+ 
+ 	s->attached = attached;
+@@ -350,10 +478,79 @@ static void s2mm005_unregister_port(void *data)
+ {
+ 	struct s2mm005 *s = data;
+ 
++	s2mm005_set_role(s, USB_ROLE_NONE);
++	s2mm005_set_vbus(s, false);
+ 	typec_unregister_partner(s->partner);
+ 	typec_unregister_port(s->port);
+ }
+ 
++static void s2mm005_put_role_sw(void *data)
++{
++	usb_role_switch_put(data);
++}
++
++static void s2mm005_put_vbus_np(void *data)
++{
++	of_node_put(data);
++}
++
++/*
++ * The roles the connector allows: sink and device unless it says more. The
++ * source role needs a VBUS supply, the host role a USB role switch.
++ */
++static int s2mm005_get_connector(struct s2mm005 *s,
++				 struct fwnode_handle *connector,
++				 struct typec_capability *cap)
++{
++	const char *str;
++	int ret;
++
++	cap->type = TYPEC_PORT_SNK;
++	cap->data = TYPEC_PORT_UFP;
++	if (!connector)
++		return 0;
++
++	if (!fwnode_property_read_string(connector, "power-role", &str)) {
++		ret = typec_find_port_power_role(str);
++		if (ret < 0)
++			return dev_err_probe(s->dev, ret, "bad power-role %s\n",
++					     str);
++		cap->type = ret;
++	}
++
++	if (!fwnode_property_read_string(connector, "data-role", &str)) {
++		ret = typec_find_port_data_role(str);
++		if (ret < 0)
++			return dev_err_probe(s->dev, ret, "bad data-role %s\n",
++					     str);
++		cap->data = ret;
++	}
++
++	if (cap->type != TYPEC_PORT_SNK &&
++	    fwnode_property_present(connector, "vbus-supply")) {
++		s->vbus_np = of_node_get(to_of_node(connector));
++		ret = devm_add_action_or_reset(s->dev, s2mm005_put_vbus_np,
++					       s->vbus_np);
++		if (ret)
++			return ret;
++		s->can_source = true;
++	}
++
++	if (cap->data != TYPEC_PORT_UFP) {
++		s->role_sw = fwnode_usb_role_switch_get(connector);
++		if (IS_ERR(s->role_sw))
++			return dev_err_probe(s->dev, PTR_ERR(s->role_sw),
++					     "failed to get role switch\n");
++		ret = devm_add_action_or_reset(s->dev, s2mm005_put_role_sw,
++					       s->role_sw);
++		if (ret)
++			return ret;
++		s->can_host = !!s->role_sw;
++	}
++
++	return 0;
++}
++
+ static int s2mm005_probe(struct i2c_client *client)
+ {
+ 	struct device *dev = &client->dev;
+@@ -397,10 +594,14 @@ static int s2mm005_probe(struct i2c_client *client)
+ 		return dev_err_probe(dev, ret, "failed to register supply\n");
+ 
+ 	connector = device_get_named_child_node(dev, "connector");
++	ret = s2mm005_get_connector(s, connector, &cap);
++	if (ret) {
++		fwnode_handle_put(connector);
++		return ret;
++	}
++
+ 	cap.revision = USB_TYPEC_REV_1_2;
+ 	cap.pd_revision = 0x300;
+-	cap.type = TYPEC_PORT_SNK;
+-	cap.data = TYPEC_PORT_UFP;
+ 	cap.fwnode = connector;
+ 
+ 	s->port = typec_register_port(dev, &cap);
+@@ -415,6 +616,7 @@ static int s2mm005_probe(struct i2c_client *client)
+ 
+ 	cmd = S2MM005_CMD_INT_CLEAR;
+ 	s2mm005_cmd(s, &cmd, 1);
++	s2mm005_start_dpm(s);
+ 	s2mm005_update(s);
+ 
+ 	ret = devm_request_threaded_irq(dev, client->irq, NULL, s2mm005_irq,
+-- 
+2.56.0
+

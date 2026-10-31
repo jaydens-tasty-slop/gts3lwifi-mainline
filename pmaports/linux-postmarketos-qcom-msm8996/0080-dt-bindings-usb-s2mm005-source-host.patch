@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 12:45:41 -0600
+Subject: [PATCH] dt-bindings: usb: samsung,s2mm005: describe the source and
+ host roles
+
+The S2MM005 firmware also attaches as the source and as the host, with
+VBUS from a supply outside the chip. Say what the connector then needs:
+its vbus-supply, and a USB role switch on its high speed port.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ Documentation/devicetree/bindings/usb/samsung,s2mm005.yaml | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/usb/samsung,s2mm005.yaml b/Documentation/devicetree/bindings/usb/samsung,s2mm005.yaml
+index 16e446fbd91f..2318f2643fb5 100644
+--- a/Documentation/devicetree/bindings/usb/samsung,s2mm005.yaml
++++ b/Documentation/devicetree/bindings/usb/samsung,s2mm005.yaml
+@@ -13,8 +13,10 @@ description:
+   The S2MM005 is a USB Type-C port controller with a USB Power Delivery
+   policy engine running in its own firmware, controlled over I2C. As a sink
+   it negotiates a power contract with the source by itself; the host reads
+-  the attach state and the contract. It raises its open-drain interrupt line
+-  while an event is pending.
++  the attach state and the contract. As a source it relies on the VBUS
++  supply of the connector, and as a dual role data port on a USB role
++  switch connected to the connector's high speed port. It raises its
++  open-drain interrupt line while an event is pending.
+ 
+ properties:
+   compatible:
+-- 
+2.56.0
+

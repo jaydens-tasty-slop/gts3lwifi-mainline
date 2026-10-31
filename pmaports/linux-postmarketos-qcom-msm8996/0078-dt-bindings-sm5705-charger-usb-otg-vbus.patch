@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 12:45:41 -0600
+Subject: [PATCH] dt-bindings: power: supply: sm5705-charger: add the USB OTG
+ supply
+
+The boost converter of the SM5705 can drive VBUS instead of charging,
+for USB OTG. Describe it as a regulator child node, to be the VBUS
+supply of a USB connector.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ .../supply/siliconmitus,sm5705-charger.yaml     | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+index 305fadf0497a..41aebad4e4f2 100644
+--- a/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
++++ b/Documentation/devicetree/bindings/power/supply/siliconmitus,sm5705-charger.yaml
+@@ -11,8 +11,9 @@ maintainers:
+ 
+ description:
+   The charger part of the SM5705 charger and fuel gauge IC, a switch mode
+-  charger for one Li-ion cell from USB or wireless input. The same I2C
+-  device also controls the flash LED.
++  charger for one Li-ion cell from USB or wireless input. Its boost
++  converter can drive VBUS for USB OTG. The same I2C device also controls
++  the flash LED.
+ 
+ allOf:
+   - $ref: power-supply.yaml#
+@@ -56,6 +57,14 @@ properties:
+         multipleOf: 10000
+         default: 180000
+ 
++  usb-otg-vbus:
++    type: object
++    $ref: /schemas/regulator/regulator.yaml#
++    unevaluatedProperties: false
++    description:
++      The boost converter driving VBUS at 5.1 V, the supply of a USB OTG or
++      USB Type-C source port.
++
+ required:
+   - compatible
+   - reg
+@@ -84,5 +93,9 @@ examples:
+           color = <LED_COLOR_ID_WHITE>;
+           led-max-microamp = <180000>;
+         };
++
++        usb-otg-vbus {
++          regulator-name = "usb_otg_vbus";
++        };
+       };
+     };
+-- 
+2.56.0
+

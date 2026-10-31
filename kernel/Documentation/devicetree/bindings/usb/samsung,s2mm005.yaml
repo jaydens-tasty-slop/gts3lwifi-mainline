@@ -12,9 +12,12 @@ maintainers:
 description:
   The S2MM005 is a USB Type-C port controller with a USB Power Delivery
   policy engine running in its own firmware, controlled over I2C. As a sink
-  it negotiates a power contract with the source by itself; the host reads
-  the attach state and the contract. It raises its open-drain interrupt line
-  while an event is pending.
+  it negotiates a power contract with the source by itself, at 5 V; the host
+  reads the attach state and the contract, and can have it request another
+  fixed supply that the connector's sink-pdos allow. As a source it relies
+  on the VBUS supply of the connector, and as a dual role data port on a
+  USB role switch connected to the connector's high speed port. It raises
+  its open-drain interrupt line while an event is pending.
 
 properties:
   compatible:
@@ -41,6 +44,7 @@ additionalProperties: false
 examples:
   - |
     #include <dt-bindings/interrupt-controller/irq.h>
+    #include <dt-bindings/usb/pd.h>
 
     i2c {
         #address-cells = <1>;
@@ -56,6 +60,9 @@ examples:
                 label = "USB-C";
                 power-role = "sink";
                 data-role = "device";
+                sink-pdos = <PDO_FIXED(5000, 3000, 0)
+                             PDO_FIXED(9000, 1650, 0)>;
+                op-sink-microwatt = <15000000>;
             };
         };
     };

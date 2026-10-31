@@ -47,8 +47,8 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Wi-Fi | Works | 2.4 and 5 GHz ([wifi](docs/wifi.md)) |
 | Bluetooth | Works | [bluetooth](docs/bluetooth.md) |
 | USB device mode | Works | network, serial, storage |
-| USB host / OTG, USB 3 | Not yet | |
-| USB-C power (PD) | Partial | 5 V / 3 A sink; 9 V over PD fails ([battery](docs/battery.md)) |
+| USB host / OTG, USB 3 | Works | 5 Gbit/s as a host ([usb](docs/usb.md)) |
+| USB-C power (PD) | Works | 5 V / 3 A or 9 V / 1.65 A sink, 5 V / 1.5 A source ([usb](docs/usb.md)) |
 | LTE modem, SIM, GPS (SM-T825) | Not yet | planned |
 | **Power** | | |
 | Battery gauge | Works | [battery](docs/battery.md) |

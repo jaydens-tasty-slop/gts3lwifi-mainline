@@ -71,7 +71,7 @@ from the MUIC):
 | CDP | 1500 mA | BC1.2; stock uses 1000 mA |
 | DCP (wall charger, also Samsung AFC, QC 2.0, U200) | 1800 mA | stock's setting for Samsung wall chargers |
 | AFC / QC 2.0 at 9 V (opt-in, below) | 1650 mA | stock's 9 V setting |
-| USB-C source, Type-C current or PD contract (S2MM005, below) | up to 3000 mA at 5 V | used when higher than the BC1.2 limit |
+| USB-C source, Type-C current or PD contract (S2MM005, below) | up to 3000 mA at 5 V, 1650 mA above 5.5 V | used when higher than the BC1.2 limit; a PD contract above 5.5 V always (patch 0084) |
 | nothing detected | unchanged | |
 
 **Charge current:** 2.7 A with a source of about 15 W (9 V AFC, or 3 A at
@@ -208,7 +208,7 @@ The charger's OVPSEL bit (CHGCNTL7 bit 2, set by the bootloader and by
 stock) selects the high VBUS over-voltage threshold that 9 V needs. The
 QC 2.0 path is written but has not run yet (the Xiaomi answered AFC).
 
-USB-C PD chargers: see the next section; they give 3 A at 5 V.
+USB-C PD chargers: see the next section, and [usb](usb.md) for 9 V.
 
 ## USB-C and Power Delivery: S2MM005
 
@@ -240,16 +240,21 @@ input limit 3 A, charge current 2.7 A, PD revision 3.0. It offers 5 V
 requests the first. Unplugged and on the PC port (this cable shows no
 Type-C pull-up, so there is no attach): 500 mA input, 2.0 A charge current.
 
-**9 V over PD does not work yet.** Asking the firmware for the 9 V
-capability (the vendor's `select_pdo`: command `03 03 02`, then `03 02 11`
-to request again) gets an Accept, the charger starts ramping (the MUIC
-measured about 7 V), then the chip sees CC1 open and detaches about 0.4 s
-after the Accept, and everything restarts at 5 V. VBUS never drops (no
-hard reset), the tablet's load does not matter (same at 500 mA input), and
-the MUIC stays quiet. Samsung's battery driver for this tablet probably
-never asks for more than 5 V either: its PD list is built from
-`battery,step_charging_charge_power`, which the Tab S3 does not set. With
-3 A at 5 V the PD charger already gives the same 15 W as 9 V AFC.
+**9 V over PD** works with patches 0082-0084 and the board DT's
+`sink-pdos` (2026-10-31, [usb](usb.md)): the driver asks the firmware
+for the best fixed supply a second after the first contract, and the
+charger takes 1.65 A at 9 V. Tested with an Apple USB-C charger (9 V / 3 A
+contract) and a Sabrent dock on a PD 3.0 supply (9 V / 2.44 A).
+
+The first attempt, by hand with Samsung's 25 W PD charger, failed: asking
+for the 9 V capability (the vendor's `select_pdo`: command `03 03 02`, then
+`03 02 11` to request again) got an Accept, the charger started ramping
+(the MUIC measured about 7 V), then the chip saw CC1 open and detached
+about 0.4 s after the Accept, and everything restarted at 5 V. VBUS never
+dropped (no hard reset), the tablet's load did not matter (same at 500 mA
+input), and the MUIC stayed quiet. That charger has not been tried with
+the patches yet. With 3 A at 5 V it already gives the same 15 W as 9 V
+AFC.
 
 | | |
 |---|---|
@@ -384,7 +389,8 @@ Android has booted once, or until the init sequence is ported.
 
 ## Next
 
-- 9 V over PD (see above).
+- 9 V over PD with Samsung's 25 W PD charger (see above); variable and PPS
+  supplies ([usb](usb.md)).
 - CPU idle: the kernel config has `CONFIG_ARM_PSCI_CPUIDLE` off, so there
   are no CPU idle states. Worth trying for idle power, carefully, since
   Samsung's TrustZone already mishandles PSCI SYSTEM_RESET.

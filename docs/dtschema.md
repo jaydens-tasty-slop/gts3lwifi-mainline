@@ -47,6 +47,13 @@ schema and is not checked at all. With it the node validates, and a copy
 with 11 columns or a 5 ms debounce is rejected. `dt_binding_check` on
 `mfd/st,stmpe.yaml` with patch 0069 is clean.
 
+The USB-C nodes merged into the main DT on 2026-10-31 add none either,
+against the schemas of the tree with patches 0001-0087. The charger's
+`usb-otg-vbus` regulator needs patch 0078; the connector's roles,
+`vbus-supply` and `sink-pdos` are `usb-connector.yaml` properties.
+`dt_binding_check` on `usb/samsung,s2mm005.yaml` and
+`power/supply/siliconmitus,sm5705-charger.yaml` is clean.
+
 dtc also warns about four things in `msm8996.dtsi`, `pm8994.dtsi` and
 `pm8004.dtsi` (unneeded `#address-cells`, a duplicate unit address for
 `i2c@75ba000`/`spi@75ba000`); none come from the board files.

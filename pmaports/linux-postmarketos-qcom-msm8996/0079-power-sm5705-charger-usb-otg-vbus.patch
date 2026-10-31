@@ -1,0 +1,372 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Fri, 30 Oct 2026 12:45:41 -0600
+Subject: [PATCH] power: supply: sm5705_charger: provide the USB OTG VBUS
+ supply
+
+Operation mode 7 of the charger (USB OTG) runs the boost converter onto
+VBUS. Register that as the usb-otg-vbus regulator, for a Type-C
+controller to switch on when its port becomes the source.
+
+The boost runs at 5.1 V with a 1.5 A limit in OTG mode, the values of
+Samsung's operation mode table for an OTG cable, and the torch keeps
+working from it. When OTG goes off, the boost gets back the voltage it
+had at probe, which the flash boost mode uses for the torch. The mode is
+picked with the others in sm5705_chg_apply_zone(), which now also says
+whether it could set it.
+
+If the boost cannot hold VBUS (OTGFAIL), turn OTG off as Samsung's
+driver does and report an over-current event. While OTG is on, VBUS is
+the charger's own output, so the supply does not report it as an input.
+OTG also goes off on shutdown, so the bootloader does not find VBUS
+driven.
+
+Samsung's driver passes through the suspend mode for 100 ms from OTG to
+charging on fuel gauge revisions below 5. The Galaxy Tab S3's reads
+0x0b, so that is left out.
+
+Register layout from the Samsung vendor driver (sm5705_charger_oper.c).
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/power/supply/sm5705_charger.c | 188 ++++++++++++++++++++++++--
+ 1 file changed, 173 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index fd59af05c972..b23bf8cbc8bd 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -10,11 +10,15 @@
+  * the limit stays as the bootloader set it. Either way the charger's AICL
+  * lowers the input current when the source sags.
+  *
++ * The boost converter, which otherwise runs the flash LED from the battery,
++ * can also drive VBUS: a regulator provides that as the USB OTG supply.
++ *
+  * The same I2C device also holds the flash LED controller, which is not
+  * handled here. Register layout from the Samsung vendor driver
+  * (sm5705_charger.c).
+  */
+ 
++#include <linux/bitfield.h>
+ #include <linux/devm-helpers.h>
+ #include <linux/extcon.h>
+ #include <linux/extcon/sm5705-muic.h>
+@@ -26,6 +30,7 @@
+ #include <linux/power_supply.h>
+ #include <linux/property.h>
+ #include <linux/regmap.h>
++#include <linux/regulator/driver.h>
+ 
+ #define SM5705_REG_INT1			0x00
+ #define SM5705_REG_INTMSK1		0x04
+@@ -37,8 +42,10 @@
+ #define SM5705_REG_CHGCNTL2		0x10
+ #define SM5705_REG_CHGCNTL4		0x12
+ #define SM5705_REG_CHGCNTL5		0x13
++#define SM5705_REG_CHGCNTL6		0x14
+ #define SM5705_REG_FLED1CNTL1		0x17
+ #define SM5705_REG_FLED1CNTL4		0x1a
++#define SM5705_REG_FLEDCNTL6		0x20
+ #define SM5705_REG_DEVICE_ID		0x37
+ 
+ /* STATUS1 / INT1 */
+@@ -52,6 +59,7 @@
+ #define SM5705_DONE			BIT(6)
+ /* STATUS3 / INT3 */
+ #define SM5705_THEMSHDN			BIT(1)
++#define SM5705_OTGFAIL			BIT(2)
+ #define SM5705_PRETMROFF		BIT(4)
+ #define SM5705_FASTTMROFF		BIT(5)
+ 
+@@ -59,6 +67,7 @@
+ #define SM5705_CNTL_MODE_CHG_OFF	4
+ #define SM5705_CNTL_MODE_CHG_ON		5
+ #define SM5705_CNTL_MODE_FLASH_BOOST	6
++#define SM5705_CNTL_MODE_USB_OTG	7
+ 
+ /* FLED1: the camera flash, used as a torch ("movie mode") over I2C */
+ #define SM5705_FLEDEN_MASK		GENMASK(1, 0)
+@@ -69,6 +78,13 @@
+ #define SM5705_TORCH_MAX_UA		320000
+ #define SM5705_TORCH_DEFAULT_UA		180000	/* stock's camera torch */
+ 
++/* USB OTG: the boost onto VBUS, at Samsung's settings for an OTG cable */
++#define SM5705_BSTOUT_MASK		GENMASK(3, 0)	/* 4.0 V + 0.1 V steps */
++#define SM5705_BSTOUT_OTG		0xb		/* 5.1 V */
++#define SM5705_OTG_UV			5100000
++#define SM5705_OTG_CURRENT_MASK		GENMASK(3, 2)
++#define SM5705_OTG_CURRENT_1500MA	3
++
+ #define SM5705_VBUSLIMIT_MASK		GENMASK(6, 0)
+ #define SM5705_FASTCHG_MASK		GENMASK(5, 0)
+ #define SM5705_BATREG_MASK		GENMASK(5, 0)
+@@ -138,6 +154,10 @@ struct sm5705_chg {
+ 	struct led_classdev torch;
+ 	bool torch_on;
+ 
++	struct regulator_dev *otg;
++	bool otg_on;
++	unsigned int bstout;		/* the flash boost's voltage, at probe */
++
+ 	/* battery temperature guard */
+ 	struct mutex lock;
+ 	struct delayed_work temp_work;
+@@ -294,6 +314,10 @@ static int sm5705_chg_get_property(struct power_supply *psy,
+ 	if (ret)
+ 		return ret;
+ 
++	/* while OTG is on, VBUS is the boost output, not an input */
++	if (READ_ONCE(chg->otg_on))
++		st[0] &= ~SM5705_VBUSPOK;
++
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_ONLINE:
+ 		val->intval = !!(st[0] & SM5705_VBUSPOK);
+@@ -336,7 +360,7 @@ static int sm5705_chg_get_property(struct power_supply *psy,
+ 	return 0;
+ }
+ 
+-static void sm5705_chg_apply_zone(struct sm5705_chg *chg);
++static int sm5705_chg_apply_zone(struct sm5705_chg *chg);
+ 
+ static int sm5705_chg_set_property(struct power_supply *psy,
+ 				   enum power_supply_property psp,
+@@ -427,6 +451,105 @@ static const struct power_supply_desc sm5705_chg_desc = {
+ 	.external_power_changed = sm5705_chg_external_power_changed,
+ };
+ 
++/*
++ * USB OTG supply. sm5705_chg_apply_zone() picks the mode; the boost runs at
++ * 5.1 V for VBUS, then at the voltage it had at probe for the flash LED.
++ */
++static int sm5705_otg_enable(struct regulator_dev *rdev)
++{
++	struct sm5705_chg *chg = rdev_get_drvdata(rdev);
++	int ret;
++
++	guard(mutex)(&chg->lock);
++
++	ret = regmap_update_bits(chg->regmap, SM5705_REG_CHGCNTL6,
++				 SM5705_OTG_CURRENT_MASK,
++				 FIELD_PREP(SM5705_OTG_CURRENT_MASK,
++					    SM5705_OTG_CURRENT_1500MA));
++	if (!ret)
++		ret = regmap_update_bits(chg->regmap, SM5705_REG_FLEDCNTL6,
++					 SM5705_BSTOUT_MASK, SM5705_BSTOUT_OTG);
++	if (ret)
++		return ret;
++
++	chg->otg_on = true;
++	ret = sm5705_chg_apply_zone(chg);
++	if (ret) {
++		chg->otg_on = false;
++		regmap_update_bits(chg->regmap, SM5705_REG_FLEDCNTL6,
++				   SM5705_BSTOUT_MASK, chg->bstout);
++	}
++
++	return ret;
++}
++
++/* with chg->lock held */
++static int sm5705_chg_otg_off(struct sm5705_chg *chg)
++{
++	int ret;
++
++	chg->otg_on = false;
++	ret = sm5705_chg_apply_zone(chg);
++	if (ret)
++		return ret;
++
++	/* the flash boost's voltage again */
++	return regmap_update_bits(chg->regmap, SM5705_REG_FLEDCNTL6,
++				  SM5705_BSTOUT_MASK, chg->bstout);
++}
++
++static int sm5705_otg_disable(struct regulator_dev *rdev)
++{
++	struct sm5705_chg *chg = rdev_get_drvdata(rdev);
++
++	guard(mutex)(&chg->lock);
++
++	return sm5705_chg_otg_off(chg);
++}
++
++static int sm5705_otg_is_enabled(struct regulator_dev *rdev)
++{
++	struct sm5705_chg *chg = rdev_get_drvdata(rdev);
++	unsigned int cntl;
++	int ret;
++
++	ret = regmap_read(chg->regmap, SM5705_REG_CNTL, &cntl);
++	if (ret)
++		return ret;
++
++	return (cntl & SM5705_CNTL_MODE_MASK) == SM5705_CNTL_MODE_USB_OTG;
++}
++
++static const struct regulator_ops sm5705_otg_ops = {
++	.enable = sm5705_otg_enable,
++	.disable = sm5705_otg_disable,
++	.is_enabled = sm5705_otg_is_enabled,
++};
++
++static const struct regulator_desc sm5705_otg_desc = {
++	.name = "usb-otg-vbus",
++	.of_match = "usb-otg-vbus",
++	.type = REGULATOR_VOLTAGE,
++	.owner = THIS_MODULE,
++	.ops = &sm5705_otg_ops,
++	.n_voltages = 1,
++	.fixed_uV = SM5705_OTG_UV,
++};
++
++/* The boost could not hold VBUS: like Samsung's driver, turn OTG off */
++static void sm5705_chg_otg_fail(struct sm5705_chg *chg)
++{
++	scoped_guard(mutex, &chg->lock) {
++		if (!chg->otg_on)
++			return;
++		sm5705_chg_otg_off(chg);
++	}
++
++	dev_err(chg->dev, "USB OTG overcurrent, VBUS off\n");
++	regulator_notifier_call_chain(chg->otg, REGULATOR_EVENT_OVER_CURRENT |
++				      REGULATOR_EVENT_DISABLE, NULL);
++}
++
+ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+ {
+ 	struct sm5705_chg *chg = data;
+@@ -437,6 +560,8 @@ static irqreturn_t sm5705_chg_irq(int irq, void *data)
+ 		return IRQ_NONE;
+ 
+ 	dev_dbg(chg->dev, "interrupt %*ph\n", (int)sizeof(ints), ints);
++	if (ints[2] & SM5705_OTGFAIL)
++		sm5705_chg_otg_fail(chg);
+ 	power_supply_changed(chg->psy);
+ 
+ 	return IRQ_HANDLED;
+@@ -594,8 +719,11 @@ static bool sm5705_chg_vbus_ok(struct sm5705_chg *chg)
+ 	       (st & SM5705_VBUSPOK);
+ }
+ 
+-/* Write the limits for the current zone; called with chg->lock held */
+-static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
++/*
++ * Write the limits for the current zone and pick the operation mode;
++ * called with chg->lock held
++ */
++static int sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ {
+ 	int voltage = chg->cfg_voltage, current_ua = chg->cfg_current;
+ 
+@@ -603,6 +731,7 @@ static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ 		current_ua = SM5705_FAST_CHARGE_UA;
+ 	unsigned int mode, cntl;
+ 	bool charge = true;
++	int ret;
+ 
+ 	switch (chg->zone) {
+ 	case SM5705_ZONE_HOT:
+@@ -625,25 +754,33 @@ static void sm5705_chg_apply_zone(struct sm5705_chg *chg)
+ 	if (current_ua > 0)
+ 		sm5705_chg_set_charge_current(chg, current_ua);
+ 
+-	/* switch between charging on, off and flash boost; leave other modes */
+-	if (regmap_read(chg->regmap, SM5705_REG_CNTL, &cntl))
+-		return;
++	/*
++	 * switch between charging on, off, flash boost and USB OTG; leave
++	 * other modes
++	 */
++	ret = regmap_read(chg->regmap, SM5705_REG_CNTL, &cntl);
++	if (ret)
++		return ret;
+ 	mode = cntl & SM5705_CNTL_MODE_MASK;
+ 	if (mode != SM5705_CNTL_MODE_CHG_ON && mode != SM5705_CNTL_MODE_CHG_OFF &&
+-	    mode != SM5705_CNTL_MODE_FLASH_BOOST)
+-		return;
++	    mode != SM5705_CNTL_MODE_FLASH_BOOST &&
++	    mode != SM5705_CNTL_MODE_USB_OTG)
++		return -EBUSY;
+ 
+ 	/*
+-	 * Like Samsung's operation mode table: the torch runs from VBUS while
+-	 * charging, otherwise from the battery through the flash boost.
++	 * Like Samsung's operation mode table: with OTG the boost drives VBUS
++	 * and the torch runs from it; otherwise the torch runs from VBUS while
++	 * charging, else from the battery through the flash boost.
+ 	 */
+-	if (chg->torch_on && (!charge || !sm5705_chg_vbus_ok(chg)))
++	if (chg->otg_on)
++		mode = SM5705_CNTL_MODE_USB_OTG;
++	else if (chg->torch_on && (!charge || !sm5705_chg_vbus_ok(chg)))
+ 		mode = SM5705_CNTL_MODE_FLASH_BOOST;
+ 	else
+ 		mode = charge ? SM5705_CNTL_MODE_CHG_ON : SM5705_CNTL_MODE_CHG_OFF;
+ 
+-	regmap_update_bits(chg->regmap, SM5705_REG_CNTL, SM5705_CNTL_MODE_MASK,
+-			   mode);
++	return regmap_update_bits(chg->regmap, SM5705_REG_CNTL,
++				  SM5705_CNTL_MODE_MASK, mode);
+ }
+ 
+ static enum sm5705_temp_zone sm5705_chg_temp_zone(struct sm5705_chg *chg,
+@@ -833,6 +970,11 @@ static void sm5705_chg_shutdown(struct i2c_client *client)
+ 
+ 	regmap_update_bits(chg->regmap, SM5705_REG_FLED1CNTL1,
+ 			   SM5705_FLEDEN_MASK, SM5705_FLEDEN_OFF);
++
++	/* the bootloader does not expect VBUS from the boost */
++	guard(mutex)(&chg->lock);
++	if (chg->otg_on)
++		sm5705_chg_otg_off(chg);
+ }
+ 
+ static void sm5705_chg_put_node(void *np)
+@@ -848,8 +990,12 @@ static const struct regmap_config sm5705_chg_regmap_config = {
+ 
+ static int sm5705_chg_probe(struct i2c_client *client)
+ {
+-	/* VBUS good/UVLO/OVP; battery OVP, charging, top-off, done; thermal, timers */
+-	static const u8 int_mask[4] = { 0xf8, 0x95, 0xcd, 0xff };
++	/*
++	 * VBUS good/UVLO/OVP; battery OVP, charging, top-off, done; thermal,
++	 * OTG failure, timers
++	 */
++	static const u8 int_mask[4] = { 0xf8, 0x95, 0xc9, 0xff };
++	struct regulator_config otg_cfg = {};
+ 	struct power_supply_config cfg = {};
+ 	struct device *dev = &client->dev;
+ 	struct sm5705_chg *chg;
+@@ -893,6 +1039,11 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to read device id\n");
+ 
++	ret = regmap_read(chg->regmap, SM5705_REG_FLEDCNTL6, &chg->bstout);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read boost voltage\n");
++	chg->bstout &= SM5705_BSTOUT_MASK;
++
+ 	/* external_power_changed() can run as soon as the supply exists */
+ 	ret = devm_work_autocancel(dev, &chg->cable_work, sm5705_chg_cable_work);
+ 	if (ret)
+@@ -952,6 +1103,13 @@ static int sm5705_chg_probe(struct i2c_client *client)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to register torch\n");
+ 
++	otg_cfg.dev = dev;
++	otg_cfg.driver_data = chg;
++	chg->otg = devm_regulator_register(dev, &sm5705_otg_desc, &otg_cfg);
++	if (IS_ERR(chg->otg))
++		return dev_err_probe(dev, PTR_ERR(chg->otg),
++				     "failed to register OTG supply\n");
++
+ 	if (client->irq) {
+ 		/* clear what the bootloader left, then unmask our events */
+ 		ret = regmap_bulk_read(chg->regmap, SM5705_REG_INT1, ints,
+-- 
+2.56.0
+

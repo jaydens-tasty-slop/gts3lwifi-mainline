@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Sat, 31 Oct 2026 08:43:33 -0600
+Subject: [PATCH] power: supply: sm5705_charger: follow a USB PD contract above
+ 5 V
+
+The input limit comes from the MUIC's BC1.2 type, or from the USB-C
+port when that allows more. A USB PD charger can be a BC1.2 dedicated
+charging port as well: an Apple USB-C charger reads as DCP, 1.8 A,
+which beats the 1.65 A the port allows at 9 V. With VBUS at 9 V the
+charger then kept the 5 V DCP limit, did not count the source as 15 W,
+and did not know that VBUS was high, which keeps the torch off it.
+
+The BC1.2 limits are for 5 V. Let the port decide whenever its
+contract is above 5.5 V.
+
+Tested on a Galaxy Tab S3 (SM-T820) with an Apple USB-C charger (PD
+2.0, 5 V to 20 V) and a 9 V / 3 A contract: before, input limit
+1.8 A, USB type DCP, "standard source"; after, input limit 1.65 A,
+USB type PD, "15 W source, charging at up to 2700 mA".
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/power/supply/sm5705_charger.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/sm5705_charger.c b/drivers/power/supply/sm5705_charger.c
+index b23bf8cbc8bd..6e07b292a276 100644
+--- a/drivers/power/supply/sm5705_charger.c
++++ b/drivers/power/supply/sm5705_charger.c
+@@ -646,10 +646,13 @@ static void sm5705_chg_cable_work(struct work_struct *work)
+ 		type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+ 	}
+ 
+-	/* a USB-C source may allow more than its BC1.2 type says */
++	/*
++	 * a USB-C source may allow more than its BC1.2 type says, and the
++	 * BC1.2 limits are for 5 V: a PD contract above that decides
++	 */
+ 	typec_limit = sm5705_chg_typec_limit(chg, &typec_type, &typec_fast,
+ 					     &typec_hv, &usb_c);
+-	if (typec_limit > limit) {
++	if (typec_limit > limit || typec_hv) {
+ 		type = typec_type;
+ 		limit = typec_limit;
+ 		fast = typec_fast;
+-- 
+2.56.0
+

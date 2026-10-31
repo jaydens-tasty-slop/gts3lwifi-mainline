@@ -45,6 +45,7 @@
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <dt-bindings/sound/qcom,q6asm.h>
 #include <dt-bindings/sound/qcom,wcd9335.h>
+#include <dt-bindings/usb/pd.h>
 #include "msm8996.dtsi"
 #include "pm8994.dtsi"
 #include "pm8004.dtsi"
@@ -262,6 +263,11 @@
 				color = <LED_COLOR_ID_WHITE>;
 				led-max-microamp = <180000>;
 			};
+
+			/* the boost onto VBUS, for USB OTG */
+			otg_vbus: usb-otg-vbus {
+				regulator-name = "usb_otg_vbus";
+			};
 		};
 	};
 
@@ -461,8 +467,9 @@
 		/*
 		 * Samsung S2MM005 USB Type-C and PD controller. Its firmware
 		 * negotiates the PD contract by itself; the charger takes its
-		 * input limit from this supply too. Interrupt: open drain, low
-		 * while an event is pending, pulled up on the board.
+		 * input limit from this supply too. As a source it needs the
+		 * charger's boost for VBUS. Interrupt: open drain, low while
+		 * an event is pending, pulled up on the board.
 		 */
 		typec: typec@33 {
 			compatible = "samsung,s2mm005";
@@ -474,8 +481,40 @@
 			connector {
 				compatible = "usb-c-connector";
 				label = "USB-C";
-				power-role = "sink";
-				data-role = "device";
+				power-role = "dual";
+				data-role = "dual";
+				vbus-supply = <&otg_vbus>;
+				/*
+				 * 5 V, or 9 V at the input limit Samsung uses
+				 * for its 15 W chargers
+				 */
+				sink-pdos = <PDO_FIXED(5000, 3000,
+						       PDO_FIXED_DUAL_ROLE |
+						       PDO_FIXED_USB_COMM |
+						       PDO_FIXED_DATA_SWAP)
+					     PDO_FIXED(9000, 1650, 0)>;
+				op-sink-microwatt = <15000000>;
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+
+						typec_hs: endpoint {
+							remote-endpoint = <&usb3_dwc3_hs>;
+						};
+					};
+
+					port@1 {
+						reg = <1>;
+
+						typec_ss: endpoint {
+							remote-endpoint = <&usb3_dwc3_ss>;
+						};
+					};
+				};
 			};
 		};
 	};
@@ -660,21 +699,22 @@
  * usb3 (qcom,msm8996-dwc3) + usb3_dwc3, hsusb_phy1 (QUSB2, 0x7411000) and
  * usb3phy (QMP, 0x7410000).
  *
- * Bring-up goes high-speed only, on hsusb_phy1: SuperSpeed on this Type-C
- * port needs the s2mm005 CC/PD controller (BLSP1 QUP5 I2C, TLMM 83/84,
- * IRQ TLMM 73) for lane orientation plus the redriver enable on PM8994
- * GPIO 14 (downstream usb-notifier qcom,gpios_redriver_en), neither of
- * which has a mainline driver. usb3phy below keeps its supply routing
- * documented and stays disabled.
+ * The SuperSpeed lanes pass a redriver enabled by PM8994 GPIO 14
+ * (downstream usb-notifier qcom,gpios_redriver_en). The s2mm005 firmware
+ * picks the lane pair for the plug orientation by itself, so the AP has
+ * nothing to switch. Samsung's kernel enables the redriver only while
+ * something is attached; here it stays on, see &pm8994_gpios.
  *
  * TLMM: the downstream USB nodes reference no TLMM pinctrl state at all,
  * and the mainline usb3/PHY nodes need none, so there is nothing to add.
  *
  * On v6.19 msm8996.dtsi still uses the child-node form, which binds to
  * dwc3-qcom-legacy.c. That glue reads dr_mode from the child node and
- * forces the VBUS-valid override for every non-host mode, so no extcon or
- * role switch is needed to enumerate as a gadget; dr_mode = "peripheral"
- * additionally keeps the dwc3 core itself in device mode.
+ * forces the VBUS-valid override for every non-host mode, so no extcon is
+ * needed to enumerate as a gadget. The s2mm005 drives the dwc3 role switch:
+ * host when its firmware is the DFP (a sink on the port, or a hub that
+ * swapped data roles), device otherwise. Without a role, and before the
+ * s2mm005 driver loads, the core stays a peripheral.
  */
 &hsusb_phy1 {
 	vdd-supply = <&vreg_l28a_0p925>;
@@ -686,23 +726,40 @@
 &usb3phy {
 	vdda-phy-supply = <&vreg_l28a_0p925>;
 	vdda-pll-supply = <&vreg_l12a_1p8>;
-	status = "disabled";
+	status = "okay";
 };
 
 &usb3 {
-	/* usb3phy is off, so clock the core from UTMI instead of the pipe clock */
-	qcom,select-utmi-as-pipe-clk;
 	status = "okay";
 };
 
 &usb3_dwc3 {
-	dr_mode = "peripheral";
-	maximum-speed = "high-speed";
-	phys = <&hsusb_phy1>;
-	phy-names = "usb2-phy";
+	dr_mode = "otg";
+	usb-role-switch;
 	snps,is-utmi-l1-suspend;
 	snps,hird-threshold = /bits/ 8 <0>;
 	snps,usb2-gadget-lpm-disable;
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			usb3_dwc3_hs: endpoint {
+				remote-endpoint = <&typec_hs>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			usb3_dwc3_ss: endpoint {
+				remote-endpoint = <&typec_ss>;
+			};
+		};
+	};
 };
 
 /*
@@ -1366,6 +1423,9 @@
 };
 
 &pm8994_gpios {
+	pinctrl-0 = <&usb3_redriver_en>;
+	pinctrl-names = "default";
+
 	/* Home: digital input, no pull (external pull-up), 1.8 V */
 	home_key_default: home-key-default-state {
 		pins = "gpio2";
@@ -1410,6 +1470,18 @@
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
 		power-source = <PM8994_GPIO_S4>;
 		bias-disable;
+	};
+
+	/*
+	 * USB 3.0 redriver enable, kept on. Its supply defaults to VPH_PWR:
+	 * use S4 (1.8 V), as Samsung's DT does, before it goes high.
+	 */
+	usb3_redriver_en: usb3-redriver-en-state {
+		pins = "gpio14";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		output-high;
+		bias-disable;
+		power-source = <PM8994_GPIO_S4>;
 	};
 
 	audio_mclk_default: audio-mclk-state {
