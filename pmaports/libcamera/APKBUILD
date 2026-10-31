@@ -1,0 +1,222 @@
+# Forked from Alpine for temporary downstream patches
+# gts3: postmarketOS temp/libcamera 99990.7.2-r4 plus the gts3 series
+# (S5K5E3, lens control, contrast AF, IMX258/S5K5E3 tuning), 0007-0014,
+# output buffers padded to 32-line groups (Venus dma-buf import), 0015,
+# IMX258 lens settle wait covering the soft ISP's buffer lag, 0016
+maintainer="Robert Mader <robert.mader@collabora.com>"
+pkgname=libcamera
+_pkgver=0.7.2
+pkgver=9999$_pkgver
+pkgrel=106
+pkgdesc="Linux camera framework"
+url="https://libcamera.org/"
+arch="all"
+license="LGPL-2.1-or-later AND GPL-2.0-or-later"
+# upstream calls 'date' with a non-POSIX option so we pull in coreutils
+makedepends="
+	coreutils
+	doxygen
+	eudev-dev
+	glib-dev
+	gnutls-dev
+	graphviz
+	gst-plugins-base-dev
+	gtest-dev
+	libevent-dev
+	libpisp-dev
+	libunwind-dev
+	libyuv-dev
+	linux-headers
+	meson
+	py3-jinja2
+	py3-ply
+	py3-pybind11-dev
+	py3-sphinx
+	py3-sphinxcontrib-doxylink
+	py3-yaml
+	python3-dev
+	qt6-qtbase-dev
+	qt6-qttools-dev
+	yaml-dev
+	"
+subpackages="
+	$pkgname-dbg
+	$pkgname-dev
+	qcam
+	$pkgname-gstreamer
+	$pkgname-v4l2
+	$pkgname-tools
+	py3-$pkgname-pyc:pyc
+	py3-$pkgname:py3
+	"
+_tuning_files="
+	hi846.yaml
+	imx355.yaml
+	imx363.yaml
+	imx371.yaml
+	imx376.yaml
+	imx519.yaml
+	imx800.yaml
+	imx858.yaml
+	s5k3l6xx.yaml
+	s5kjn1.yaml
+	"
+source="https://gitlab.freedesktop.org/camera/libcamera/-/archive/v$_pkgver/libcamera-v$_pkgver.tar.gz
+	0001-software_isp-debayer_egl-Re-add-log-for-failing-DMAB.patch
+	0002-libcamera-camera_sensor-Add-Sony-IMX355-sensor-prope.patch
+	0003-libcamera-software_isp-debayer_egl-Use-untransposed-.patch
+	0004-debayer-Further-demote-Unsupported-input-format-log.patch
+	0005-ipa-simple-Derive-AGC-minimum-gain-step-from-sensor-.patch
+	0006-libcamera-Add-quad-Bayer-CFA-layout-support.patch
+	0007-ipa-libipa-camera_sensor_helper-Add-S5K5E3.patch
+	0008-libcamera-sensor-Add-S5K5E3-sensor-properties.patch
+	0009-libcamera-software_isp-Gather-focus-statistics.patch
+	0010-libcamera-software_isp-Pass-focus-lens-controls-to-a.patch
+	0011-ipa-libipa-Add-contrast-detection-autofocus-algorith.patch
+	0012-test-ipa-libipa-Add-AfContrast-test.patch
+	0013-ipa-simple-Add-autofocus-algorithm.patch
+	0014-ipa-simple-Add-IMX258-and-S5K5E3-tuning-files.patch
+	0015-libcamera-software_isp-Pad-the-output-frame-size-to-.patch
+	0016-ipa-simple-imx258-Wait-longer-for-the-focus-lens-to-.patch
+	qcam.desktop
+	$_tuning_files
+	"
+builddir="$srcdir/$pkgname-v$_pkgver"
+# gstreamer tests fail
+# manual strip because ipa .sign files depend on the file contents- have to re-sign after strip
+options="!strip !check"
+
+case "$CARCH" in
+arm*|aarch64)
+	subpackages="$subpackages $pkgname-raspberrypi"
+	;;
+esac
+
+case "$CARCH" in
+ppc64le|s390x|riscv64|loongarch64)
+	# doesn't install any ipa
+	;;
+*)
+	depends="$pkgname-ipa=$pkgver-r$pkgrel"
+	subpackages="$subpackages $pkgname-ipa"
+	;;
+esac
+
+build() {
+	abuild-meson \
+		-Dpipelines=auto,virtual \
+		-Dv4l2=true \
+		-Dwerror=false \
+		-Ddocumentation=disabled \
+		. output
+	meson compile -C output
+}
+
+check() {
+	meson test -C output --print-errorlogs
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+	install -Dm644 -t "$pkgdir"/usr/share/applications "$srcdir"/qcam.desktop
+
+	# manual strip first..
+	scanelf --recursive \
+		--nobanner \
+		--etype "ET_DYN,ET_EXEC" \
+		--format "%F" \
+		"$pkgdir" \
+		| while read -r file; do
+			strip "$file"
+	done
+}
+
+ipa() {
+	depends=""
+	amove usr/lib/libcamera
+	amove usr/share/libcamera/ipa
+
+	for _tuning_file in $_tuning_files; do
+		install -Dm644 -t "$subpkgdir"/usr/share/libcamera/ipa/simple \
+			"$srcdir"/"$_tuning_file"
+	done
+
+	# then sign ipa's
+	local ipa
+	for ipa in "$subpkgdir"/usr/lib/libcamera/ipa/ipa*.so; do
+		msg "signing $ipa"
+		"$builddir"/src/ipa/ipa-sign.sh \
+			"$(find "$builddir"/output -type f -iname "*ipa-priv-key.pem")" \
+			"$ipa" \
+			"$ipa".sign
+	done
+}
+
+qcam() {
+	depends=""
+	amove usr/bin/qcam
+
+	amove usr/share/applications/qcam.desktop
+}
+
+gstreamer() {
+	depends=""
+	amove usr/lib/gstreamer-1.0
+}
+
+v4l2() {
+	depends=""
+	amove usr/libexec/libcamera/v4l2-compat.so
+}
+
+raspberrypi() {
+	depends=""
+	amove usr/share/libcamera/ipa/rpi
+	amove usr/libexec/libcamera/raspberrypi_ipa_proxy
+	amove usr/share/libcamera/pipeline/rpi/vc4
+}
+
+tools() {
+	depends=""
+	amove usr/bin/cam
+	amove usr/bin/lc-compliance
+}
+
+py3() {
+	pkgdesc="$pkgname (python bindings)"
+	depends="python3"
+
+	amove usr/lib/python*
+}
+
+
+sha512sums="
+b317cdc96f61682ee0bf26dfb7c4d6441db9a9c5b93ab53528121a8cd44862b3d59cbaa3881bb0837e3e381564c184c7b742124aef4267eea754c6083de353c1  libcamera-v0.7.2.tar.gz
+53e6627a4d1bdb9af7c76add1bcad784e7f620e0b0667ccce202a9ee1417bb3701df5e2ace43086eb69ae3b816be0e0833ed5d5a6d1bf0ff1d801a052ac8bcc8  0001-software_isp-debayer_egl-Re-add-log-for-failing-DMAB.patch
+512565fcf40617b3c199e0bdea66de8377e77dbd5873c52338c4ca2978a87ba22ec2b675b1f943f77ce2dcbd373f1b3c68f8668ce20d7d54bc2b8c6b0c2a8824  0002-libcamera-camera_sensor-Add-Sony-IMX355-sensor-prope.patch
+80189ce5f542647e163b499f040e4b92fa1cce5717d72bed3034490214220ac92a9ce14af496f478aa765bcfc227a90600a87f177c9ca9bb64ed1ae91eb52443  0003-libcamera-software_isp-debayer_egl-Use-untransposed-.patch
+915dcc65861cb27485636647586155f3dc9ace914b4df51e1889c05e15a82a87a35ef06c44a3f09153d29fc834bc10aa60394c594233fe72a52b6fa0a8605c9a  0004-debayer-Further-demote-Unsupported-input-format-log.patch
+50fd6a28353534e143418207ee07d462f017078091c2909ca2d495840facf7849dfebb061a7ed29a62f57dbf4e506aa9ec085b0c05ccd054d19c31a987b7e37d  0005-ipa-simple-Derive-AGC-minimum-gain-step-from-sensor-.patch
+47277fedc943ad45391ba150f1c4ae70b7bd041fb162239996fe5430429c50fe27a1c5915c9de90cb714ec578c68c4ba5e4c25a3431e35e721fdd232368b703f  0006-libcamera-Add-quad-Bayer-CFA-layout-support.patch
+c46b4f523fce35ae2ffa482d148e07198b56f319ec4ee5dbf5799f8af1805f4ae01785b8852da430009314dce9f87a793f6d3d7bf30dff8e0396629370ef4621  0007-ipa-libipa-camera_sensor_helper-Add-S5K5E3.patch
+a829cee4283fb2603e8ea56c676e9f2683f74f0ef8343a559065035535816ea5eff0103235ec773b38221de08105e5725ed7477dcc83f697b0eb8037ed65e772  0008-libcamera-sensor-Add-S5K5E3-sensor-properties.patch
+c2b4906186557282c518ab8932db054f40c4fc570595e82f99a657eb657f51e622f19f6ce84aa03dfa45b7241b94ab1c926ddf9cbf1387abc5a797ef4961c15b  0009-libcamera-software_isp-Gather-focus-statistics.patch
+2fb2c3f0769c9bcab0761c588b78ab9b3017b859bbea0976aee96d30ed6a2abe6cdf4e598b5eb9aaaa0b6a0f8977b7d88685f3d8144fe617152c2ad7fb20df71  0010-libcamera-software_isp-Pass-focus-lens-controls-to-a.patch
+ff11b1c6451c9f3961185dbf63e1914e868759ca66e48e07977d4dcba2b596bd8184286ff070ecde375400bb4e084577cb1ae4997e7d4aff0abb32d578e5aa56  0011-ipa-libipa-Add-contrast-detection-autofocus-algorith.patch
+34696f96c5a57752e82d1fe1a5431fc48f659c550130ef0192e691852363dbedaf0e7ad9f3c944b30f43941f55fdc8b384b060222b56305ef5fd01b305a842e4  0012-test-ipa-libipa-Add-AfContrast-test.patch
+7eb4994c985526561d4aaa9139b8b15393becdf96fe7c46b559a1b879747b86f5f305e7431c3dd111a076546546c48ac28e6a1dc90034681f283e0ecabe5ddf2  0013-ipa-simple-Add-autofocus-algorithm.patch
+c3d813e524b2b6cea2bf921a7c71a53dbb1b43a3ec2a924fdcb068f5ff055a696d226a848e13d250e512ef16c707f2859b17f2c650805d82db733826258fe750  0014-ipa-simple-Add-IMX258-and-S5K5E3-tuning-files.patch
+26947192cf3f6aa1ef2e47209aa12dace0bbf63f4cb12da2c6479b3ec3673307a91f7c13eeaf976e8df94c371dac95e6f41ef8385fc415fb91fd3403310a5942  0015-libcamera-software_isp-Pad-the-output-frame-size-to-.patch
+813c2dfe9c53f07848b10e17bdb4b125285f350ac513bf112012cb75d635c05bfd28a8583fef324999d2f00ba0c4ae71612aaa8432cd718cbeec494c62b4a5bb  0016-ipa-simple-imx258-Wait-longer-for-the-focus-lens-to-.patch
+22167a4eceb6d1b40b0b7c45fdf116c71684f5340de7f767535cb8e160ad9d2ae0f00cb3d461f73a344520a48a4641cf46226841d78bee06bfbfd2a91337f754  qcam.desktop
+2ee566653b17d565d2c0de67cbe6ebad25df5aac6051cad78e6bae52016fa2ca0247e964d735ac776b3e0bd447ead9c4fcb26cd7629228cdba3ceb91b46f378f  hi846.yaml
+4942edd551dcf51630246f71e600c17760d3574d5d45e5530d6cfeefe2c9ab1a812fbe220f8e89d92e19a499c592b2507c801ca4eb74cd15fcecb60bff5c650b  imx355.yaml
+285c6d0d712df341c0117c3762ddc139f53f44e6be36c3388d1a62696429175e2916f392163131e21f410c3676f02f5d125f375171f45f8d82ad278aa5076c62  imx363.yaml
+1b1f6d36311bee38006eaa1e380571fc9fbd5625fd72f63309426d3651483cef52a176d56cdebd2ce46cbb264684ede186740df169027d2bf27d0f3057da2f86  imx371.yaml
+1b1f6d36311bee38006eaa1e380571fc9fbd5625fd72f63309426d3651483cef52a176d56cdebd2ce46cbb264684ede186740df169027d2bf27d0f3057da2f86  imx376.yaml
+1b1f6d36311bee38006eaa1e380571fc9fbd5625fd72f63309426d3651483cef52a176d56cdebd2ce46cbb264684ede186740df169027d2bf27d0f3057da2f86  imx519.yaml
+55dab9dcb9b1982143b9d63e4e51138c5bffd7c8f4a8e4e122750b3ad9d475446956bc297d9f564819ade4be75a575d06633a064e14f8ba3ef77986783c5f067  imx800.yaml
+55dab9dcb9b1982143b9d63e4e51138c5bffd7c8f4a8e4e122750b3ad9d475446956bc297d9f564819ade4be75a575d06633a064e14f8ba3ef77986783c5f067  imx858.yaml
+2ee566653b17d565d2c0de67cbe6ebad25df5aac6051cad78e6bae52016fa2ca0247e964d735ac776b3e0bd447ead9c4fcb26cd7629228cdba3ceb91b46f378f  s5k3l6xx.yaml
+d59020e62520ee622282c85ce7bcdfe453c99becf48cc1005c5f8a4bb8b2511b19c89f38fb3c994e7c6a79d1f84e2ed5f5a09b4c5bdc1dc4a44b071dbccf0d44  s5kjn1.yaml
+"
