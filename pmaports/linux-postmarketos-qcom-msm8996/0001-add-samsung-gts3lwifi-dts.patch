@@ -1,21 +1,24 @@
-From 003ae4106c5dc1a2cfb2329ce5fd5923417c30a0 Mon Sep 17 00:00:00 2001
+From 5471ac6e3843efd48a723f5bc921c6cc0f258950 Mon Sep 17 00:00:00 2001
 From: psigod <psigod@example.com>
-Date: Sat, 31 Oct 2026 16:47:45 +0000
+Date: Sat, 31 Oct 2026 17:25:51 +0000
 Subject: [PATCH] arm64: dts: qcom: Add Samsung Galaxy Tab S3 (gts3lwifi,
  gts3llte)
 
 Device trees for the Samsung Galaxy Tab S3 Wi-Fi (SM-T820), an APQ8096
 tablet with PM8994 + PM8004 and eMMC storage, booted via lk2nd:
 reserved memory matching the Samsung firmware layout, PM8994 RPM
-regulators, eMMC and microSD, dwc3 USB in peripheral mode, PS_HOLD
-restart and power-off, the AMS968HH01 dual-DSI command-mode panel, the
-Adreno 530 GPU, the Synaptics RMI4 touchscreen, the Wacom W9019 S-Pen
-digitizer, the Volume and Home keys, QCA6174 Wi-Fi on PCIe and Bluetooth
-on UART, Venus, the SLPI sensor core (accelerometer, gyroscope and
-magnetometer), audio (ADSP + WCD9335 on SLIMbus, four RT5508 speaker
-amplifiers on two TDM buses), the SM5705 fuel gauge, charger and MUIC,
-the S2MM005 USB Type-C/PD controller, the rear flash LED as a torch, and
-CPU, cluster and system idle (hierarchical PSCI, OSI).
+regulators, eMMC and microSD, dwc3 USB as dual role with USB 3.0,
+PS_HOLD restart and power-off, the AMS968HH01 dual-DSI command-mode
+panel, the Adreno 530 GPU, the Synaptics RMI4 touchscreen, the Wacom
+W9019 S-Pen digitizer, the Volume and Home keys, the Book Cover Keyboard
+(STMPE1801), QCA6174 Wi-Fi on PCIe and Bluetooth on UART, Venus, the
+rear IMX258 camera with its DW9807 lens and the front S5K5E3 camera on
+CAMSS, the SLPI sensor core (accelerometer, gyroscope and magnetometer),
+audio (ADSP + WCD9335 on SLIMbus, four RT5508 speaker amplifiers on two
+TDM buses), the SM5705 fuel gauge, charger (with the OTG boost) and
+MUIC, the S2MM005 USB Type-C/PD controller (dual role, 9 V sink), the
+rear flash LED as a torch, and CPU, cluster and system idle
+(hierarchical PSCI, OSI).
 
 The LTE model (SM-T825, MSM8996) shares the board: its device tree includes
 the Wi-Fi one and changes the SoC ID, reserves the modem's shared memory
@@ -26,9 +29,9 @@ Signed-off-by: psigod <psigod@example.com>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    2 +
- .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 1607 +++++++++++++++++
+ .../dts/qcom/apq8096-samsung-gts3lwifi.dts    | 2039 +++++++++++++++++
  .../dts/qcom/msm8996-samsung-gts3llte.dts     |   46 +
- 3 files changed, 1655 insertions(+)
+ 3 files changed, 2087 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
  create mode 100644 arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts
 
@@ -54,10 +57,10 @@ index 821146b..39b7195 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= msm8996-sony-xperia-tone-keyaki.dtb
 diff --git a/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
 new file mode 100644
-index 0000000..e98c60b
+index 0000000..e13a495
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/apq8096-samsung-gts3lwifi.dts
-@@ -0,0 +1,1607 @@
+@@ -0,0 +1,2039 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Samsung Galaxy Tab S3 Wi-Fi (SM-T820), codename gts3lwifi, board rev 05
@@ -67,15 +70,16 @@ index 0000000..e98c60b
 + * Internal storage: eMMC on SDHC1 (cmdline: androidboot.bootdevice=7464900.sdhci).
 + *   UFS silicon is present but unpopulated; ufshc/ufsphy stay disabled.
 + *
-+ * Working: eMMC, microSD, USB peripheral, reboot and power-off, display
-+ * (AMS968HH01 dual-DSI command-mode panel), GPU, touch, S-Pen, Volume and
-+ * Home keys, Wi-Fi and Bluetooth (QCA6174), Venus, audio (ADSP + WCD9335:
-+ * headphones and microphones; four RT5508 speaker amplifiers), SM5705 fuel
-+ * gauge, charger, MUIC and flash LED (torch), S2MM005 USB Type-C/PD (sink),
-+ * accelerometer, gyroscope and magnetometer (through the SLPI sensor core),
-+ * CPU/cluster/system idle. The Book Cover Keyboard (no hotplug yet) and the
-+ * panel's temperature input have test DTs; cameras, the light sensor and
-+ * the cover's hall sensor are not here yet.
++ * Working: eMMC, microSD, USB peripheral, host and OTG (USB 3.0), reboot
++ * and power-off, display (AMS968HH01 dual-DSI command-mode panel), GPU,
++ * touch, S-Pen, Volume and Home keys, Wi-Fi and Bluetooth (QCA6174), Venus,
++ * audio (ADSP + WCD9335: headphones and microphones; four RT5508 speaker
++ * amplifiers), SM5705 fuel gauge, charger, MUIC and flash LED (torch),
++ * S2MM005 USB Type-C/PD (sink up to 9 V, source), accelerometer, gyroscope
++ * and magnetometer (through the SLPI sensor core), CPU/cluster/system idle,
++ * both cameras, the Book Cover Keyboard (attached at boot; no hotplug yet).
++ * The panel's temperature input has a test DT; the cover's hall sensor is
++ * not here yet.
 + *
 + * GPU zap shader, Venus, ADSP and SLPI firmware are Samsung-signed and come
 + * from the device (apnhlos and modem partitions), under
@@ -105,6 +109,7 @@ index 0000000..e98c60b
 +#include <dt-bindings/sound/qcom,q6afe.h>
 +#include <dt-bindings/sound/qcom,q6asm.h>
 +#include <dt-bindings/sound/qcom,wcd9335.h>
++#include <dt-bindings/usb/pd.h>
 +#include "msm8996.dtsi"
 +#include "pm8994.dtsi"
 +#include "pm8004.dtsi"
@@ -322,6 +327,110 @@ index 0000000..e98c60b
 +				color = <LED_COLOR_ID_WHITE>;
 +				led-max-microamp = <180000>;
 +			};
++
++			/* the boost onto VBUS, for USB OTG */
++			otg_vbus: usb-otg-vbus {
++				regulator-name = "usb_otg_vbus";
++			};
++		};
++	};
++
++	/* Book Cover Keyboard (EJ-FT820) on the pogo pins */
++	i2c-pogo {
++		compatible = "i2c-gpio";
++		sda-gpios = <&tlmm 2 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		scl-gpios = <&tlmm 3 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		i2c-gpio,delay-us = <2>;
++		pinctrl-0 = <&pogo_i2c_default>;
++		pinctrl-names = "default";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		keyboard@40 {
++			compatible = "st,stmpe1801";
++			reg = <0x40>;
++			/* stmpe_probe() only looks for "interrupts" */
++			interrupt-parent = <&tlmm>;
++			interrupts = <54 IRQ_TYPE_LEVEL_LOW>;
++			pinctrl-0 = <&pogo_kbd_int_default>;
++			pinctrl-names = "default";
++			vcc-supply = <&vreg_l6a_1p8>;
++
++			keyboard-controller {
++				compatible = "st,stmpe-keypad";
++				debounce-interval = <10>;
++				st,scan-count = <3>;
++				keypad,num-rows = <8>;
++				keypad,num-columns = <10>;
++				linux,keymap = <
++					MATRIX_KEY(0, 2, KEY_Z)
++					MATRIX_KEY(0, 3, KEY_102ND)
++					MATRIX_KEY(0, 4, KEY_V)
++					MATRIX_KEY(0, 5, KEY_M)
++					MATRIX_KEY(0, 6, KEY_DOWN)
++					MATRIX_KEY(0, 8, KEY_SPACE)
++					MATRIX_KEY(0, 9, KEY_UP)
++					MATRIX_KEY(1, 0, KEY_ONSCREEN_KEYBOARD)
++					MATRIX_KEY(1, 1, KEY_LEFTMETA)
++					MATRIX_KEY(1, 2, KEY_A)
++					MATRIX_KEY(1, 3, KEY_X)
++					MATRIX_KEY(1, 4, KEY_B)
++					MATRIX_KEY(1, 5, KEY_N)
++					MATRIX_KEY(1, 6, KEY_COMMA)
++					MATRIX_KEY(1, 7, KEY_DOT)
++					MATRIX_KEY(1, 8, KEY_SLASH)
++					MATRIX_KEY(1, 9, KEY_RIGHTBRACE)
++					MATRIX_KEY(2, 1, KEY_HANGEUL)
++					MATRIX_KEY(2, 2, KEY_Q)
++					MATRIX_KEY(2, 3, KEY_S)
++					MATRIX_KEY(2, 4, KEY_F)
++					MATRIX_KEY(2, 5, KEY_J)
++					MATRIX_KEY(2, 6, KEY_K)
++					MATRIX_KEY(2, 7, KEY_L)
++					MATRIX_KEY(2, 8, KEY_SEMICOLON)
++					MATRIX_KEY(2, 9, KEY_ENTER)
++					MATRIX_KEY(3, 1, KEY_LEFTALT)
++					MATRIX_KEY(3, 2, KEY_TAB)
++					MATRIX_KEY(3, 3, KEY_W)
++					MATRIX_KEY(3, 4, KEY_G)
++					MATRIX_KEY(3, 5, KEY_H)
++					MATRIX_KEY(3, 6, KEY_I)
++					MATRIX_KEY(3, 7, KEY_APOSTROPHE)
++					MATRIX_KEY(3, 8, KEY_P)
++					MATRIX_KEY(3, 9, KEY_BACKSLASH)
++					MATRIX_KEY(4, 0, KEY_CAPSLOCK)
++					MATRIX_KEY(4, 1, KEY_RIGHTALT)
++					MATRIX_KEY(4, 2, KEY_1)
++					MATRIX_KEY(4, 3, KEY_2)
++					MATRIX_KEY(4, 4, KEY_R)
++					MATRIX_KEY(4, 5, KEY_U)
++					MATRIX_KEY(4, 6, KEY_8)
++					MATRIX_KEY(4, 7, KEY_O)
++					MATRIX_KEY(4, 8, KEY_0)
++					MATRIX_KEY(4, 9, KEY_BACKSLASH)
++					MATRIX_KEY(5, 1, KEY_LEFTCTRL)
++					MATRIX_KEY(5, 2, KEY_GRAVE)
++					MATRIX_KEY(5, 3, KEY_RIGHT)
++					MATRIX_KEY(5, 4, KEY_T)
++					MATRIX_KEY(5, 5, KEY_Y)
++					MATRIX_KEY(5, 7, KEY_LEFTBRACE)
++					MATRIX_KEY(5, 8, KEY_BACKSPACE)
++					MATRIX_KEY(5, 9, KEY_MINUS)
++					MATRIX_KEY(6, 0, KEY_RIGHTSHIFT)
++					MATRIX_KEY(6, 1, KEY_LEFT)
++					MATRIX_KEY(6, 2, KEY_D)
++					MATRIX_KEY(6, 3, KEY_C)
++					MATRIX_KEY(6, 4, KEY_4)
++					MATRIX_KEY(6, 5, KEY_7)
++					MATRIX_KEY(6, 7, KEY_9)
++					MATRIX_KEY(6, 8, KEY_3)
++					MATRIX_KEY(6, 9, KEY_E)
++					MATRIX_KEY(7, 0, KEY_LEFTSHIFT)
++					MATRIX_KEY(7, 4, KEY_5)
++					MATRIX_KEY(7, 6, KEY_6)
++					MATRIX_KEY(7, 7, KEY_EQUAL)
++				>;
++			};
 +		};
 +	};
 +
@@ -415,6 +524,38 @@ index 0000000..e98c60b
 +		regulator-boot-on;
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&pen_vdd_default>;
++	};
++
++	/*
++	 * Camera core supplies: switched regulators fed from S3, enabled by
++	 * CAM_CORE_EN (rear, TLMM 9) and CAM_VDIG (front, TLMM 8) in the
++	 * downstream camera@0 and camera@2 nodes. Their output voltage is
++	 * not documented downstream; 1.2 V is what both sensors take.
++	 */
++	cam_rear_vdig: regulator-cam-rear-vdig {
++		compatible = "regulator-fixed";
++		regulator-name = "cam_rear_vdig_1p2";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		gpio = <&tlmm 9 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <1000>;
++		vin-supply = <&vreg_s3a_1p3>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_rear_vdig_en_default>;
++	};
++
++	cam_front_vdig: regulator-cam-front-vdig {
++		compatible = "regulator-fixed";
++		regulator-name = "cam_front_vdig_1p2";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		gpio = <&tlmm 8 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <1000>;
++		vin-supply = <&vreg_s3a_1p3>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_front_vdig_en_default>;
 +	};
 +
 +	/*
@@ -521,8 +662,9 @@ index 0000000..e98c60b
 +		/*
 +		 * Samsung S2MM005 USB Type-C and PD controller. Its firmware
 +		 * negotiates the PD contract by itself; the charger takes its
-+		 * input limit from this supply too. Interrupt: open drain, low
-+		 * while an event is pending, pulled up on the board.
++		 * input limit from this supply too. As a source it needs the
++		 * charger's boost for VBUS. Interrupt: open drain, low while
++		 * an event is pending, pulled up on the board.
 +		 */
 +		typec: typec@33 {
 +			compatible = "samsung,s2mm005";
@@ -534,8 +676,40 @@ index 0000000..e98c60b
 +			connector {
 +				compatible = "usb-c-connector";
 +				label = "USB-C";
-+				power-role = "sink";
-+				data-role = "device";
++				power-role = "dual";
++				data-role = "dual";
++				vbus-supply = <&otg_vbus>;
++				/*
++				 * 5 V, or 9 V at the input limit Samsung uses
++				 * for its 15 W chargers
++				 */
++				sink-pdos = <PDO_FIXED(5000, 3000,
++						       PDO_FIXED_DUAL_ROLE |
++						       PDO_FIXED_USB_COMM |
++						       PDO_FIXED_DATA_SWAP)
++					     PDO_FIXED(9000, 1650, 0)>;
++				op-sink-microwatt = <15000000>;
++
++				ports {
++					#address-cells = <1>;
++					#size-cells = <0>;
++
++					port@0 {
++						reg = <0>;
++
++						typec_hs: endpoint {
++							remote-endpoint = <&usb3_dwc3_hs>;
++						};
++					};
++
++					port@1 {
++						reg = <1>;
++
++						typec_ss: endpoint {
++							remote-endpoint = <&usb3_dwc3_ss>;
++						};
++					};
++				};
 +			};
 +		};
 +	};
@@ -585,6 +759,7 @@ index 0000000..e98c60b
 +		vdd_l9_l10_l18_l22-supply = <&vph_pwr>;
 +		vdd_l13_l19_l23_l24-supply = <&vph_pwr>;
 +		vdd_l14_l15-supply = <&vreg_s5a_2p15>;
++		vdd_l17_l29-supply = <&vph_pwr>;
 +		vdd_l20_l21-supply = <&vph_pwr>;
 +		vdd_lvs1_2-supply = <&vreg_s4a_1p8>;
 +
@@ -613,6 +788,13 @@ index 0000000..e98c60b
 +			regulator-max-microvolt = <2150000>;
 +		};
 +
++		/* Camera I/O: both sensors, the rear lens driver */
++		vreg_lvs1a_1p8: lvs1 {
++			regulator-name = "vreg_lvs1a_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++		};
++
 +		/*
 +		 * SSC pad supply (SLPI px) and the sensors' vdd/vddio; stock
 +		 * keeps it on (msm8996-sec-common.dtsi).
@@ -630,6 +812,19 @@ index 0000000..e98c60b
 +			regulator-min-microvolt = <1250000>;
 +			regulator-max-microvolt = <1250000>;
 +			regulator-allow-set-load;
++		};
++
++		/*
++		 * Book Cover Keyboard (downstream pm8994_l6, "vdd" of the pogo
++		 * keyboard). The keyboard's controller did not answer 10 ms
++		 * after power-up; stock retries each transfer 3 times 10 ms
++		 * apart (stmpe1801_pogo_keyboard.c).
++		 */
++		vreg_l6a_1p8: l6 {
++			regulator-name = "vreg_l6a_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-enable-ramp-delay = <100000>;
 +		};
 +
 +		/* USB PHY PLL / core 1.8 V (downstream vdda18 / core-supply) */
@@ -655,6 +850,13 @@ index 0000000..e98c60b
 +			regulator-min-microvolt = <1800000>;
 +			regulator-max-microvolt = <1800000>;
 +			regulator-allow-set-load;
++		};
++
++		/* Rear camera lens driver (downstream cam_vaf) */
++		vreg_l17a_2p8: l17 {
++			regulator-name = "vreg_l17a_2p8";
++			regulator-min-microvolt = <2800000>;
++			regulator-max-microvolt = <2800000>;
 +		};
 +
 +		/*
@@ -687,6 +889,13 @@ index 0000000..e98c60b
 +			regulator-system-load = <800000>;
 +		};
 +
++		/* Front camera analog (downstream camera@2 cam_vana) */
++		vreg_l23a_2p8: l23 {
++			regulator-name = "vreg_l23a_2p8";
++			regulator-min-microvolt = <2800000>;
++			regulator-max-microvolt = <2800000>;
++		};
++
 +		/* USB2 PHY D+/D- 3.075 V (downstream vdda33) */
 +		vreg_l24a_3p075: l24 {
 +			regulator-name = "vreg_l24a_3p075";
@@ -700,6 +909,13 @@ index 0000000..e98c60b
 +			regulator-min-microvolt = <925000>;
 +			regulator-max-microvolt = <925000>;
 +			regulator-allow-set-load;
++		};
++
++		/* Rear camera analog (downstream camera@0 cam_vana) */
++		vreg_l29a_2p8: l29 {
++			regulator-name = "vreg_l29a_2p8";
++			regulator-min-microvolt = <2800000>;
++			regulator-max-microvolt = <2800000>;
 +		};
 +
 +		/* QCA6174 crystal 1.8 V, not managed by ath10k */
@@ -720,21 +936,22 @@ index 0000000..e98c60b
 + * usb3 (qcom,msm8996-dwc3) + usb3_dwc3, hsusb_phy1 (QUSB2, 0x7411000) and
 + * usb3phy (QMP, 0x7410000).
 + *
-+ * Bring-up goes high-speed only, on hsusb_phy1: SuperSpeed on this Type-C
-+ * port needs the s2mm005 CC/PD controller (BLSP1 QUP5 I2C, TLMM 83/84,
-+ * IRQ TLMM 73) for lane orientation plus the redriver enable on PM8994
-+ * GPIO 14 (downstream usb-notifier qcom,gpios_redriver_en), neither of
-+ * which has a mainline driver. usb3phy below keeps its supply routing
-+ * documented and stays disabled.
++ * The SuperSpeed lanes pass a redriver enabled by PM8994 GPIO 14
++ * (downstream usb-notifier qcom,gpios_redriver_en). The s2mm005 firmware
++ * picks the lane pair for the plug orientation by itself, so the AP has
++ * nothing to switch. Samsung's kernel enables the redriver only while
++ * something is attached; here it stays on, see &pm8994_gpios.
 + *
 + * TLMM: the downstream USB nodes reference no TLMM pinctrl state at all,
 + * and the mainline usb3/PHY nodes need none, so there is nothing to add.
 + *
 + * On v6.19 msm8996.dtsi still uses the child-node form, which binds to
 + * dwc3-qcom-legacy.c. That glue reads dr_mode from the child node and
-+ * forces the VBUS-valid override for every non-host mode, so no extcon or
-+ * role switch is needed to enumerate as a gadget; dr_mode = "peripheral"
-+ * additionally keeps the dwc3 core itself in device mode.
++ * forces the VBUS-valid override for every non-host mode, so no extcon is
++ * needed to enumerate as a gadget. The s2mm005 drives the dwc3 role switch:
++ * host when its firmware is the DFP (a sink on the port, or a hub that
++ * swapped data roles), device otherwise. Without a role, and before the
++ * s2mm005 driver loads, the core stays a peripheral.
 + */
 +&hsusb_phy1 {
 +	vdd-supply = <&vreg_l28a_0p925>;
@@ -746,23 +963,40 @@ index 0000000..e98c60b
 +&usb3phy {
 +	vdda-phy-supply = <&vreg_l28a_0p925>;
 +	vdda-pll-supply = <&vreg_l12a_1p8>;
-+	status = "disabled";
++	status = "okay";
 +};
 +
 +&usb3 {
-+	/* usb3phy is off, so clock the core from UTMI instead of the pipe clock */
-+	qcom,select-utmi-as-pipe-clk;
 +	status = "okay";
 +};
 +
 +&usb3_dwc3 {
-+	dr_mode = "peripheral";
-+	maximum-speed = "high-speed";
-+	phys = <&hsusb_phy1>;
-+	phy-names = "usb2-phy";
++	dr_mode = "otg";
++	usb-role-switch;
 +	snps,is-utmi-l1-suspend;
 +	snps,hird-threshold = /bits/ 8 <0>;
 +	snps,usb2-gadget-lpm-disable;
++
++	ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@0 {
++			reg = <0>;
++
++			usb3_dwc3_hs: endpoint {
++				remote-endpoint = <&typec_hs>;
++			};
++		};
++
++		port@1 {
++			reg = <1>;
++
++			usb3_dwc3_ss: endpoint {
++				remote-endpoint = <&typec_ss>;
++			};
++		};
++	};
 +};
 +
 +/*
@@ -1337,6 +1571,25 @@ index 0000000..e98c60b
 + * these too, but they are the BLSP2 QUP2 I2C pins, so use the controller.
 + * Its alert line (PM8994 GPIO 1) is not used; the driver polls.
 + */
++/*
++ * Rear camera lens: Dongwoon DW9807 voice coil driver, downstream
++ * actuator@18 on i2c_7. The module's calibration EEPROM shares the bus at
++ * 0x58 (downstream eeprom@50, 0x1200 bytes, 16-bit addressing); it has
++ * no binding yet.
++ */
++&blsp2_i2c1 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	rear_lens: camera-lens@c {
++		compatible = "dongwoon,dw9807-vcm";
++		reg = <0x0c>;
++
++		vdd-supply = <&vreg_l17a_2p8>;
++		vio-supply = <&vreg_lvs1a_1p8>;
++	};
++};
++
 +&blsp2_i2c2 {
 +	clock-frequency = <100000>;
 +	status = "okay";
@@ -1425,7 +1678,117 @@ index 0000000..e98c60b
 +	};
 +};
 +
++/*
++ * Cameras (downstream msm8996-camera-sensor-gts3llte-r00.dtsi):
++ *   rear:  Sony IMX258, CCI master 0, CSIPHY0, 4 lanes, MCLK0,
++ *          reset TLMM 30, mount angle 90
++ *   front: Samsung S5K5E3, CCI master 1, CSIPHY2, 2 lanes, MCLK2,
++ *          reset TLMM 40, mount angle 270
++ * Both take a 24 MHz MCLK.
++ */
++&camss {
++	vdda-supply = <&vreg_l2a_1p25>;
++
++	status = "okay";
++
++	ports {
++		port@0 {
++			reg = <0>;
++
++			csiphy0_ep: endpoint {
++				clock-lanes = <7>;
++				data-lanes = <0 1 2 3>;
++				remote-endpoint = <&rear_camera_ep>;
++			};
++		};
++
++		port@2 {
++			reg = <2>;
++
++			csiphy2_ep: endpoint {
++				clock-lanes = <7>;
++				data-lanes = <0 1>;
++				remote-endpoint = <&front_camera_ep>;
++			};
++		};
++	};
++};
++
++&cci {
++	status = "okay";
++};
++
++&cci_i2c0 {
++	clock-frequency = <1000000>;
++
++	camera@1a {
++		compatible = "sony,imx258";
++		reg = <0x1a>;
++
++		clocks = <&mmcc CAMSS_MCLK0_CLK>;
++		assigned-clocks = <&mmcc CAMSS_MCLK0_CLK>;
++		assigned-clock-rates = <24000000>;
++
++		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
++
++		vana-supply = <&vreg_l29a_2p8>;
++		vdig-supply = <&cam_rear_vdig>;
++		vif-supply = <&vreg_lvs1a_1p8>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_rear_default>;
++
++		orientation = <1>;
++		rotation = <90>;
++		lens-focus = <&rear_lens>;
++
++		port {
++			rear_camera_ep: endpoint {
++				data-lanes = <1 2 3 4>;
++				link-frequencies = /bits/ 64 <636000000 321000000>;
++				remote-endpoint = <&csiphy0_ep>;
++			};
++		};
++	};
++};
++
++&cci_i2c1 {
++	clock-frequency = <1000000>;
++
++	camera@10 {
++		compatible = "samsung,s5k5e3";
++		reg = <0x10>;
++
++		clocks = <&mmcc CAMSS_MCLK2_CLK>;
++		assigned-clocks = <&mmcc CAMSS_MCLK2_CLK>;
++		assigned-clock-rates = <24000000>;
++
++		reset-gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
++
++		vdda-supply = <&vreg_l23a_2p8>;
++		vddd-supply = <&cam_front_vdig>;
++		vddio-supply = <&vreg_lvs1a_1p8>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_front_default>;
++
++		orientation = <0>;
++		rotation = <270>;
++
++		port {
++			front_camera_ep: endpoint {
++				data-lanes = <1 2>;
++				link-frequencies = /bits/ 64 <448000000>;
++				remote-endpoint = <&csiphy2_ep>;
++			};
++		};
++	};
++};
++
 +&pm8994_gpios {
++	pinctrl-0 = <&usb3_redriver_en>;
++	pinctrl-names = "default";
++
 +	/* Home: digital input, no pull (external pull-up), 1.8 V */
 +	home_key_default: home-key-default-state {
 +		pins = "gpio2";
@@ -1470,6 +1833,18 @@ index 0000000..e98c60b
 +		qcom,drive-strength = <PMIC_GPIO_STRENGTH_LOW>;
 +		power-source = <PM8994_GPIO_S4>;
 +		bias-disable;
++	};
++
++	/*
++	 * USB 3.0 redriver enable, kept on. Its supply defaults to VPH_PWR:
++	 * use S4 (1.8 V), as Samsung's DT does, before it goes high.
++	 */
++	usb3_redriver_en: usb3-redriver-en-state {
++		pins = "gpio14";
++		function = PMIC_GPIO_FUNC_NORMAL;
++		output-high;
++		bias-disable;
++		power-source = <PM8994_GPIO_S4>;
 +	};
 +
 +	audio_mclk_default: audio-mclk-state {
@@ -1663,6 +2038,66 @@ index 0000000..e98c60b
 +		function = "gpio";
 +		drive-strength = <2>;
 +		bias-disable;
++	};
++
++	cam_rear_default: cam-rear-default-state {
++		mclk-pins {
++			pins = "gpio13";
++			function = "cam_mclk";
++			drive-strength = <4>;
++			bias-disable;
++		};
++
++		reset-pins {
++			pins = "gpio30";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++
++	cam_rear_vdig_en_default: cam-rear-vdig-en-state {
++		pins = "gpio9";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	cam_front_default: cam-front-default-state {
++		mclk-pins {
++			pins = "gpio15";
++			function = "cam_mclk";
++			drive-strength = <4>;
++			bias-disable;
++		};
++
++		reset-pins {
++			pins = "gpio40";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++
++	cam_front_vdig_en_default: cam-front-vdig-en-state {
++		pins = "gpio8";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	pogo_i2c_default: pogo-i2c-default-state {
++		pins = "gpio2", "gpio3";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	pogo_kbd_int_default: pogo-kbd-int-default-state {
++		pins = "gpio54";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-pull-up;
 +	};
 +};
 diff --git a/arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts b/arch/arm64/boot/dts/qcom/msm8996-samsung-gts3llte.dts

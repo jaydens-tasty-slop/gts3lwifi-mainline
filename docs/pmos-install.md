@@ -6,10 +6,12 @@
 carry what this install needed: the kernel (pkgrel 7) has patches 0001-0075
 and the options below (`CONFIG_QCOM_SPMI_VADC=m`, which is enough), the main
 DTS has the display, touch, S-Pen, microSD and keys, and the deviceinfo has
-the command line below. The keyboard cover joined the main DTS on
-2026-10-31 (attached at boot; no hotplug yet); only the panel temperature
-channel (`dts/test/test-display-temp.dts`) is still a test DT. The rest of
-this page records the original install.
+the command line below. Since 2026-10-31 the kernel package lists patches
+0001-0104 (USB OTG and USB 3.0, HBM, the cameras, the cover as a dock) and
+sets the camera sensor and lens options. The keyboard cover joined the
+main DTS on 2026-10-31 (attached at boot; no hotplug yet); only the panel
+temperature channel (`dts/test/test-display-temp.dts`) is still a test DT.
+The rest of this page records the original install.
 
 postmarketOS edge with systemd and KDE Plasma on Wayland is installed on
 the eMMC of an SM-T820, behind lk2nd, and boots to the desktop with
