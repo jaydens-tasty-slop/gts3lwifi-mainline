@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jayden Milne <linux@jayd.ml>
 Date: Sun, 1 Nov 2026 11:23:52 -0700
-Subject: [PATCH] iio: qcom_smgr: clear samples and give them a timestamp
+Subject: [PATCH 1/4] iio: qcom_smgr: clear samples and give them a timestamp
 
 Every IIO device of the driver has a timestamp channel, but the report
 handler pushed a sample from an uninitialised stack variable with
@@ -18,7 +18,12 @@ the time of reception where the active scan layout wants it, and align
 the timestamp member as IIO requires.
 
 The driver is in the msm8996-mainline tree (v6.19.5-msm8996), not in
-mainline yet. Compile-tested only.
+mainline yet.
+
+Tested on a Galaxy Tab S3 (SM-T820). Before, the four bytes before the
+timestamp and the timestamp itself held a kernel virtual address
+(0xffff8000...) in every accelerometer sample; after, the padding is
+zero and the timestamps follow CLOCK_REALTIME 2.5 ms apart at 400 Hz.
 
 Signed-off-by: Jayden Milne <linux@jayd.ml>
 Assisted-by: Claude:claude-opus-5-5

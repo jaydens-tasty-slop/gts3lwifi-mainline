@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jayden Milne <linux@jayd.ml>
 Date: Sun, 1 Nov 2026 11:24:19 -0700
-Subject: [PATCH] iio: qcom_smgr: let the core demux partial 3-axis scans
+Subject: [PATCH 2/4] iio: qcom_smgr: let the core demux partial 3-axis scans
 
 The report handler always pushes X, Y and Z of an accelerometer,
 gyroscope or magnetometer sample in that order, which is the scan layout
@@ -14,7 +14,11 @@ devices, so that the IIO core enables all three axes and copies out the
 channels each buffer asked for. The single-channel devices need nothing.
 
 The driver is in the msm8996-mainline tree (v6.19.5-msm8996), not in
-mainline yet. Compile-tested only.
+mainline yet.
+
+Tested on a Galaxy Tab S3 (SM-T820) with all three axes enabled, which
+is what iio-sensor-proxy does: samples unchanged. Scans with fewer axes
+are untested.
 
 Signed-off-by: Jayden Milne <linux@jayd.ml>
 Assisted-by: Claude:claude-opus-5-5

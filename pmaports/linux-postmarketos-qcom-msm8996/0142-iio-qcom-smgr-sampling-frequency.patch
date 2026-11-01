@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jayden Milne <linux@jayd.ml>
 Date: Sun, 1 Nov 2026 11:28:31 -0700
-Subject: [PATCH] iio: qcom_smgr: stream at the sampling frequency userspace
- set
+Subject: [PATCH 3/4] iio: qcom_smgr: stream at the sampling frequency
+ userspace set
 
 sampling_frequency is writable, but the value was never used: every
 buffer enable picked the fastest native rate again, and a buffer disable
@@ -15,11 +15,18 @@ accelerometer for screen rotation every 700 ms).
 Keep the requested rate across buffer disables, use it at buffer enable,
 reject rates outside the advertised range, and start from the same
 default as before: the fastest native rate, capped at the SMGR maximum.
-Whether SMGR accepts rates between the native ones is not known; a
-rejected rate fails the buffer enable as other SMGR errors do.
+A rate SMGR rejects fails the buffer enable as other SMGR errors do.
 
 The driver is in the msm8996-mainline tree (v6.19.5-msm8996), not in
-mainline yet. Compile-tested only.
+mainline yet.
+
+Tested on a Galaxy Tab S3 (SM-T820), by timestamps of the buffered
+samples: the accelerometer at 50, 100, 200 and 416 Hz streams at 49.5,
+99.3, 198 and 395 Hz, the gyroscope at 10 and 100 Hz at 10.2 and 99 Hz,
+the magnetometer at 10 and 50 Hz at 10.0 and 50.0 Hz. SMGR accepts rates
+between the native ones. Asked for 10 Hz, the accelerometer streams at
+12.4 Hz, its lowest rate. Writing 10 Hz to the light sensor fails with
+EINVAL, as it is above the maximum SMGR reports for it.
 
 Signed-off-by: Jayden Milne <linux@jayd.ml>
 Assisted-by: Claude:claude-opus-5-5
