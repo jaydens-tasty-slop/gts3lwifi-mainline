@@ -295,9 +295,25 @@ reboot after such a test.
   ones not).
 - Writes to `in_*_sampling_frequency` were ignored: every buffer enable
   went back to the fastest rate, one QMI message per sample. Patch 0142
-  keeps the written rate (tested, rates above). Nothing lowers it yet. A
-  udev rule could set the accelerometer to about 12.5 Hz, enough for
-  iio-sensor-proxy, which reads it every 700 ms; that is not done.
+  keeps the written rate (tested, rates above). The device package's
+  `61-gts3-accel.rules` sets the accelerometer to 12 Hz (it streams at
+  12.4 Hz) when it appears. iio-sensor-proxy reads it every 700 ms and
+  uses only the newest scan, so nothing is lost. At 416 Hz the buffer
+  filled in 0.3 s and the scan it used was stale anyway. Measured on the
+  SM-T820 with the screen on and the desktop idle (10 s windows, SLPI
+  `smd-edge` IRQs, CPU busy over 4 cores, residency in the deepest idle
+  state):
+
+  | Accelerometer | IRQ/s | CPU busy | Deepest idle |
+  |---|---|---|---|
+  | off (screen off) | 0 | 1 % | 98-99 % |
+  | 12 Hz | 12 | 2 % | 97 % |
+  | 416 Hz | 397 | 4 % | 93-95 % |
+
+  The SLPI channel batches: the gyroscope at 416 Hz on top of the
+  accelerometer added only about 20 IRQ/s. The rate can only change
+  while the buffer is off, i.e. while the screen is off (KWin drops its
+  claim) or before iio-sensor-proxy opens the device.
 - Restarting iio-sensor-proxy while KWin runs leaves the orientation at
   "undefined" for every client. iio-sensor-proxy 3.9 takes its D-Bus
   name before it has probed the IIO devices, so KWin's immediate
