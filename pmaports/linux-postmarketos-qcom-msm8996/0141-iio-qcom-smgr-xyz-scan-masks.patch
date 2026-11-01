@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Sun, 1 Nov 2026 11:24:19 -0700
+Subject: [PATCH] iio: qcom_smgr: let the core demux partial 3-axis scans
+
+The report handler always pushes X, Y and Z of an accelerometer,
+gyroscope or magnetometer sample in that order, which is the scan layout
+only when all three channels are enabled. A buffer with fewer axes
+enabled (in_accel_z_en alone, say) got X where it expected its first
+enabled channel.
+
+Declare the full mask as the only available scan mask of the 3-axis
+devices, so that the IIO core enables all three axes and copies out the
+channels each buffer asked for. The single-channel devices need nothing.
+
+The driver is in the msm8996-mainline tree (v6.19.5-msm8996), not in
+mainline yet. Compile-tested only.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index b4f016bdab50..3f753c02a648 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -5,6 +5,7 @@
+  * Copyright (c) 2021-2025, Yassine Oudjana <y.oudjana@protonmail.com>
+  */
+ 
++#include <linux/bits.h>
+ #include <linux/iio/buffer.h>
+ #include <linux/iio/common/qcom_smgr.h>
+ #include <linux/iio/iio.h>
+@@ -712,6 +713,12 @@ static const struct iio_chan_spec qcom_smgr_pressure_iio_channels[] = {
+ 	}
+ };
+ 
++/*
++ * The report handler always pushes all three axes of a 3-axis sensor; let
++ * the IIO core pick out the channels a buffer has enabled.
++ */
++static const unsigned long qcom_smgr_xyz_scan_masks[] = { GENMASK(2, 0), 0 };
++
+ static const char *const qcom_smgr_sensor_type_device_names[] = {
+ 	[SNS_SMGR_SENSOR_TYPE_ACCEL] = "qcom-smgr-accel",
+ 	[SNS_SMGR_SENSOR_TYPE_GYRO] = "qcom-smgr-gyro",
+@@ -769,6 +776,16 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
+ 		iio_dev->num_channels = qcom_smgr_sensor_type_num_channels[sensor->type];
+ 	}
+ 
++	switch (sensor->type) {
++	case SNS_SMGR_SENSOR_TYPE_ACCEL:
++	case SNS_SMGR_SENSOR_TYPE_GYRO:
++	case SNS_SMGR_SENSOR_TYPE_MAG:
++		iio_dev->available_scan_masks = qcom_smgr_xyz_scan_masks;
++		break;
++	default:
++		break;
++	}
++
+ 	sensor->iio_dev = iio_dev;
+ 
+ 	ret = devm_iio_kfifo_buffer_setup(smgr->dev, iio_dev,
+-- 
+2.56.0
+
