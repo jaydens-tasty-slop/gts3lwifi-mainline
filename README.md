@@ -74,7 +74,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 - `pmaports/` - postmarketOS device package (with the optional Waydroid subpackage), the kernel patches, and libcamera with autofocus
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages
-- `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe
+- `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe, and a BLSP QUP ownership test module (`tools/blsp-owner`, [fingerprint](docs/fingerprint.md))
 - `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
 - `docs/` - notes per subsystem, the postmarketOS install, tester instructions and boot logs
 

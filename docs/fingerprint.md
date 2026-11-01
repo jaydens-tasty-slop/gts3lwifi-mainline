@@ -1,6 +1,12 @@
 # Fingerprint sensor (Home key)
 
-## Status (2026-11-01): blocked on both models (desk research, nothing tried on hardware)
+## Status (2026-11-01): blocked on both models; a hardware test for the one way forward is prepared, not yet run
+
+Desk research plus a prepared test. The SPI protocol facts are in
+[fingerprint-protocol.md](fingerprint-protocol.md); a built ownership test
+module is in `tools/blsp-owner/` (the procedure is "Ownership test" below); a
+reference device tree is `dts/test/test-fingerprint.dts`. Nothing has been run
+on the tablet.
 
 The sensor is an Egis (EgisTec) ET510 on BLSP1 QUP6 SPI. Samsung's TrustZone
 owns that bus. On the SM-T820 Linux can't even read its pins: psigod's boot
@@ -189,37 +195,85 @@ not a read-only test (see "Hardware session").
 
 ### If the bus ever becomes Linux's
 
-The kernel side would be small:
-- a `blsp1_spi6` node (`qcom,spi-qup-v2.2.1`, `0x0757a000`, GIC SPI 100,
-  QUP6 SPI and BLSP1 AHB clocks, BAM 22/23, `blsp_spi6` pins);
-- a sensor node with reset (PM8994 MPP 2), power (MPP 8, as a GPIO-enabled
-  fixed regulator) and interrupt (TLMM 131);
-- either spidev with a new `egis,et510` compatible (which needs a binding),
-  or a small kernel driver;
-- and, only if the lever works, a `qcom_scm` helper for the ownership call
-  plus a consumer that makes it.
+The kernel side would be small. `dts/test/test-fingerprint.dts` is the
+reference node (disabled, test-only - see its header for the boot-ordering
+hazard):
 
-User space would need a new libfprint driver. libfprint (master, 2026-09)
-has SPI support (`fpi-spi-transfer`, used by `elanspi`), but its Egis drivers
-are all USB (`egis0570`, `egismoc`, `etes603`), and it finds spidev devices
-by matching an ACPI ID string in the sysfs path (`fp-context.c`), so a DT
-device needs a matching extension. What we know and don't:
+- a `spi@757a000` node (`qcom,spi-qup-v2.2.1`, GIC SPI 100, QUP6 SPI and
+  BLSP1 AHB clocks, `blsp_spi6` pins, PIO - no BAM, as in the stock secure
+  setup);
+- an ET510 node with power (`vdd-supply`, a GPIO-enabled fixed regulator on
+  PM8994 MPP 8), reset (PM8994 MPP 2), DRDY interrupt (TLMM 131) and the
+  vendor-ID input (PM8994 GPIO 12);
+- the `gpio-reserved-ranges` for 25-28 removed (only legitimate after the
+  ownership hand-off);
+- and, for the hand-off itself, the `tools/blsp-owner` module (below).
 
-- **Known, from GPL source**: framing and opcodes (`et5xx.h:57-70`: register
-  read 0x20, write 0x24, burst variants 0x22/0x23/0x26/0x27, image read
-  0x50, NVM 0x40-0x48, VDM 0x60/0x62), the status register 0x01 with bit 0
-  "frame ready", and the ID check (`et5xx-spi.c:872-928`: register 0x00
-  reads 0xAA when ready; 0xFD-0xFF read 03 0A 05 on ET510D, 00 10 05 on
-  ET516A; ET510C answers 00 66 00 33 at 0x20/0x21/0x23/0x24).
-- **Unknown**: the init, calibration and finger-detect register settings,
-  frame size and timing. These live in the Egis library inside `dualfp`.
-  The project rules (facts and init tables only, no transcribed code) would
-  allow pulling the tables out with Ghidra.
-- **Risk**: libfprint matches images with NBIS minutiae, which does poorly
-  on small touch sensors. A working capture path could still give an
-  unusable match rate.
+**Binding choice: a minimal `egis,et510` kernel driver, not spidev.** spidev
+is the quick bring-up route - its `compatible` can be set to `"spidev"` on the
+same node to read the chip ID from user space with no new driver - but it is
+not an upstreamable endpoint: the sensor needs power/reset/IRQ sequencing and
+a `vdd-supply`, which a spidev node cannot express, and recent kernels warn on
+and curate spidev `compatible`s. An upstreamable sensor is a small
+`spi_driver` that owns the regulator, reset GPIO and DRDY IRQ and exposes a
+capture path. It would also need a DT binding and an `egis`/`egistec`
+vendor-prefix addition (neither exists upstream yet). The driver itself is
+**not written yet**: it is pointless until the ownership hand-off is proven on
+hardware and the init/calibration tables are recovered (both open, below).
+
+A libfprint driver would sit on top; see "libfprint plan" below. The register
+map, SPI framing, known registers and the ID check are in
+[fingerprint-protocol.md](fingerprint-protocol.md). What is still missing for
+a working capture:
+
+- **Unknown (decompiler needed)**: the init, calibration and finger-detect
+  register tables, and the exact frame geometry. These live in the Egis
+  library inside `dualfp`, not in any GPL source. A facts-only Ghidra pass
+  (register addresses, values, tables, sizes - no transcribed functions) is
+  the way to get them. That pass is **not done**: the only running Ghidra
+  instance was another session's `yp3` project, which the rules forbid, and
+  the MCP bridge attaches only to running instances, so no clean instance was
+  free. An analysis-ready ELF is staged at
+  `out/pmos/fingerprint/blobs/dualfp_full.elf` so the pass is quick when an
+  instance is available (method in `fingerprint-protocol.md`).
 - **Hazard**: never send the NVM write opcodes (0x42, 0x46). They write the
   sensor's factory calibration.
+
+### libfprint plan
+
+The ET510 is the front **home-button** sensor: a press/area capacitive image
+sensor, not a swipe sensor. So in libfprint terms it is an `FpImageDevice`
+feeding NBIS minutiae matching (like the older area/image drivers), not a
+swipe-assembled or match-on-chip device.
+
+A driver (call it `egis_et510`) would:
+
+- use the SPI/udev path: `FP_DEVICE_TYPE_UDEV` with
+  `FPI_DEVICE_UDEV_SUBTYPE_SPIDEV`, opening the spidev node and transferring
+  with `fpi-spi-transfer` (as `elanspi` does). libfprint's existing Egis
+  drivers (`egis0570`, `egismoc`, `etes603`) are all USB, so this is a new
+  SPI driver, not an extension of them;
+- **matching gap to close first**: libfprint matches a spidev device by an
+  **ACPI** ID string found in the sysfs path (`fp-context.c`, `spi_acpi_id`).
+  A DT/of device has no ACPI ID, so either libfprint needs a small change to
+  match a DT `compatible` / modalias, or the sensor is exposed through a
+  kernel driver with a predictable device node. This is a libfprint-side
+  change, to be sent upstream separately (not before the owner approves, per
+  the contribution rules);
+- capture: power on and run the init table, arm detect mode, wait on DRDY,
+  poll `FSTATUS` (reg 0x01 bit 0) for "frame ready", read the frame with
+  `OP_IMG_R` (0x50), hand the 8-bit image to the image-device core;
+- **risks**: (1) without the init/calibration tables there is no usable
+  image, so the driver cannot be written yet; (2) a home-button area sensor
+  yields a small image with few minutiae, so NBIS match quality is the real
+  unknown even once capture works - this is the go/no-go that only real
+  captures can settle.
+
+Per the "write code only if a path is clearly viable" rule, **no libfprint
+skeleton is written in this round**: the protocol facts are not yet complete
+enough (init tables and geometry pending the Ghidra pass), and the capture
+path cannot be exercised until the ownership hand-off is proven. The plan
+above is the hand-off point for that work.
 
 ## Can Linux use the trustlet?
 
@@ -258,7 +312,7 @@ work, and none of it upstreamable.
 
 | Model | Verdict | Effort | Risk to the tablet |
 |---|---|---|---|
-| SM-T820 (`gts3lwifi`, APQ8096) | **Blocked.** The SPI pins are TrustZone-owned (hardware-proven) and the sensor protocol lives in a Samsung-signed trustlet. One untested lever: the BLSP ownership call | Lever test: one short session plus a small test module. If it works: about 1-2 days for SPI bring-up and the ID read, 1-3 weeks to pull the init tables from the trustlet, 2-4 weeks for a libfprint driver, with an uncertain match rate. Trustlet route: months, never upstream | Reading TLMM 25-28: reset after about 9 s (seen, harmless). Unclocked QUP read: possible bus hang (needs a long power-key press). Ownership call: secure-world state until reboot; worst case a reset. Sensor NVM writes: permanent, never do them |
+| SM-T820 (`gts3lwifi`, APQ8096) | **Blocked.** The SPI pins are TrustZone-owned (hardware-proven) and the sensor protocol lives in a Samsung-signed trustlet. One untested lever: the BLSP ownership call (test module now built, see "Ownership test") | Lever test: one short session with the prepared module. If it works: about 1-2 days for SPI bring-up and the ID read, 1-3 weeks to pull the init tables from the trustlet, 2-4 weeks for a libfprint driver, with an uncertain match rate. Trustlet route: months, never upstream | Reading TLMM 25-28: reset after about 9 s (seen, harmless). Unclocked QUP read: possible bus hang (needs a long power-key press). Ownership call: secure-world state until reboot; worst case a reset. Sensor NVM writes: permanent, never do them |
 | SM-T825 (`gts3llte`, MSM8996) | **Blocked**, same design and wiring. Pin ownership is inherited from the SM-T820 result, not measured, and its TrustZone build is different | Same, and every hardware result has to be repeated on an SM-T825 | Same |
 
 Nothing here keeps hardware powered, so sleep is unaffected.
@@ -295,17 +349,70 @@ On mainline (the installed postmarketOS, or a RAM boot):
    `0xa700` blocks) and GPIO 12 (`0xcb00`). Expected: outputs low, ID input level
    recorded.
 
-Changes secure-world state, needs the owner's OK, plugged in, not during a
-sleep study:
-
-8. A test module makes the BLSP ownership call (QUP index 5, owner APSS = 3)
-   and logs the return value. If it succeeds, read TLMM 25's config register
-   (`tools/mmio-rd 1029000`) and wait 15 s. A reset means the pins were
-   not handed over. Then hand QUP6 back (owner TZ = 1) or reboot.
-9. Only if 8 opens both the pins and the QUP: a test DT with `blsp1_spi6` +
-   spidev. Power the sensor (MPP 8 high, MPP 2 high, 10 ms), then read
-   register 0x00 (expect 0xAA) and 0xFD-0xFF (`OP_REG_R`, 0x20). Reads only,
-   no NVM opcodes.
-
-If step 8 fails on both models, fingerprint stays blocked for good on
+Then the ownership test, which changes secure-world state - see the next
+section. If it fails on both models, fingerprint stays blocked for good on
 mainline Linux, and the README line can say so.
+
+## Ownership test (prepared, run when the owner is back)
+
+This is the one way forward: ask TrustZone to hand BLSP1 QUP6 to the
+application processor (the `TZ_BLSP_MODIFY_OWNERSHIP` SIP call). The owner
+approved trying it ("worth a shot", 2026-11-01). It is prepared here but has
+**not** been run. It changes secure-world state until the next reboot, so run
+it only with the tablet plugged in, not during a sleep study, and expect a
+possible reset (harmless - it costs a reboot).
+
+The aid is `tools/blsp-owner/` (`gts3-blsp-owner.c` + `Makefile`): a GPL-2.0
+out-of-tree module that issues only the SMC and logs the return code. It does
+nothing at load and never touches the TLMM pins or the QUP registers itself.
+It reproduces, via `arm_smccc_smc()`, the exact register layout of Samsung's
+downstream `scm_call2()` for this call (`x0=0x42000403`, `x1=2`, `x2`=QUP
+index, `x3`=owner); mainline `qcom_scm` exports no entry point for it (see the
+file's header for the full derivation and `file:line` citations).
+
+Build (host, offline), against a kernel tree prepared for this tablet:
+
+```
+cd tools/blsp-owner
+make KDIR=<prepared O= build dir> ARCH=arm64 LLVM=1
+```
+
+(Built and link-checked here against a v6.19.5 tree: `gts3-blsp-owner.ko`,
+vermagic `6.19.5 ... aarch64`, importing `__arm_smccc_smc`.)
+
+Run on the tablet (mainline, as root), in order. Stop at the first step that
+resets the tablet.
+
+1. `insmod gts3-blsp-owner.ko` - loads idle, creates
+   `/sys/kernel/debug/gts3_blsp_owner/`. No SMC yet.
+2. Hand QUP6 to Linux and read the TrustZone return code:
+   ```
+   echo 3 > /sys/kernel/debug/gts3_blsp_owner/owner   # 3 = APSS (Linux)
+   cat   /sys/kernel/debug/gts3_blsp_owner/owner       # "qup=5 last_ret=<code>"
+   dmesg | tail                                        # "qup=5 owner=3 -> tz_ret=.."
+   ```
+   `tz_ret=0` usually means the hand-off was accepted. A non-zero code means
+   TrustZone refused (no reset, bus still TZ-owned). If the tablet resets
+   here, the call is not allowed for this QUP - record it and stop.
+   - The QUP index is a guess (`5`, BLSP1 QUP6 as a 0-based BLSP index). If
+     `tz_ret` is a "bad parameter" code, retry other indices without
+     reloading: `echo 6 > .../qup` (or `4`, `11`) then `echo 3 > .../owner`.
+3. If step 2 returned success and did not reset: confirm the pins are now
+   readable from Linux. `tools/mmio-rd 1029000` reads TLMM 25's config
+   register (TLMM pin N config is at `0x01010000 + 0x1000*N`; pin 25 =
+   `0x1029000`). Wait ~15 s. No reset means the hand-off took.
+4. Only if 3 held: bring up the SPI node. Rebuild/boot with
+   `dts/test/test-fingerprint.dts` and `&fp_spi`/`&fp_sensor`/`&fp_vreg` set
+   to `status = "okay"` (or apply it as a runtime overlay after step 2, so the
+   SPI controller probes *after* the hand-off - see the DT header's ordering
+   hazard). Then read the chip ID: register 0x00 must read `0xAA`, then
+   0xFD-0xFF (or 0x20/0x21/0x23/0x24) give the ET510 variant
+   (`fingerprint-protocol.md`). Reads only; never the NVM-write opcodes
+   (0x42/0x46).
+
+Undo, in order of preference:
+
+- `echo 1 > /sys/kernel/debug/gts3_blsp_owner/owner` - hand QUP6 back to
+  TrustZone (owner 1 = TZ);
+- `rmmod gts3-blsp-owner`;
+- or just reboot: the hand-off does not survive a reboot.
