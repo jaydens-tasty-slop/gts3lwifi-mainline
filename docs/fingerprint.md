@@ -226,18 +226,21 @@ map, SPI framing, known registers and the ID check are in
 [fingerprint-protocol.md](fingerprint-protocol.md). What is still missing for
 a working capture:
 
-- **Unknown (decompiler needed)**: the init, calibration and finger-detect
-  register tables, and the exact frame geometry. These live in the Egis
-  library inside `dualfp`, not in any GPL source. A facts-only Ghidra pass
-  (register addresses, values, tables, sizes - no transcribed functions) is
-  the way to get them. That pass is **not done**: the only running Ghidra
-  instance was another session's `yp3` project, which the rules forbid, and
-  the MCP bridge attaches only to running instances, so no clean instance was
-  free. An analysis-ready ELF is staged at
-  `out/pmos/fingerprint/blobs/dualfp_full.elf` so the pass is quick when an
-  instance is available (method in `fingerprint-protocol.md`).
-- **Hazard**: never send the NVM write opcodes (0x42, 0x46). They write the
-  sensor's factory calibration.
+- **Recovered** (headless Ghidra pass over `dualfp`, facts-only - addresses,
+  constants, sizes, no transcribed functions): the image geometry (**103 x 52,
+  8 bpp**), the frame-ready poll (reg 0x00 bit 0), and the single-press capture
+  sequence (write reg `0x2d=0x13` to start, poll, read frame `0x50`, write
+  `0x2d=0x20` to stop), plus the register read/write/burst/frame framing
+  straight from the shipped binary. Full detail with evidence offsets in
+  [fingerprint-protocol.md](fingerprint-protocol.md).
+- **Still unknown**: the *exhaustive* per-mode init / calibration register
+  script as a clean `addr,value` list. The trustlet holds no static table; it
+  assembles each mode at run time from named config cells, so reconstructing
+  the complete script means mapping each cell to its register (a larger,
+  still facts-only follow-up). A driver can reach a raw capture without it;
+  matching the stock image quality needs it.
+- **Hazard**: never send the NVM write opcodes (0x42, 0x46) or the VDM write
+  opcode (0x62). They write the sensor's factory calibration / vendor data.
 
 ### libfprint plan
 
@@ -260,20 +263,21 @@ A driver (call it `egis_et510`) would:
   kernel driver with a predictable device node. This is a libfprint-side
   change, to be sent upstream separately (not before the owner approves, per
   the contribution rules);
-- capture: power on and run the init table, arm detect mode, wait on DRDY,
-  poll `FSTATUS` (reg 0x01 bit 0) for "frame ready", read the frame with
-  `OP_IMG_R` (0x50), hand the 8-bit image to the image-device core;
-- **risks**: (1) without the init/calibration tables there is no usable
-  image, so the driver cannot be written yet; (2) a home-button area sensor
-  yields a small image with few minutiae, so NBIS match quality is the real
-  unknown even once capture works - this is the go/no-go that only real
-  captures can settle.
+- capture (now mapped from the trustlet): program the mode registers, start a
+  frame (`0x2d=0x13`), poll reg 0x00 bit 0 for "frame ready", read the
+  `103 x 52 x 8` frame with `OP_IMG_R` (0x50), stop (`0x2d=0x20`), and hand the
+  8-bit image to the image-device core;
+- **risks**: (1) the exhaustive per-mode init/calibration script is not yet
+  reconstructed, so first captures may be low quality until it is; (2) a
+  home-button area sensor yields a small image (103 x 52) with few minutiae,
+  so NBIS match quality is the real unknown even once capture works - this is
+  the go/no-go that only real captures can settle.
 
 Per the "write code only if a path is clearly viable" rule, **no libfprint
-skeleton is written in this round**: the protocol facts are not yet complete
-enough (init tables and geometry pending the Ghidra pass), and the capture
-path cannot be exercised until the ownership hand-off is proven. The plan
-above is the hand-off point for that work.
+skeleton is written in this round**: although the capture sequence and
+geometry are now known, the capture path cannot be exercised until the
+ownership hand-off is proven on hardware, and the match-quality go/no-go
+needs real images. The plan above is the hand-off point for that work.
 
 ## Can Linux use the trustlet?
 
@@ -312,7 +316,7 @@ work, and none of it upstreamable.
 
 | Model | Verdict | Effort | Risk to the tablet |
 |---|---|---|---|
-| SM-T820 (`gts3lwifi`, APQ8096) | **Blocked.** The SPI pins are TrustZone-owned (hardware-proven) and the sensor protocol lives in a Samsung-signed trustlet. One untested lever: the BLSP ownership call (test module now built, see "Ownership test") | Lever test: one short session with the prepared module. If it works: about 1-2 days for SPI bring-up and the ID read, 1-3 weeks to pull the init tables from the trustlet, 2-4 weeks for a libfprint driver, with an uncertain match rate. Trustlet route: months, never upstream | Reading TLMM 25-28: reset after about 9 s (seen, harmless). Unclocked QUP read: possible bus hang (needs a long power-key press). Ownership call: secure-world state until reboot; worst case a reset. Sensor NVM writes: permanent, never do them |
+| SM-T820 (`gts3lwifi`, APQ8096) | **Blocked.** The SPI pins are TrustZone-owned (hardware-proven) and the sensor protocol lives in a Samsung-signed trustlet. One untested lever: the BLSP ownership call (test module now built, see "Ownership test") | Lever test: one short session with the prepared module. If it works: about 1-2 days for SPI bring-up and the ID read, then a capture driver (geometry 103x52x8, frame-ready poll and capture sequence already recovered from the trustlet; the exhaustive per-mode calibration script still to reconstruct, ~1-2 weeks), 2-4 weeks for a libfprint driver, with an uncertain match rate. Trustlet route: months, never upstream | Reading TLMM 25-28: reset after about 9 s (seen, harmless). Unclocked QUP read: possible bus hang (needs a long power-key press). Ownership call: secure-world state until reboot; worst case a reset. Hand-to-TZ (reverse) call on the wrong QUP index: breaks a live Linux bus (see "Ownership test"). Sensor NVM/VDM writes (0x42/0x46/0x62): permanent, never do them |
 | SM-T825 (`gts3llte`, MSM8996) | **Blocked**, same design and wiring. Pin ownership is inherited from the SM-T820 result, not measured, and its TrustZone build is different | Same, and every hardware result has to be repeated on an SM-T825 | Same |
 
 Nothing here keeps hardware powered, so sleep is unaffected.
@@ -391,16 +395,46 @@ resets the tablet.
    cat   /sys/kernel/debug/gts3_blsp_owner/owner       # "qup=5 last_ret=<code>"
    dmesg | tail                                        # "qup=5 owner=3 -> tz_ret=.."
    ```
-   `tz_ret=0` usually means the hand-off was accepted. A non-zero code means
-   TrustZone refused (no reset, bus still TZ-owned). If the tablet resets
-   here, the call is not allowed for this QUP - record it and stop.
-   - The QUP index is a guess (`5`, BLSP1 QUP6 as a 0-based BLSP index). If
-     `tz_ret` is a "bad parameter" code, retry other indices without
-     reloading: `echo 6 > .../qup` (or `4`, `11`) then `echo 3 > .../owner`.
-3. If step 2 returned success and did not reset: confirm the pins are now
-   readable from Linux. `tools/mmio-rd 1029000` reads TLMM 25's config
-   register (TLMM pin N config is at `0x01010000 + 0x1000*N`; pin 25 =
-   `0x1029000`). Wait ~15 s. No reset means the hand-off took.
+   `tz_ret=0` means TrustZone accepted the call - but that alone does **not**
+   prove QUP6 moved (see the index caveat below); step 3's pin read is the
+   real confirmation. A non-zero code means TrustZone refused (no reset, bus
+   still TZ-owned). If the tablet resets here, record it and stop.
+
+   **Which index.** The call's first argument is a BLSP QUP identifier.
+   Samsung's GPL touch drivers document the range as "BLSPID (1 - 12)" and
+   pass `adapter->nr - 1` (`sec_ts.c:137-139`, `stm/fts_ts.c:149-150`); the
+   fingerprint driver `qbt1000.c:643` uses `ssc_spi_port + 11` (SSC-specific,
+   not applicable here). So for BLSP1 QUP6 there are exactly two defensible
+   values, and nothing justifies others:
+   - `5` - if TrustZone wants the 0-based `nr-1` value (the module default);
+   - `6` - if it wants the raw 1-based BLSPID (BLSP1 QUP1..6 = 1..6).
+
+   The hazard: under the *wrong* interpretation each value lands on a bus
+   Linux is already using, so a "success" may just be a no-op on an
+   already-APSS bus:
+
+   | index | 0-based means | 1-based means |
+   |---|---|---|
+   | 5 | **BLSP1 QUP6 (fingerprint)** | BLSP1 QUP5 = `blsp1_i2c5` (in use) |
+   | 6 | BLSP2 QUP1 = `blsp2_i2c1` (in use) | **BLSP1 QUP6 (fingerprint)** |
+
+   Try `5` first; if its pin read (step 3) does not clear, `echo 6 > .../qup`
+   and repeat from step 2. Do **not** try `4`, `11`, or any other value: on
+   this tablet mainline already owns the QUPs at 0-based `2,4,6,7,8,11`
+   (`blsp1_i2c3`, `blsp1_i2c5`, `blsp2_i2c{1,2,3,6}`) plus `blsp1_uart2`, and
+   a forward (APSS) call on those is a pointless no-op while the reverse call
+   on them is destructive (see Undo).
+3. If step 2 returned success and did not reset: confirm QUP6's **pins**
+   actually moved. This is the real test - reading a TLMM pin that TrustZone
+   still owns is what resets the tablet ~9 s later, so a clean read of pin 25
+   is proof the hand-off took, and a reset here means it did not (wrong index
+   or silent no-op). Flush first so the log survives a reset:
+   ```
+   sync
+   tools/mmio-rd 1029000     # TLMM 25 config = 0x01010000 + 0x1000*25
+   ```
+   Wait ~15 s. No reset = QUP6 is APSS-owned; record which index worked.
+   A reset = not moved; on the next boot try the other index (step 2).
 4. Only if 3 held: bring up the SPI node. Rebuild/boot with
    `dts/test/test-fingerprint.dts` and `&fp_spi`/`&fp_sensor`/`&fp_vreg` set
    to `status = "okay"` (or apply it as a runtime overlay after step 2, so the
@@ -410,9 +444,13 @@ resets the tablet.
    (`fingerprint-protocol.md`). Reads only; never the NVM-write opcodes
    (0x42/0x46).
 
-Undo, in order of preference:
+Undo. Prefer a reboot - the hand-off never survives one, so a reboot is the
+safe universal undo and `rmmod gts3-blsp-owner` just removes the (idle) module.
 
-- `echo 1 > /sys/kernel/debug/gts3_blsp_owner/owner` - hand QUP6 back to
-  TrustZone (owner 1 = TZ);
-- `rmmod gts3-blsp-owner`;
-- or just reboot: the hand-off does not survive a reboot.
+The reverse SMC, `echo 1 > .../owner` (owner 1 = TZ), is **dangerous** and is
+not the default undo: it hands whatever bus the current `qup` index selects to
+TrustZone, and if that index resolves (under either numbering) to a bus Linux
+is driving - `blsp1_i2c5`, `blsp2_i2c1`, etc. per the step-2 table - it rips
+the bus out from under a live driver. Use `echo 1` only for the one index that
+step 3 *proved* moved QUP6, and only right after that success; for anything
+else, undo by reboot. Never sweep `echo 1` across indices.

@@ -67,9 +67,17 @@
 #define GTS3_EBUSY_RETRIES	20
 #define GTS3_EBUSY_WAIT_MS	30
 
-static u32 qup = 5;	/* BLSP1 QUP6 as a 0-based BLSP index (see docs) */
+/*
+ * BLSP QUP index (args[0]). Samsung's GPL touch drivers document the range as
+ * "BLSPID (1 - 12)" and pass adapter->nr - 1 (sec_ts.c:137-139,
+ * stm/fts_ts.c:149-150). For BLSP1 QUP6 that is 5 if TrustZone wants the
+ * 0-based nr-1 value, or 6 if it wants the raw 1-based BLSPID. Default 5; the
+ * caller tries 6 next. No other value is justified, and on this tablet the
+ * other in-use QUPs sit at the neighbouring indices (see docs/fingerprint.md).
+ */
+static u32 qup = 5;
 module_param(qup, uint, 0644);
-MODULE_PARM_DESC(qup, "BLSP QUP index for the ownership call (default 5)");
+MODULE_PARM_DESC(qup, "BLSP QUP index for the ownership call (5=QUP6 0-based, 6=1-based)");
 
 static long gts3_last_ret = -ENODATA;
 static struct dentry *gts3_dir;
