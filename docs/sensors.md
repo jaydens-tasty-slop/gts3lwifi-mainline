@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Accelerometer | ST LSM6DS3 (K6DS3TR) | both | works, orientation correct in all four positions |
 | Gyroscope | same chip | both | works |
-| Magnetometer | AKM AK09916C | both | raw field works (about 0.4-0.6 gauss); no compass heading: iio-sensor-proxy 3.9 cannot make one from a raw magnetometer, see [Compass](#compass) |
+| Magnetometer | AKM AK09916C | both | raw field works (about 0.4-0.6 gauss), uncalibrated (no hard-iron correction, see [Compass](#compass)); no compass heading: iio-sensor-proxy 3.9 cannot make one from a raw magnetometer, see [Compass](#compass) |
 | Ambient light (RGB) | Capella CM3323 | both | works with patch 0077: `qcom-smgr-light`, `in_intensity_both` in lux (about 20 indoors, up to ~31000 under a phone torch, 0 when covered); iio-sensor-proxy reports it, KWin's auto-brightness can use it (off by default, see [Auto-brightness](#auto-brightness)) |
 | Cover (hall) | PM8994 GPIO 7, low = closed | both | `dts/test/test-hall.dts` (SW_LID), untested; not in the main DT until suspend is reliable |
 | Grip (SAR proximity) | Semtech SX9310 | SM-T825 only | `dts/test/test-sar.dts`, untested; mainline driver `sx9310`, nothing on a Linux desktop reads it |
@@ -112,6 +112,16 @@ read it: iio-sensor-proxy's D-Bus API has only `LightLevel` and
 colour temperature. Before exposing it (as `in_colortemp`, like
 `hid-sensor-als`), compare it with a reference under a few known lights.
 
+The sensor streams at 5 Hz by default. A write of 10 Hz to
+`in_intensity_both_sampling_frequency` fails with EINVAL (above the
+maximum SMGR reports for it).
+
+It sees some of the panel's own light. On the SM-T820 in room light
+(2026-11-01) it read 19 lux with the backlight at 1 and 29 lux at 255,
+steady for several samples at each level. The reading follows the panel
+(see [Auto-brightness](#auto-brightness)). The share in a dark room is
+not measured yet.
+
 ## Auto-brightness
 
 KWin 6.8 has ambient-light auto-brightness (`src/utils/lightsensor.cpp`,
@@ -140,6 +150,12 @@ KWin waits 2 s after a reading changes, ignores changes under 20 %
 (`KWIN_AUTO_BRIGHTNESS_DEADZONE`, in percent), and releases the sensor while
 the screen is off. Brightness written to sysfs directly is not learned.
 
+Because the light sensor sees the panel (about 10 lux between minimum and
+maximum backlight in room light, more than the 20 % dead zone at room
+levels), a raised brightness raises the next reading. In a dim room this
+may ratchet the brightness up. Train and check the curve in dim light
+before relying on it.
+
 ## Compass
 
 The magnetometer is a plain 3-axis IIO device (`qcom-smgr-mag`,
@@ -153,14 +169,15 @@ work) or a heading from the SLPI's own algorithms, which no Linux driver
 reads. Nothing on the Plasma desktop uses a compass today; GNOME Maps (via
 geoclue) and Qt's `QCompass` would.
 
-Before that is worth doing, two things need checking on the tablet:
+Two things matter for that:
 
-- **Calibration.** Whether the SMGR stream has the factory soft-iron matrix
-  and a hard-iron (bias) correction applied is not known. Lay the tablet
-  flat and turn it slowly through 360 degrees: X and Y should trace a
-  circle centred on 0 with a radius of the local horizontal field (about
-  0.15-0.25 gauss in mid latitudes). A circle off centre needs a bias
-  correction, an ellipse a soft-iron one.
+- **Calibration: none applied.** Laid flat and turned slowly through
+  360 degrees (SM-T820, 2026-11-01, `smgr-read.sh qcom-smgr-mag 1200 10`,
+  every 30 degree sector covered), X and Y traced a curve centred at
+  X +0.107, Y -0.005 gauss, with the X radius about 0.7 times the Y radius
+  (part of that may be tilt or the desk). |B| changed with the heading.
+  The SMGR stream is the raw field: no hard-iron (bias) correction, and
+  probably no soft-iron one. A compass driver needs its own calibration.
 - **Axes.** The magnetometer must be in the accelerometer's frame. On the
   SM-T825 the accelerometer needs a different matrix (above); the
   magnetometer probably does too.
@@ -195,23 +212,36 @@ so it only matters once the modem works.
 
 ## Tests on the tablet
 
-None of this is tested yet (2026-11-01). In order, cheapest first:
+Done on the SM-T820 (2026-11-01, kernel r8 with patches 0140-0143 as
+modules, iio-sensor-proxy 3.9, KWin 6.8):
 
-1. Kernel with patches 0140-0142: `monitor-sensor` still shows the
-   orientation and the light level; `tools/smgr-read.sh qcom-smgr-accel 5`
-   (iio-sensor-proxy stopped) prints about 9.8 on one axis; the
-   sensors' `sampling_frequency` keeps a written value across buffer
-   enables. Then lower the accelerometer rate step by step (`smgr-read.sh
-   qcom-smgr-accel 20 <Hz>`) to find the rates SMGR accepts, before any udev
-   rule sets one.
-2. Light: in a dark room, read the lux with the panel at minimum and at
-   maximum brightness; if the reading follows the panel, auto-brightness
-   would chase itself. Then turn on and train KWin's auto-brightness
-   (above).
-3. Compass groundwork: `tools/smgr-read.sh qcom-smgr-mag 600 10` while
-   turning the tablet flat through 360 degrees (calibration), and with the
-   top edge pointing north, east, south and west (axes against the
-   accelerometer's frame), on both models if possible.
+1. **Kernel patches.** `monitor-sensor` shows the orientation (normal,
+   tilted-up) and the light level. `smgr-read.sh qcom-smgr-accel 5` gives
+   |g| = 9.7 m/s^2. Raw scans (all channels, timestamp included): the 4
+   bytes before the timestamp held a kernel address before 0140 and are 0
+   after it; the timestamp follows CLOCK_REALTIME (2.5 ms apart at 400 Hz);
+   `in_timestamp_type` is `le:s64/64>>0` after 0143. Rates, measured from
+   the timestamps (0142):
+
+   | Sensor | Written (Hz) | Streamed (Hz) |
+   |---|---|---|
+   | accel | 10 / 50 / 100 / 200 / 416 | 12.4 / 49.5 / 99.3 / 198 / 395 |
+   | gyro | 10 / 100 | 10.2 / 99 |
+   | mag | 10 / 50 | 10.0 / 50.0 |
+   | light | 5 / 10 | 4.9 / EINVAL |
+
+   SMGR accepts rates between the native ones. The accelerometer does not
+   go below about 12.5 Hz; the attribute still reads the written 10. Scans
+   with fewer than three axes (0141) are not tested.
+2. **Light vs panel.** 19 lux at backlight 1, 29 lux at 255 in room light
+   (see [Light sensor](#light-sensor)). Still to do: a dark room, and
+   training KWin's auto-brightness.
+3. **Compass groundwork.** Calibration done, none applied (see
+   [Compass](#compass)). Still to do: axes against the accelerometer frame
+   (top edge north, east, south, west), and the SM-T825.
+
+Still to do:
+
 4. Hall: boot `dts/test/test-hall.dts` (kernel unchanged), `evtest` on
    "GPIO Hall Effect Sensor" while closing and opening the cover, with and
    without the Book Cover Keyboard. Set PowerDevil's lid action to "Do
@@ -221,19 +251,36 @@ None of this is tested yet (2026-11-01). In order, cheapest first:
    `dts/test/test-sar.dts`, read `in_proximity*_raw` with a hand on and off
    the antenna area.
 
+`smgr-read.sh` needs iio-sensor-proxy stopped. With KWin running, starting
+it again leaves auto-rotate dead (see [Known issues](#known-issues)), so
+reboot after such a test.
+
 ## Known issues
 
 - The driver pushed each sample from an uninitialised stack buffer and
   never set its timestamp, so with the timestamp enabled (iio-sensor-proxy
   enables all channels) every motion sample carried 8 bytes of kernel stack
-  to userspace. Patch 0140 clears the sample and timestamps it.
+  to userspace: a kernel address, so a KASLR leak. Patch 0140 clears the
+  sample and timestamps it (tested).
+- Every timestamp channel was declared unsigned with 32 real bits, so
+  libiio and iio-sensor-proxy cut the 64-bit nanosecond timestamp to 32
+  bits (it wraps every 4.3 s). Patch 0143 uses `IIO_CHAN_SOFT_TIMESTAMP`
+  (tested).
 - With fewer than three axes enabled, a 3-axis buffer got the wrong axes;
-  patch 0141 lets the IIO core pick them out.
-- Writes to `sampling_frequency` were ignored: every buffer enable went
-  back to the fastest rate, one QMI message per sample. Patch 0142 keeps
-  the written rate. Nothing lowers it yet; which rates SMGR accepts needs a
-  test on the tablet before a udev rule sets one (iio-sensor-proxy reads
-  the accelerometer every 700 ms).
+  patch 0141 lets the IIO core pick them out (full scans tested, partial
+  ones not).
+- Writes to `in_*_sampling_frequency` were ignored: every buffer enable
+  went back to the fastest rate, one QMI message per sample. Patch 0142
+  keeps the written rate (tested, rates above). Nothing lowers it yet. A
+  udev rule could set the accelerometer to about 12.5 Hz, enough for
+  iio-sensor-proxy, which reads it every 700 ms; that is not done.
+- Restarting iio-sensor-proxy while KWin runs leaves the orientation at
+  "undefined" for every client. iio-sensor-proxy 3.9 takes its D-Bus
+  name before it has probed the IIO devices, so KWin's immediate
+  `ClaimAccelerometer` fails (`driver_set_polling: assertion
+  'sensor_device' failed`); the claim is counted, but polling never
+  starts. At boot iio-sensor-proxy starts before KWin, so this does not
+  happen. A reboot recovers.
 
 - `qcom_smgr` registered `qmi_handle_release` through a function-pointer
   cast; with kCFI every unbind (stopping the SLPI, unloading the module)
