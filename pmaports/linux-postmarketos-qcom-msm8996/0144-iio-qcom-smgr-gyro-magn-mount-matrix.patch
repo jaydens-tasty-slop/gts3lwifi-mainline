@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jayden Milne <linux@jayd.ml>
+Date: Sun, 1 Nov 2026 16:34:31 -0700
+Subject: [PATCH] iio: qcom_smgr: give the gyroscope and magnetometer a
+ rotation matrix
+
+All 3-axis sensors share one mount matrix, [0, -1, 0; -1, 0, 0; 0, 0, 1].
+SMGR reports them in north-east-down coordinates, X towards the top of
+the screen, Y to its right and Z into it. The rotation into the usual
+device frame (X right, Y top, Z out of the screen) is
+[0, 1, 0; 1, 0, 0; 0, 0, -1], the example in the ABI documentation. The
+shared matrix is its negation, which is not a rotation and flips the
+sign of every axis.
+
+That suits the accelerometer: SMGR reports +1 g upwards at rest, and
+iio-sensor-proxy takes a negative Y as the upright orientation. For the
+gyroscope and the magnetometer it inverts every reading: with the shared
+matrix, a compass heading from the magnetometer pointed south when the
+device pointed north, and a counter-clockwise turn of the device lying
+face up gave a negative angular velocity around Z.
+
+Keep the shared matrix for the accelerometer and give the gyroscope and
+the magnetometer the rotation.
+
+Tested on a Galaxy Tab S3 (SM-T820) lying flat, with the shared matrix:
+a heading from the magnetometer's X and Y read 180 degrees when a phone
+compass said north and 270 at east, and counter-clockwise turns read
+about -0.6 rad/s on the gyroscope's Z. The rotation negates both, so
+north reads 0, east 90 and the turn is positive. With this patch
+in_mount_matrix reads the rotation for both, and iio-sensor-proxy still
+reports the upright orientation.
+
+Signed-off-by: Jayden Milne <linux@jayd.ml>
+Assisted-by: Claude:claude-opus-5-5
+---
+ drivers/iio/common/qcom_smgr/qcom_smgr.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iio/common/qcom_smgr/qcom_smgr.c b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+index b08bbc8974c5..0fb476f150dc 100644
+--- a/drivers/iio/common/qcom_smgr/qcom_smgr.c
++++ b/drivers/iio/common/qcom_smgr/qcom_smgr.c
+@@ -370,8 +370,26 @@ static const struct iio_buffer_setup_ops qcom_smgr_buffer_ops = {
+ 	.predisable = &qcom_smgr_sensor_predisable
+ };
+ 
+-/* SMGR reports values for 3-axis sensors in north-east-down coordinates */
++/*
++ * SMGR reports values for 3-axis sensors in north-east-down coordinates:
++ * X towards the top of the screen, Y towards its right side and Z into it.
++ * This rotation turns them into the usual device frame: X right, Y top,
++ * Z out of the screen.
++ */
+ static const struct iio_mount_matrix qcom_smgr_iio_mount_matrix = {
++	.rotation = {
++		"0", "1", "0",
++		"1", "0", "0",
++		"0", "0", "-1"
++	}
++};
++
++/*
++ * SMGR reports the acceleration that holds the device against gravity,
++ * +1 g upwards at rest, while iio-sensor-proxy takes a negative Y as the
++ * upright orientation. The accelerometer's matrix also flips the sign.
++ */
++static const struct iio_mount_matrix qcom_smgr_iio_accel_mount_matrix = {
+ 	.rotation = {
+ 		"0", "-1", "0",
+ 		"-1", "0", "0",
+@@ -383,6 +401,9 @@ static const struct iio_mount_matrix *
+ qcom_smgr_iio_get_mount_matrix(const struct iio_dev *iio_dev,
+ 			       const struct iio_chan_spec *chan)
+ {
++	if (chan->type == IIO_ACCEL)
++		return &qcom_smgr_iio_accel_mount_matrix;
++
+ 	return &qcom_smgr_iio_mount_matrix;
+ }
+ 
+-- 
+2.56.0
+

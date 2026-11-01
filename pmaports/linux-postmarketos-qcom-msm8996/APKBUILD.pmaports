@@ -143,6 +143,7 @@ source="
 	0141-iio-qcom-smgr-xyz-scan-masks.patch
 	0142-iio-qcom-smgr-sampling-frequency.patch
 	0143-iio-qcom-smgr-soft-timestamp-channel.patch
+	0144-iio-qcom-smgr-gyro-magn-mount-matrix.patch
 "
 builddir="$srcdir/linux-$_tag"
 
@@ -285,4 +286,5 @@ be731a92cc6158953f21de5cb7b683f0da23841430aa40a383891c6b871104f91807a059d4c833d2
 bf470d9a9e7c30b4463f054b8dd4f771fc57453664c7613ff59f45502a57229c5f677f01f65cb5f711d61ca8399a9e6a51d9acd8797f0f797b61d8a83aadca92  0141-iio-qcom-smgr-xyz-scan-masks.patch
 5f330e7f5312eddbae6ddd9c11d169d27f9e3181706e633de38eb0fb6e2a300abe01504176d03e6814b56699bf87aa55e7ea0514341244d5bc15a484fc7b47c2  0142-iio-qcom-smgr-sampling-frequency.patch
 f7a24cc35151f393a05f3dc50f2fc1c392b0dea504601fc3f7212934042b41187036b6eed2ec4d593949c2da258433d5264b8286b52eaee1235ebe65f9f1cbc2  0143-iio-qcom-smgr-soft-timestamp-channel.patch
+e6d24103881d049faba3c08b095b319ba728671f6620f8ab21be77a4e2293f5f8a70f8dbaecb1929dea785ca00094895b8d69d5b8f2861b46e1e4a7ef3f9abce  0144-iio-qcom-smgr-gyro-magn-mount-matrix.patch
 "
