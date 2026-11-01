@@ -1,12 +1,15 @@
 # Fingerprint sensor (Home key)
 
-## Status (2026-11-01): blocked on both models; a hardware test for the one way forward is prepared, not yet run
+## Status (2026-11-01): blocked on mainline, hardware-tested; this is the end of the road
 
-Desk research plus a prepared test. The SPI protocol facts are in
-[fingerprint-protocol.md](fingerprint-protocol.md); a built ownership test
-module is in `tools/blsp-owner/` (the procedure is "Ownership test" below); a
-reference device tree is `dts/test/test-fingerprint.dts`. Nothing has been run
-on the tablet.
+The one way forward, TrustZone's BLSP ownership call, was tried on an
+SM-T820 on 2026-11-01 (results in "Ownership test result" below). TrustZone
+accepts the call for the fingerprint bus but keeps both the pins and the SPI
+controller locked, so Linux can't drive the sensor. The remaining route would
+be running Samsung's `dualfp` trustlet through QSEECOM, which mainline can't
+do (see "Can Linux use the trustlet?"). The SPI protocol facts in
+[fingerprint-protocol.md](fingerprint-protocol.md), the test module in
+`tools/blsp-owner/` and `dts/test/test-fingerprint.dts` stay as a record.
 
 The sensor is an Egis (EgisTec) ET510 on BLSP1 QUP6 SPI. Samsung's TrustZone
 owns that bus. On the SM-T820 Linux can't even read its pins: psigod's boot
@@ -18,7 +21,7 @@ partition. So there are two possible routes, and neither is open:
 
 | Route | What blocks it | Can it go upstream? |
 |---|---|---|
-| Linux drives the SPI bus itself | TrustZone protects TLMM 25-28 (and probably the QUP and its BAM pipes) from boot. lk2nd and the DT can't change that. One TrustZone call that might hand the bus over has not been tried (see "The one untested lever") | Only if that call works. Even then the sensor init comes from the trustlet, and libfprint image matching on a small sensor may not be usable |
+| Linux drives the SPI bus itself | TrustZone protects TLMM 25-28 and the QUP6 registers from boot. lk2nd and the DT can't change that, and the ownership call doesn't either: TrustZone accepts it and the pins and the controller still reset the tablet when read (tested 2026-11-01) | No |
 | Linux uses the trustlet | Mainline QSEECOM can't load apps, has no listener support, only runs on allowlisted laptops and has no user-space interface. The trustlet's command protocol is proprietary and undocumented | No |
 
 The README's line "its pins are owned by Samsung's TrustZone" is correct, and
@@ -356,6 +359,42 @@ On mainline (the installed postmarketOS, or a RAM boot):
 Then the ownership test, which changes secure-world state - see the next
 section. If it fails on both models, fingerprint stays blocked for good on
 mainline Linux, and the README line can say so.
+
+## Ownership test result (2026-11-01, SM-T820)
+
+Run on the owner's SM-T820 (pmOS, kernel 6.19.5) with
+`tools/blsp-owner/gts3-blsp-owner.ko`; each call is the SMC described below
+with owner 3 (APSS). TrustZone return codes (x0; x1 was always 0):
+
+| Index | Return | Reading |
+|---|---|---|
+| 5 | 10 | refused: 10 is the "not a bus TrustZone manages" answer (see index 2) |
+| 50 | 4 | out of range |
+| 2 | 10 | a bus Linux drives under either numbering, so 10 means "not mine to give" |
+| 6 | **0** | accepted |
+
+So the index is the 1-based BLSPID (6 = BLSP1 QUP6), as in Samsung's
+`sec_ts`/`fts_ts` comment ("BLSPID (1 - 12)"); the `adapter->nr - 1`
+those drivers pass evidently gives the same 1-based value with their
+boards' I2C bus numbering.
+
+After the accepted call on index 6, both checks still reset the tablet at
+once (TrustZone's XPU reset, not a Linux panic: `kernel.panic` is 120 and
+the tablet was back in seconds):
+
+- a `/dev/mem` read of TLMM 25's config register (0x01029000), after a sync;
+- on the next boot, the call again (0 again), then a read of QUP6's
+  `QUP_STATE` (0x0757a004), with the BLSP1 AHB clock on (enable count 3).
+
+Reads of the neighbouring Linux-owned pins 24 and 29 worked, so the reader
+itself was fine. TrustZone answers the ownership call for QUP6 with success
+but doesn't move the XPU protection of either the pins or the controller,
+probably because QUP6 is a boot-time secure assignment for the `dualfp`
+trustlet rather than a bus that is handed back and forth like the secure-touch
+buses the call was made for. No other owner value or index is worth trying.
+
+Verdict: the fingerprint reader can't be used from mainline Linux on either
+model. Don't reopen this without a new way into the secure world.
 
 ## Ownership test (prepared, run when the owner is back)
 
