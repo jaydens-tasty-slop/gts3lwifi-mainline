@@ -6,7 +6,7 @@
 #  - modem: Samsung-signed ADSP (audio DSP) firmware, and the modem DSP's
 #    (MSS: GNSS, on the SM-T825 also LTE) MBA and modem images with the
 #    modem_pr configuration tree it fetches over QRTR TFTP (tqftpserv).
-#    Only used by a device tree that enables the MSS (dts/test/gnss.dtsi)
+#    Used once rmtfs starts the modem (device-samsung-gts3lwifi-gnss)
 #  - system (Android): the Wi-Fi board data, etc/firmware/bdwlan30.bin ->
 #    ath10k board.bin. apnhlos has a bdwlan30.bin too, but a different one;
 #    Wi-Fi was brought up with this one (docs/wifi.md)

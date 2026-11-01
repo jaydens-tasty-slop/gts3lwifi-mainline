@@ -1,11 +1,11 @@
 # GNSS (GPS)
 
-## Status (2026-11-01): GNSS works on the SM-T820 on mainline (test DT); geoclue bridge written, not yet tested on the tablet
+## Status (2026-11-01): GNSS works on the SM-T820 on mainline; the modem DSP is in the main DT (regression pass pending); geoclue bridge not yet tested on the tablet
 
 | Model | Where the GNSS engine is | Stock | Mainline |
 |---|---|---|---|
-| SM-T820 (Wi-Fi, APQ8096) | modem DSP (MSS), which runs a GNSS-only modem image ("modemlite") | works: satellites and position reports at 1 Hz in LineageOS | **works** with `dts/test/test-gnss.dts`: modem up, QMI LOC fix in about 6 min from a cold start (see "Results"). geoclue gets it through gnss-share with our `qmi_loc` driver (`pmaports/gnss-share`, `device-samsung-gts3lwifi-gnss`): tested on a PC against a fake modem, hardware test steps 4-9 below |
-| SM-T825 (LTE, MSM8996) | modem DSP, in the full LTE modem image | should work the same way (same location HAL) | `dts/test/test-gnss-lte.dts`, untested; we have no dump of its modem partition |
+| SM-T820 (Wi-Fi, APQ8096) | modem DSP (MSS), which runs a GNSS-only modem image ("modemlite") | works: satellites and position reports at 1 Hz in LineageOS | **works** with the stock memory layout, first as `dts/test/test-gnss.dts`, now in the main DT (same compiled tree): modem up, QMI LOC fix in about 6 min from a cold start (see "Results"). geoclue gets it through gnss-share with our `qmi_loc` driver (`pmaports/gnss-share`, `device-samsung-gts3lwifi-gnss`): tested on a PC against a fake modem, hardware test steps 4-9 below |
+| SM-T825 (LTE, MSM8996) | modem DSP, in the full LTE modem image | should work the same way (same location HAL) | the main DT enables the modem DSP on this model too; untested; we have no dump of its modem partition |
 
 "APQ8096 has no modem" is only true of the cellular part. The modem
 subsystem (MSS, a Hexagon QDSP6 v5.5) is there on the SM-T820 too, and
@@ -17,13 +17,14 @@ serves it its file system (the `modemst1`, `modemst2`, `fsg` and `fsc`
 partitions), `tqftpserv` serves its configuration files, and the location
 service (QMI LOC, QRTR service 16) is reached over QRTR. Every part of
 this chain is upstream and in the kernel package's config; the first test
-needs no kernel patch and no config change. What the test DT adds is the
-memory layout that the modem image needs (below).
+needs no kernel patch and no config change. What the DT adds is the MSS
+node and the memory layout that the modem image needs (below).
 
 ## Results (SM-T820, 2026-11-01)
 
 Kernel 6.19.5 from the installed pmOS package, RAM-booted with
-`dts/test/test-gnss.dts` from lk2nd's fastboot. Nothing in the kernel was
+`dts/test/test-gnss.dts` (since moved into the main DT unchanged) from
+lk2nd's fastboot. Nothing in the kernel was
 changed.
 
 - **Modem:** `MBA booted without debug policy, loading mpss`, then
@@ -60,9 +61,9 @@ changed.
   position report indications arrive once satellites are tracked.
 - **Memshare** was not needed for a fix.
 
-Next: the geoclue bridge on the tablet (test steps 4-8), idle/sleep checks
-(step 9; the modem stays up while rmtfs runs), then the MSS in the main DT
-(prepared on branch `gps-mss-main-dt`, step 10).
+Next: the regression checklist for the moved regions (test step 10), the
+geoclue bridge on the tablet (steps 4-8), idle/sleep checks (step 9; the
+modem stays up while rmtfs runs).
 
 ## Evidence
 
@@ -126,8 +127,8 @@ not need it.
 | QRTR over SMD/GLINK | yes | `=y` |
 | rmtfs memory (client 1, given to the modem through SCM) | yes, in msm8996.dtsi | probes on the tablet today |
 | `rmtfs`, `tqftpserv`, `qrtr` | Alpine/pmOS packages | rmtfs and tqftpserv pulled in by the optional `device-samsung-gts3lwifi-gnss` subpackage |
-| MSS node | msm8996.dtsi, disabled | enabled in the test DTs; main DT change prepared on branch `gps-mss-main-dt` |
-| Memory layout | msm8996.dtsi `mpss_mem` is 0x6200000 | too small for the modem image, the test DT moves the regions |
+| MSS node | msm8996.dtsi, disabled | enabled in the main DT (both models) |
+| Memory layout | msm8996.dtsi `mpss_mem` is 0x6200000 | too small for the modem image; the main DT uses the stock layout |
 | Memshare (QMI service 0x34) | no; Nikita Travkin's series of 2021-03-19 was not merged | maybe needed, see open questions |
 | QMI LOC in the kernel (GNSS subsystem) | no driver | not needed to test |
 | geoclue | `modem-gps` (through ModemManager) and `nmea-socket` sources | `nmea-socket` fed by gnss-share's `qmi_loc` driver (ours, not upstream; below) |
@@ -136,15 +137,15 @@ No kernel config change is needed (`CONFIG_GNSS` stays off; nothing uses
 it). `qcom_q6v5_mss` relocates the image into `mpss_mem` and refuses a
 segment that ends past it ("segment outside memory range").
 
-## Memory layout (`dts/test/gnss.dtsi`)
+## Memory layout (main DT)
 
 The SM-T820 modem image spans 0x6c00000 bytes from its lowest segment to
 the end of its last (25 program headers, relocatable; segments 9 and 24
 are large zero-filled ones), which is exactly the stock `modem_mem`. The
-test DT grows `mpss_mem` to that and moves the regions after it to where
+main DT grows `mpss_mem` to that and moves the regions after it to where
 the stock kernel puts them (all of those images are relocatable):
 
-| Region | Main DT | Test DT (= stock SM-T820) |
+| Region | Before (msm8996.dtsi with the old main DT overrides) | Main DT (= stock SM-T820) |
 |---|---|---|
 | mpss | 0x88800000 + 0x6200000 | 0x88800000 + 0x6c00000 |
 | slpi | 0x91700000 + 0xa00000 | 0x8f400000 + 0xa00000 |
@@ -161,11 +162,11 @@ firmware paths. Checked offline: `make CHECK_DTBS=y` for both boards,
 already, no overlapping regions, and every user of a moved region points
 at the new node.
 
-Branch `gps-mss-main-dt` (on top of `gps`, not merged) moves exactly this
-into the main DT: the same nodes and addresses, the MSS enabled, the test
-DTs removed. Its compiled tree is identical to `test-gnss.dts` here. Merge
-it only after the regression pass of test step 10, on the SM-T820 and, if
-possible, an SM-T825.
+This layout was tested on 2026-11-01 as `dts/test/gnss.dtsi` (with
+`test-gnss.dts` and `test-gnss-lte.dts`) and then moved into the main DT
+unchanged: the compiled trees of both boards are identical to those of the
+test DTs, which are gone. The regression checklist of test step 10 is
+still to be run on the main DT build.
 
 ## Firmware
 
@@ -261,17 +262,20 @@ geoclue, gnss-share (ours), rmtfs and tqftpserv. It installs
 `/run/gnss-share.sock`, group `geoclue`), systemd drop-ins for rmtfs,
 tqftpserv and gnss-share, and `90-gts3-gnss.rules`.
 
-- **Main DT (no MSS node, today's default):** there is no
-  `2080000.remoteproc` platform device, so rmtfs, tqftpserv and
-  gnss-share all skip on their `Condition*` lines. Nothing runs and
-  nothing needs masking. (The rmtfs package's own udev rule still tries to
-  start rmtfs when `/dev/qcom_rmtfs_mem1` appears; the condition stops it.)
-- **DT with the MSS** (`test-gnss.dts` now, the main DT once
-  `gps-mss-main-dt` is merged): when `qcom_q6v5_mss` registers the
+- **A DT without the MSS** (kernel packages from before the MSS moved
+  into the main DT): there is no `2080000.remoteproc` platform device, so
+  rmtfs, tqftpserv and gnss-share all skip on their `Condition*` lines.
+  Nothing runs and nothing needs masking. (The rmtfs package's own udev
+  rule still tries to start rmtfs when `/dev/qcom_rmtfs_mem1` appears; the
+  condition stops it.)
+- **The main DT (MSS enabled):** when `qcom_q6v5_mss` registers the
   modem's remoteproc, `90-gts3-gnss.rules` starts rmtfs, which pulls in
   tqftpserv and, with `-s`, boots the modem. The package's unit runs
   `rmtfs -r -P -s`: the modem's writes stay in RAM. The modem then stays
   up, idle, for as long as rmtfs runs. gnss-share starts at boot and waits.
+- **Without the subpackage** the modem stays off: `qcom_q6v5_mss` only
+  registers the remoteproc (no auto boot). Only an rmtfs installed by hand
+  would start it, through its own udev rule.
 - **GNSS sessions run only on demand:** geoclue connects to the socket
   only while an app asks for exact accuracy (level 8, e.g. a map's "my
   location"). Requests for a coarser accuracy don't start the GNSS
@@ -322,7 +326,8 @@ package from this branch (or copy `gts3-firmware`) and run `systemctl start
 gts3-firmware`; don't install the `-gnss` subpackage yet. Pass: `ls
 /lib/firmware/updates/qcom/msm8996/samsung/gts3/` shows `mba.mbn`,
 `modem.mdt`, `modem.b*` and `modem_pr/`; `/dev/qcom_rmtfs_mem1` exists;
-`gnss-test.sh status` shows the MSS node `disabled` (main DT).
+`gnss-test.sh status` shows the MSS node `disabled` (a kernel package
+built before the MSS moved into the main DT).
 
 **1. Back up the modem's file system.** `gnss-test.sh backup` (reads
 `modemst1`, `modemst2`, `fsg`, `fsc` with `dd`, writes `SHA256SUMS`).
@@ -330,9 +335,9 @@ Copy the directory off the tablet. Pass: four images, 2 MiB, 2 MiB,
 2 MiB and 4 KiB. These hold the modem's NV items (calibration among them);
 `fsg` is the factory copy. Do not go on without this backup.
 
-**2. RAM-boot the test DT.** On the host: `BOOT=<copy of the tablet's
-/boot/boot.img> MKBOOTIMG=/usr/bin/mkbootimg scripts/make-test-image.sh
-dts/test/test-gnss.dts gnss.img`, get to lk2nd's fastboot
+**2. RAM-boot the main DT with the MSS.** On the host: `BOOT=<copy of the
+tablet's /boot/boot.img> MKBOOTIMG=/usr/bin/mkbootimg
+scripts/make-test-image.sh dts/apq8096-samsung-gts3lwifi.dts gnss.img`, get to lk2nd's fastboot
 (docs/lk2nd.md), `fastboot boot gnss.img`. Nothing is written; the next
 normal boot is the installed system. Pass:
 - `gnss-test.sh status`: MSS node okay, `remoteproc` of `qcom-q6v5-mss`
@@ -417,7 +422,7 @@ device-samsung-gts3lwifi`) and install `gnss-share`,
 `gnss-share-geoclue`, `gnss-share-systemd`, `device-samsung-gts3lwifi`
 and `device-samsung-gts3lwifi-gnss` (`pmbootstrap sideload`, or copy the
 `.apk` files and `apk add --allow-untrusted`). `systemctl unmask rmtfs`,
-`gnss-test.sh down`, then RAM-boot `test-gnss.dts` again (step 2). Pass:
+`gnss-test.sh down`, then RAM-boot step 2's image again. Pass:
 - Without anyone starting anything: `systemctl status rmtfs tqftpserv
   gnss-share` all active; dmesg shows the modem up; `gnss-test.sh status`
   shows service 16 and the socket `/run/gnss-share.sock`.
@@ -432,26 +437,26 @@ and `device-samsung-gts3lwifi-gnss` (`pmbootstrap sideload`, or copy the
 - A coarse request starts no session: `where-am-i -a 4 -t 60` (city
   level) leaves gnss-share without a client.
 
-**8. A normal boot with the packages installed.** Boot the installed
-system (main DT, no MSS). Pass: `systemctl status rmtfs tqftpserv
+**8. A boot without the MSS, with the packages installed.** Boot the
+installed system while its kernel package still has the old DT (no MSS),
+or step 2's image built from the DT with the `&mss_pil` status set to
+`disabled`. Pass: `systemctl status rmtfs tqftpserv
 gnss-share` show all three inactive (`start condition unmet` where systemd
 tried them), no rmtfs process, no modem in dmesg, and nothing else changed
 (sound, sensors, Wi-Fi).
 
 **9. Idle and sleep** (the "Don't break sleep" rule; TODO in the pmOS
-notes). On the test DT with the packages: compare the screen-off idle
-drain, unplugged, with the modem up and no session against a normal boot
-(main DT); then with a session running (`where-am-i -a 8`), to know what
+notes). On the main DT with the packages: compare the screen-off idle
+drain, unplugged, with the modem up and no session against the same boot
+with the modem off (`systemctl stop rmtfs gnss-share`); then with a session running (`where-am-i -a 8`), to know what
 an app that keeps asking costs. Once suspend works, check that the idle
 modem and gnss-share don't wake it (`/sys/power/suspend_stats`, wakeup
 sources) and that a session running at suspend comes back after resume.
 If the idle modem costs a measurable amount, start it only on demand
 (gnss-share or a helper starting rmtfs for the first client).
 
-**10. The MSS in the main DT** (branch `gps-mss-main-dt`). Build a test
-image from the branch's main DT (`scripts/make-test-image.sh
-dts/apq8096-samsung-gts3lwifi.dts mss.img`), RAM-boot it, and go through
-the regression checklist; the same list applies to step 2:
+**10. Regression checklist for the moved regions**, on step 2's image
+before the modem starts, and again with the packages (the modem up):
 - ADSP: `remoteproc` of the ADSP `running`; headphones and speakers play,
   the microphone records (`docs/audio.md`).
 - SLPI: `remoteproc` of the SLPI `running`; the IIO sensors report and
@@ -468,7 +473,7 @@ the regression checklist; the same list applies to step 2:
 sessions work, with the backup from step 1 at hand; the modem would then
 keep its orbit data and settings across restarts.
 
-SM-T825: steps 0-7 with `test-gnss-lte.dts`, after a backup of its
+SM-T825: steps 0-7 with `msm8996-samsung-gts3llte.dts`, after a backup of its
 partitions and a dump of its `modem` partition (to check the image span
 first). On that model ModemManager may take the modem (it offers WDS, DMS
 and NAS there); then ModemManager and gnss-share would both run location
@@ -486,11 +491,10 @@ sorted out.
   0x763000-0x765000). But msm8996.dtsi gives `scm` `qcom,dload-mode =
   <&tcsr_2 0x13000>`, and `qcom_scm` in this kernel reads and writes that
   register through TrustZone (`qcom_scm_io_rmw()`, an SCM IO read then
-  write) at every probe and at every shutdown, in the main DT as well as
-  in these test DTs. Never set `qcom_scm.download_mode`.
-- **Moved firmware regions** (ADSP, SLPI, zap, Venus): only in the
-  RAM-booted test DT and on branch `gps-mss-main-dt`; checked in step 2
-  before the modem starts, and with step 10's checklist before a merge.
+  write) at every probe and at every shutdown, with or without the MSS. Never set `qcom_scm.download_mode`.
+- **Moved firmware regions** (ADSP, SLPI, zap, Venus): in the main DT
+  now; the same layout worked RAM-booted as a test DT on 2026-11-01, and
+  step 10's checklist is to be run on a main DT build.
 - **A modem crash** only stops the remoteproc (recovery is off during the
   test); the rest of the system keeps running. A hang that needs a reset:
   Power + Volume Down.
