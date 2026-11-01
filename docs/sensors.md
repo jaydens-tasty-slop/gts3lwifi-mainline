@@ -5,8 +5,8 @@
 | Sensor | Chip | Models | State |
 |---|---|---|---|
 | Accelerometer | ST LSM6DS3 (K6DS3TR) | both | works, orientation correct in all four positions |
-| Gyroscope | same chip | both | works |
-| Magnetometer | AKM AK09916C | both | raw field works (about 0.4-0.6 gauss), uncalibrated (no hard-iron correction, see [Compass](#compass)); no compass heading: iio-sensor-proxy 3.9 cannot make one from a raw magnetometer, see [Compass](#compass) |
+| Gyroscope | same chip | both | works; axes right with patch 0144 (before it every axis had the wrong sign) |
+| Magnetometer | AKM AK09916C | both | raw field works (about 0.4-0.6 gauss), uncalibrated (no hard-iron correction, see [Compass](#compass)); axes right with patch 0144; `tools/compass.sh` is a flat-only test compass; no compass heading in iio-sensor-proxy: iio-sensor-proxy 3.9 cannot make one from a raw magnetometer, see [Compass](#compass) |
 | Ambient light (RGB) | Capella CM3323 | both | works with patch 0077: `qcom-smgr-light`, `in_intensity_both` in lux (about 20 indoors, up to ~31000 under a phone torch, 0 when covered); iio-sensor-proxy reports it, KWin's auto-brightness can use it (off by default, see [Auto-brightness](#auto-brightness)) |
 | Cover (hall) | PM8994 GPIO 7, low = closed | both | `dts/test/test-hall.dts` (SW_LID), untested; not in the main DT until suspend is reliable |
 | Grip (SAR proximity) | Semtech SX9310 | SM-T825 only | `dts/test/test-sar.dts`, untested; mainline driver `sx9310`, nothing on a Linux desktop reads it |
@@ -159,7 +159,7 @@ before relying on it.
 ## Compass
 
 The magnetometer is a plain 3-axis IIO device (`qcom-smgr-mag`,
-`in_magn_{x,y,z}` in gauss, the same mount matrix as the accelerometer).
+`in_magn_{x,y,z}` in gauss).
 iio-sensor-proxy 3.9 has no compass driver for that: its only IIO compass
 driver reads a tilt-compensated heading channel
 (`in_rot_from_north_magnetic_tilt_comp`, which HID sensor hubs provide), so
@@ -178,9 +178,25 @@ Two things matter for that:
   (part of that may be tilt or the desk). |B| changed with the heading.
   The SMGR stream is the raw field: no hard-iron (bias) correction, and
   probably no soft-iron one. A compass driver needs its own calibration.
-- **Axes.** The magnetometer must be in the accelerometer's frame. On the
-  SM-T825 the accelerometer needs a different matrix (above); the
-  magnetometer probably does too.
+- **Axes: fixed by patch 0144.** SMGR reports all 3-axis sensors in
+  north-east-down coordinates (X to the top of the screen, Y to its
+  right, Z into it). The driver gave all three the accelerometer's
+  matrix, `0, -1, 0; -1, 0, 0; 0, 0, 1`. That matrix also flips the sign,
+  which the accelerometer needs for iio-sensor-proxy: SMGR reports +1 g
+  upwards, and iio-sensor-proxy takes a negative Y as upright. The flip
+  inverts a field or an angular velocity. On the SM-T820 lying flat, a
+  heading from X and Y read 180 when a phone compass said north and 270
+  at east, and counter-clockwise turns read negative on the gyroscope's
+  Z. Patch 0144 gives the gyroscope and the magnetometer the rotation
+  `0, 1, 0; 1, 0, 0; 0, 0, -1`. On the SM-T825 the accelerometer needs
+  a different matrix (above), so its magnetometer and gyroscope
+  probably do too. Not checked.
+
+`tools/compass.sh` is a test compass. It calibrates while the tablet
+turns flat through a circle, then prints the heading of the top edge
+(opposite the USB port) from the magnetometer alone. There's no tilt
+compensation, because KWin holds the accelerometer buffer. It applies
+`in_mount_matrix`, so without 0144 pass an offset of 180.
 
 ## Cover (hall)
 
@@ -236,9 +252,10 @@ modules, iio-sensor-proxy 3.9, KWin 6.8):
 2. **Light vs panel.** 19 lux at backlight 1, 29 lux at 255 in room light
    (see [Light sensor](#light-sensor)). Still to do: a dark room, and
    training KWin's auto-brightness.
-3. **Compass groundwork.** Calibration done, none applied (see
-   [Compass](#compass)). Still to do: axes against the accelerometer frame
-   (top edge north, east, south, west), and the SM-T825.
+3. **Compass groundwork.** Calibration done, none applied. Axes checked
+   at north and east with `tools/compass.sh` and a phone compass, and
+   the gyroscope's Z with turns; both were inverted, fixed by 0144 (see
+   [Compass](#compass)). Still to do: the SM-T825.
 
 Still to do:
 
@@ -266,6 +283,13 @@ reboot after such a test.
   libiio and iio-sensor-proxy cut the 64-bit nanosecond timestamp to 32
   bits (it wraps every 4.3 s). Patch 0143 uses `IIO_CHAN_SOFT_TIMESTAMP`
   (tested).
+- The gyroscope and the magnetometer had every axis inverted (the
+  accelerometer's sign-flipping matrix). Patch 0144 gives them a plain
+  rotation (tested on the SM-T820, see [Compass](#compass)).
+- The first sample after a buffer enable is stale or unsettled: the
+  gyroscope's first sample read -1.4, 0.3, -1.7 rad/s at rest, and the
+  accelerometer's first few read low (6.3 then 7.8 m/s^2 before about
+  9.7). Readers that care should drop the first sample.
 - With fewer than three axes enabled, a 3-axis buffer got the wrong axes;
   patch 0141 lets the IIO core pick them out (full scans tested, partial
   ones not).
