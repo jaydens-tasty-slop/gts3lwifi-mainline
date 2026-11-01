@@ -77,19 +77,35 @@ and the registry from the tablet's own partitions into
 ## Auto-rotate
 
 iio-sensor-proxy 3.9 works with these trigger-less buffers as they are. The
-accelerometer axes come from the SLPI, and the two models do not report them
-in the same frame:
+accelerometer has to be given in the panel's frame: the compositor turns
+the output by the panel's mount (`rotation = <270>` in the DT, a 2048x1536
+panel) and the sensor orientation on top. Upright on the keyboard stand
+is therefore "normal", not upright portrait.
 
-| Model | Raw gravity, portrait with USB at the bottom | Mount matrix |
-|---|---|---|
-| SM-T820 | +X | the SMGR driver's own, `0, -1, 0; -1, 0, 0; 0, 0, 1` (iio-sensor-proxy reports normal, right-up, bottom-up, left-up in the right positions; checked on a board without a panel) |
-| SM-T825 | +Y | `1, 0, 0; 0, -1, 0; 0, 0, 1` (with the driver's matrix the desktop was 90 degrees off in every position; confirmed in all positions with this one) |
+SMGR reports north-east-down axes (X to the top edge in portrait, Y to
+the right, Z into the screen) and +1 g upwards. The device package's udev
+rule `61-gts3-accel.rules` sets `ACCEL_MOUNT_MATRIX` (which
+iio-sensor-proxy prefers over the driver's matrix) to
+`1, 0, 0; 0, -1, 0; 0, 0, -1` on both models. That's the rotation into the
+panel's frame:
 
-The device package's udev rule `61-gts3-accel.rules` sets
-`ACCEL_MOUNT_MATRIX` (which iio-sensor-proxy prefers over the driver's
-matrix) on `qcom-smgr-accel` only when the device tree is the SM-T825 one
-(`samsung,gts3llte`). A per-model `mount-matrix` in the device tree would be
-cleaner, but the SMGR sensors have no DT nodes of their own.
+| Matrix | SM-T820 on the keyboard stand (raw -0.04, 8.15, -5.21 m/s^2) |
+|---|---|
+| `1, 0, 0; 0, -1, 0; 0, 0, -1` (the rule) | normal, tilted-up: right, what the desktop shows (KWin rotation none) |
+| `0, -1, 0; -1, 0, 0; 0, 0, 1` (the SMGR driver's) | right-up: the desktop turns 90 degrees |
+| `1, 0, 0; 0, -1, 0; 0, 0, 1` (the rule before, SM-T825 only) | normal, tilted-down: the tilt is upside down |
+
+Results come from iio-sensor-proxy's `orientation_calc()` on that reading.
+The first row is also what iio-sensor-proxy reports on the tablet, where a
+local rule with this matrix has been in place since 2026-10-30. On an
+SM-T825 the X and Y of this matrix were confirmed in all positions, with
+Z +1. An earlier version of this page said the SM-T820 needs the driver's
+matrix. That came from a check on a board without a panel, which counts
+upright portrait as normal.
+
+Still to check: the SM-T820 off the stand in all four positions with only
+this rule (`/etc/udev/rules.d/61-gts3-accel-mount-matrix.rules` removed,
+reboot), and the tilt on an SM-T825.
 
 If iio-sensor-proxy was installed after the sensors appeared, run
 `udevadm trigger --subsystem-match=iio --action=add` once (or reboot).
