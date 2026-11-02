@@ -103,9 +103,12 @@ Z +1. An earlier version of this page said the SM-T820 needs the driver's
 matrix. That came from a check on a board without a panel, which counts
 upright portrait as normal.
 
-Still to check: the SM-T820 off the stand in all four positions with only
-this rule (`/etc/udev/rules.d/61-gts3-accel-mount-matrix.rules` removed,
-reboot), and the tilt on an SM-T825.
+On 2026-11-01 an SM-T820 was turned by hand through all four positions, with
+the local rule (the same matrix), and the desktop came out upright in each.
+
+Still to check: this rule from the package on a fresh install (the tablet's
+copy is the local one in `/etc/udev/rules.d/`, with the same matrix), and the
+tilt on an SM-T825.
 
 If iio-sensor-proxy was installed after the sensors appeared, run
 `udevadm trigger --subsystem-match=iio --action=add` once (or reboot).
@@ -315,7 +318,9 @@ reboot after such a test.
   `61-gts3-accel.rules` sets the accelerometer to 12 Hz (it streams at
   12.4 Hz) when it appears. iio-sensor-proxy reads it every 700 ms and
   uses only the newest scan, so nothing is lost. At 416 Hz the buffer
-  filled in 0.3 s and the scan it used was stale anyway. Measured on the
+  filled in 0.3 s and the scan it used was stale anyway. Turning an SM-T820
+  by hand through all four positions at 12 Hz felt the same as at 416 Hz
+  (not timed). Measured on the
   SM-T820 with the screen on and the desktop idle (10 s windows, SLPI
   `smd-edge` IRQs, CPU busy over 4 cores, residency in the deepest idle
   state):
