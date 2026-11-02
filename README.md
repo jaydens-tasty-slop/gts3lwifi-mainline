@@ -62,7 +62,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 | Accelerometer, gyroscope, magnetometer | Works | auto-rotate with iio-sensor-proxy ([sensors](docs/sensors.md)) |
 | Light sensor | Works | lux through iio-sensor-proxy, for auto-brightness (patch 0077, [sensors](docs/sensors.md)) |
 | Cover (hall) sensor | Not yet | waits for reliable suspend |
-| Fingerprint (Home key) | Blocked | its pins are owned by Samsung's TrustZone |
+| Fingerprint (Home key) | Blocked (hardware-tested) | Egis ET510 on a TrustZone-owned SPI bus, run by a Samsung-signed trustlet; TrustZone accepts the BLSP ownership call but keeps the bus locked ([fingerprint](docs/fingerprint.md)) |
 | **Software** | | |
 | postmarketOS with Plasma (Wayland) | Works | installed on the eMMC behind lk2nd ([pmos-install](docs/pmos-install.md)) |
 | Widevine DRM | Partial | L3 plays in Waydroid and Flatpak Firefox; L1 not on mainline ([widevine](docs/widevine.md)) |
@@ -74,7 +74,7 @@ Works = tested on hardware. Details and test notes are in `docs/`.
 - `pmaports/` - postmarketOS device package (with the optional Waydroid subpackage), the kernel patches, and libcamera with autofocus
 - `lk2nd/` - lk2nd device entries for the Wi-Fi and LTE models
 - `scripts/` - regenerate the kernel patch, build tester packages
-- `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe
+- `tools/` - on-device debugging aids: MMIO and PMIC (SPMI) register access, manual PCIe link retrain, TLMM pin sampling, RT5508 amplifier probe, and a BLSP QUP ownership test module (`tools/blsp-owner`, [fingerprint](docs/fingerprint.md))
 - `kernel/` - out-of-tree kernel additions (panel, fuel gauge, charger and MUIC drivers, bindings, Kconfig snippet)
 - `docs/` - notes per subsystem, the postmarketOS install, tester instructions and boot logs
 
